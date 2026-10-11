@@ -329,3 +329,66 @@ test("Undo restores notes, copies, edited times and deleted chat; conflicts do n
     await request("/api/todos", { action: "delete", id });
   }
 });
+
+test("multi-day creation is atomic, does not replace existing tasks and undoes together", async () => {
+  const a = { ...sample(), plannedDate: "2026-10-05" },
+    b = { ...sample(), plannedDate: "2026-10-06" };
+  try {
+    let result = await request("/api/todos", {
+      action: "createMany",
+      todos: [a, { ...b, title: "" }],
+    });
+    assert.equal(result.status, 400);
+    const state = await request("/api/state");
+    assert.ok(!state.data.todos.some((t) => t.id === a.id));
+    result = await request("/api/todos", {
+      action: "createMany",
+      todos: [a, b],
+    });
+    assert.equal(result.status, 200);
+    const created = result.data.todos.filter((t) =>
+      [a.id, b.id].includes(t.id),
+    );
+    assert.equal(created.length, 2);
+    assert.equal(
+      (await request("/api/todos", { action: "createMany", todos: [a] }))
+        .status,
+      400,
+    );
+    result = await request("/api/todos", {
+      action: "undo",
+      changes: created.map((t) => ({ id: t.id, before: null, after: t })),
+    });
+    assert.equal(result.status, 200);
+    assert.ok(!result.data.todos.some((t) => [a.id, b.id].includes(t.id)));
+  } finally {
+    for (const id of [a.id, b.id])
+      await request("/api/todos", { action: "delete", id });
+  }
+});
+
+test('week and month notes and advice histories are isolated', async()=>{
+ const keys=['2098-01-06','week:2098-01-06','month:2098-01-01'];
+ const original=(await request('/api/state')).data.dayNotes;
+ try {
+  for(const [i,date] of keys.entries()) assert.equal((await request('/api/notes',{date,content:`QA period ${i}`})).status,200);
+  const state=(await request('/api/state')).data;
+  for(const [i,date] of keys.entries()) {
+   assert.equal(state.dayNotes[date],`QA period ${i}`);
+   assert.equal((await request('/api/day?date='+encodeURIComponent(date))).status,200);
+  }
+  assert.equal((await request('/api/notes',{date:'month:2098-02-31',content:'bad'})).status,400);
+ } finally {for(const date of keys)await request('/api/notes',{date,content:original[date]||''});}
+});
+test('batch changes reject stale state atomically and undo group deletion',async()=>{
+ const a=sample(),b=sample();
+ try {
+  const saved=(await request('/api/todos',{action:'createMany',todos:[a,b]})).data.todos.filter(t=>[a.id,b.id].includes(t.id));
+  let r=await request('/api/todos',{action:'batch',changes:saved.map((t,i)=>({id:t.id,before:null,after:i?{...t,title:'stale'}:t}))});
+  assert.equal(r.status,400);assert.equal((await request('/api/state')).data.todos.filter(t=>[a.id,b.id].includes(t.id)).length,2);
+  r=await request('/api/todos',{action:'batch',changes:saved.map(t=>({id:t.id,before:null,after:t}))});
+  assert.equal(r.status,200);assert.equal(r.data.deletedMany.length,2);
+  r=await request('/api/todos',{action:'undo',changes:saved.map(t=>({id:t.id,before:t,after:null}))});
+  assert.equal(r.status,200);assert.equal(r.data.todos.filter(t=>[a.id,b.id].includes(t.id)).length,2);
+ }finally{for(const id of [a.id,b.id])await request('/api/todos',{action:'delete',id});}
+});

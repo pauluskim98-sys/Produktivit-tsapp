@@ -1,5 +1,8 @@
 "use client";
 import DayPanel from "./day-panel";
+import { CalendarOverview } from "./calendar-overview";
+import { nextTask, shiftTasks, periodRange } from "@/lib/calendar-interactions";
+import { eventPresentation } from "@/lib/subjects";
 import AiPlanner, { AiConnection } from "./ai-planner";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -391,6 +394,9 @@ export default function Planner() {
       time: string;
     } | null>(null);
   const clipboard = useRef<Todo | null>(null);
+  const groupClipboard = useRef<Todo[]>([]);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   type Change = {
     id: string;
     before: Todo | null;
@@ -402,14 +408,16 @@ export default function Planner() {
   const remember = (
     before: Todo[],
     after: Todo[],
-    deleted?: { id: string; messages: ChatMessage[] },
+    deleted?: { id: string; messages: ChatMessage[] }[],
   ) => {
     const changes = [...new Set([...before, ...after].map((t) => t.id))]
       .map((id) => ({
         id,
         before: before.find((t) => t.id === id) || null,
         after: after.find((t) => t.id === id) || null,
-        ...(deleted?.id === id ? { messages: deleted.messages } : {}),
+        ...(deleted?.find((d) => d.id === id)
+          ? { messages: deleted.find((d) => d.id === id)!.messages }
+          : {}),
       }))
       .filter((c) => JSON.stringify(c.before) !== JSON.stringify(c.after));
     if (changes.length) {
@@ -437,6 +445,9 @@ export default function Planner() {
       setBusy(false);
     }
   };
+  const [overview, setOverview] = useState<"month" | "week" | "year" | null>(
+    null,
+  );
   const [planning, setPlanning] = useState(false),
     [planningInput, setPlanningInput] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
@@ -449,6 +460,10 @@ export default function Planner() {
     [settings, setSettings] = useState(false),
     [newOpen, setNewOpen] = useState(false),
     [dark, setDark] = useState(false);
+  const [accent, setAccent] = useState("green");
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const wheelGesture = useRef({ amount: 0, lastEvent: 0, lastPage: 0 });
   const [newSlot, setNewSlot] = useState<{
     day: string;
     time: string;
@@ -494,6 +509,9 @@ export default function Planner() {
         ? stored === "dark"
         : window.matchMedia("(prefers-color-scheme: dark)").matches,
     );
+    const accentValue = localStorage.getItem("raum-accent") || "green";
+    setAccent(accentValue);
+    document.documentElement.dataset.accent = accentValue;
     if ("serviceWorker" in navigator)
       navigator.serviceWorker.register("/sw.js").catch(() => {});
   }, [load]);
@@ -544,6 +562,38 @@ export default function Planner() {
       );
       if (
         !input &&
+        !selected &&
+        !newOpen &&
+        !planning &&
+        !settings &&
+        !dayPanel &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        if (e.key.toLowerCase() === "a") {
+          e.preventDefault();
+          setSelectionMode((v) => !v);
+          return;
+        }
+        if (e.key === "Escape") {
+          setSelectionMode(false);
+          setSelectedIds([]);
+          setPicked(null);
+        }
+        if (selectedIds.length > 1 && ["Delete", "Backspace"].includes(e.key)) {
+          e.preventDefault();
+          void deleteGroup().catch(() => {});
+          return;
+        }
+        if (picked && e.key.startsWith("Arrow")) {
+          e.preventDefault();
+          navigateTask(picked, e.key);
+          return;
+        }
+      }
+      if (
+        !input &&
         !planning &&
         !settings &&
         !newOpen &&
@@ -555,6 +605,28 @@ export default function Planner() {
           void undoLast();
           return;
         }
+      }
+      if (
+        !input &&
+        !selected &&
+        !newOpen &&
+        !planning &&
+        !settings &&
+        !dayPanel &&
+        picked &&
+        /^[1-5]$/.test(e.key) &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        const t = state.todos.find((t) => t.id === picked);
+        if (t)
+          void save({
+            ...t,
+            color: Object.keys(TASK_COLORS)[Number(e.key) - 1] as Todo["color"],
+          }).catch(handleError);
+        return;
       }
       if (dayPanel) return;
       if (
@@ -608,6 +680,18 @@ export default function Planner() {
     const copy = (e: ClipboardEvent) => {
       if (editable(e.target) || planning || settings || newOpen || dayPanel)
         return;
+      if (!selected && selectedIds.length > 1 && e.clipboardData) {
+        e.preventDefault();
+        groupClipboard.current = state.todos.filter((t) =>
+          selectedIds.includes(t.id),
+        );
+        e.clipboardData.setData(
+          "text/plain",
+          "RAUM_TASKS:" + JSON.stringify(groupClipboard.current),
+        );
+        setToast({ text: `${groupClipboard.current.length} Termine kopiert` });
+        return;
+      }
       const todo = state.todos.find((t) => t.id === (selected || picked));
       if (!todo || !e.clipboardData) return;
       e.preventDefault();
@@ -619,8 +703,44 @@ export default function Planner() {
       setToast({ text: "Block kopiert" });
     };
     const paste = (e: ClipboardEvent) => {
-      if (editable(e.target) || planning || settings || newOpen || dayPanel)
+      const groupText = e.clipboardData?.getData("text/plain") || "";
+      const blockPaste =
+        groupText.startsWith("RAUM_TASKS:") ||
+        groupText.startsWith("RAUM_TASK:");
+      if (
+        planning ||
+        settings ||
+        dayPanel ||
+        ((editable(e.target) || newOpen) && !(newOpen && newSlot && blockPaste))
+      )
         return;
+      if (groupText.startsWith("RAUM_TASKS:")) {
+        try {
+          const group = JSON.parse(groupText.slice(11));
+          if (
+            Array.isArray(group) &&
+            group.length > 0 &&
+            group.length <= 500 &&
+            group.every(
+              (t) =>
+                typeof t.title === "string" &&
+                t.plannedDate &&
+                t.time &&
+                Array.isArray(t.subtasks),
+            )
+          ) {
+            e.preventDefault();
+            const target = pasteTarget || {
+              day: group[0].plannedDate,
+              time: group[0].time,
+            };
+            void pasteGroup(group, target.day, target.time)
+              .then(() => setNewOpen(false))
+              .catch(() => {});
+          }
+        } catch {}
+        return;
+      }
       let todo = clipboard.current;
       const text = e.clipboardData?.getData("text/plain") || "";
       if (text.startsWith("RAUM_TASK:")) {
@@ -638,7 +758,10 @@ export default function Planner() {
       } else if (text) return;
       if (!todo) return;
       e.preventDefault();
-      if (pasteTarget) void duplicate(todo, pasteTarget.day, pasteTarget.time);
+      if (pasteTarget)
+        void duplicate(todo, pasteTarget.day, pasteTarget.time).then(() =>
+          setNewOpen(false),
+        );
       else setToast({ text: "Zuerst eine Stelle im Kalender auswählen." });
     };
     window.addEventListener("keydown", key);
@@ -658,6 +781,10 @@ export default function Planner() {
     planning,
     dayPanel,
     pasteTarget,
+    newSlot,
+    selectedIds,
+    selectionMode,
+    anchor,
   ]);
   const mutate = async (body: unknown) => {
     if (lock.current)
@@ -672,8 +799,8 @@ export default function Planner() {
         state.todos,
         result.todos,
         result.deleted
-          ? { id: result.deleted.id, messages: result.messages }
-          : undefined,
+          ? [{ id: result.deleted.id, messages: result.messages }]
+          : result.deletedMany,
       );
       setState((prev) => ({ ...prev, todos: result.todos }));
       return result;
@@ -796,6 +923,54 @@ export default function Planner() {
       handleError(e);
     }
   };
+  const navigateTask = (id: string, key: string, detail = false) => {
+    const next = nextTask(
+      state.todos.filter((t) => weekKeys.includes(t.plannedDate || "")),
+      id,
+      key,
+    );
+    if (next) {
+      setPicked(next);
+      setSelectedIds([next]);
+      if (detail) setSelected(next);
+    }
+  };
+  const batchUpdate = async (todos: Todo[], ids: string[] = []) => {
+    try {
+      await mutate({
+        action: "batch",
+        changes: [
+          ...todos.map((t) => ({
+            id: t.id,
+            before: t,
+            after: state.todos.find((x) => x.id === t.id) || null,
+          })),
+          ...ids.map((id) => ({
+            id,
+            before: null,
+            after: state.todos.find((x) => x.id === id) || null,
+          })),
+        ],
+      });
+    } catch (e) {
+      handleError(e);
+      throw e;
+    }
+  };
+  const deleteGroup = async () => {
+    await batchUpdate([], selectedIds);
+    setSelectedIds([]);
+    setPicked(null);
+    setToast({ text: "Auswahl gelöscht" });
+  };
+  const pasteGroup = async (group: Todo[], day: string, time: string) => {
+    if (!group.length) return;
+    const copies = shiftTasks(group, group[0], day, time, true);
+    await batchUpdate(copies);
+    setSelectedIds(copies.map((t) => t.id));
+    setPicked(copies[0]?.id || null);
+    setToast({ text: `${copies.length} Termine eingefügt` });
+  };
   const move = async ({
     active,
     over,
@@ -808,13 +983,56 @@ export default function Planner() {
       (t) => t.id === (active.data.current?.todoId || active.id),
     );
     if (!source) return;
-    if (over.data.current?.kind === "timegrid") {
+    if (over.data.current?.kind === "periodday") {
       const day = over.data.current.day as string;
-      if (source.time && source.plannedDate !== day) {
-        await duplicate(source, day);
+      if (
+        selectedIds.length > 1 &&
+        selectedIds.includes(source.id) &&
+        source.plannedDate &&
+        source.time
+      ) {
+        await batchUpdate(
+          shiftTasks(
+            state.todos.filter((t) => selectedIds.includes(t.id)),
+            source,
+            day,
+            source.time,
+          ),
+        );
         return;
       }
+      await mutate({
+        action: "schedule",
+        id: source.id,
+        plannedDate: day,
+        time: source.time || "",
+        duration: source.duration,
+      });
+      return;
+    }
+    if (over.data.current?.kind === "timegrid") {
+      const day = over.data.current.day as string;
       const grid = document.querySelector(`[data-day-grid="${day}"]`);
+      if (grid && selectedIds.length > 1 && selectedIds.includes(source.id)) {
+        const change = scheduleAt(
+          dragStartMinute(
+            active,
+            activatorEvent,
+            delta,
+            grid.getBoundingClientRect().top,
+            Number((grid as HTMLElement).dataset.minuteHeight) || 0.55,
+          ),
+        );
+        await batchUpdate(
+          shiftTasks(
+            state.todos.filter((t) => selectedIds.includes(t.id)),
+            source,
+            day,
+            change.time,
+          ),
+        );
+        return;
+      }
       if (grid)
         await reschedule(
           source,
@@ -911,10 +1129,81 @@ export default function Planner() {
           new Date(e.end) > new Date(`${day}T00:00:00`),
     );
   const navigate = (direction: number) => {
-    const next = addDays(start, direction * 7);
+    const next = parseDate(anchor);
+    if (overview === "month") next.setDate(1);
+    if (overview === "year") next.setMonth(0, 1);
+    if (overview === "year") next.setFullYear(next.getFullYear() + direction);
+    else if (overview === "month") next.setMonth(next.getMonth() + direction);
+    else next.setDate(next.getDate() + direction * 7);
     setAnchor(dateKey(next));
-    setMobileDay(dateKey(addDays(parseDate(mobileDay), direction * 7)));
+    setMobileDay(dateKey(next));
   };
+  const cycleOverview = () =>
+    setOverview((v) => (v === null ? "month" : v === "month" ? "year" : null));
+  const swipePage = (e: React.TouchEvent) => {
+    if (
+      selectionMode ||
+      settings ||
+      selected ||
+      newOpen ||
+      planning ||
+      dayPanel
+    )
+      return;
+    const t = e.target as HTMLElement;
+    if (t.closest("input,textarea,.timed-task,.task-card,.overview-task"))
+      return;
+    const origin = swipe.current;
+    swipe.current = null;
+    if (!origin) return;
+    const dx = e.changedTouches[0].clientX - origin.x,
+      dy = e.changedTouches[0].clientY - origin.y;
+    if (Math.abs(dx) > 75 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      e.preventDefault();
+      navigate(dx < 0 ? 1 : -1);
+    }
+  };
+
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const gesture = wheelGesture.current;
+    const wheel = (event: WheelEvent) => {
+      if (
+        dayPanel ||
+        settings ||
+        selected ||
+        newOpen ||
+        planning ||
+        dragged ||
+        event.ctrlKey
+      )
+        return;
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.5) return;
+      const now = Date.now();
+      event.preventDefault();
+      if (now - gesture.lastEvent > 180) gesture.amount = 0;
+      gesture.lastEvent = now;
+      gesture.amount += event.deltaX;
+      if (Math.abs(gesture.amount) >= 85 && now - gesture.lastPage > 400) {
+        navigate(gesture.amount > 0 ? 1 : -1);
+        gesture.amount = 0;
+        gesture.lastPage = now;
+      }
+    };
+    main.addEventListener("wheel", wheel, { passive: false });
+    return () => main.removeEventListener("wheel", wheel);
+  }, [
+    anchor,
+    overview,
+    dayPanel,
+    settings,
+    selected,
+    newOpen,
+    planning,
+    dragged,
+  ]);
+
   return (
     <div className="app-shell">
       <DndContext
@@ -931,7 +1220,9 @@ export default function Planner() {
           )
         }
         onDragCancel={() => setDragged(null)}
-        onDragEnd={move}
+        onDragEnd={(event) => {
+          void move(event).catch(handleError);
+        }}
       >
         <div
           className={`workspace ${!inboxOpen ? "inbox-collapsed" : ""} ${mobileInbox ? "show-mobile-inbox" : ""}`}
@@ -996,7 +1287,23 @@ export default function Planner() {
               </span>
             </div>
           </aside>
-          <main className="main-content">
+          <main
+            ref={mainRef}
+            className="main-content"
+            onTouchStart={(e) => {
+              const t = e.target as HTMLElement;
+              if (
+                !t.closest(
+                  "input,textarea,.timed-task,.task-card,.overview-task",
+                )
+              )
+                swipe.current = {
+                  x: e.touches[0].clientX,
+                  y: e.touches[0].clientY,
+                };
+            }}
+            onTouchEnd={swipePage}
+          >
             <div className="planner-toolbar">
               <div className="week-nav">
                 {!inboxOpen && (
@@ -1007,26 +1314,48 @@ export default function Planner() {
                     <PanelLeft size={17} />
                   </IconButton>
                 )}
-                <h2>
-                  {start.toLocaleDateString("de-DE", { day: "numeric" })}–
-                  {end.toLocaleDateString("de-DE", {
-                    day: "numeric",
-                    month: "long",
-                  })}
-                  <span>{end.getFullYear()}</span>
-                </h2>
-                <span className="week-badge">KW {weekNumber(start)}</span>
-                <div className="nav-arrows">
-                  <IconButton
-                    title="Vorherige Woche"
-                    onClick={() => navigate(-1)}
+                <h2 className="overview-nav date-navigation">
+                  <button
+                    aria-label="Wochenübersicht öffnen"
+                    onClick={() => setDayPanel(`week:${dateKey(start)}`)}
                   >
-                    <ChevronLeft size={17} />
-                  </IconButton>
-                  <IconButton title="Nächste Woche" onClick={() => navigate(1)}>
-                    <ChevronRight size={17} />
-                  </IconButton>
-                </div>
+                    {start.getDate()}.–{end.getDate()}.
+                  </button>
+                  <button
+                    aria-label="Monatsübersicht öffnen"
+                    onClick={() =>
+                      setDayPanel(`month:${anchor.slice(0, 7)}-01`)
+                    }
+                  >
+                    {parseDate(anchor).toLocaleDateString("de-DE", {
+                      month: "long",
+                    })}
+                  </button>
+                  <button
+                    className="header-year"
+                    aria-label="Jahresübersicht öffnen"
+                    onClick={() =>
+                      setDayPanel(`year:${anchor.slice(0, 4)}-01-01`)
+                    }
+                  >
+                    {anchor.slice(2, 4)}
+                  </button>
+                </h2>
+                <button
+                  className="calendar-view-cycle"
+                  aria-label="Große Kalenderansicht wechseln"
+                  onClick={cycleOverview}
+                >
+                  <CalendarDays size={16} />
+                  {overview === "month"
+                    ? "Monat"
+                    : overview === "year"
+                      ? "Jahr"
+                      : "Woche"}
+                </button>
+                {overview === null && (
+                  <span className="week-badge">KW {weekNumber(start)}</span>
+                )}
                 <button className="today-button" onClick={today}>
                   Heute
                 </button>
@@ -1139,6 +1468,45 @@ export default function Planner() {
                 </MobileDay>
               ))}
             </nav>
+            {(selectionMode || selectedIds.length > 1) && (
+              <div className="selection-toolbar">
+                <span>
+                  {selectionMode
+                    ? "Auswahl ziehen"
+                    : `${selectedIds.length} Termine ausgewählt`}
+                </span>
+                {selectedIds.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => {
+                        groupClipboard.current = state.todos.filter((t) =>
+                          selectedIds.includes(t.id),
+                        );
+                        void navigator.clipboard.writeText(
+                          "RAUM_TASKS:" +
+                            JSON.stringify(groupClipboard.current),
+                        );
+                        setToast({ text: "Auswahl kopiert" });
+                      }}
+                    >
+                      Kopieren
+                    </button>
+                    <button onClick={() => void deleteGroup().catch(() => {})}>
+                      Löschen
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    setSelectionMode(false);
+                    setSelectedIds([]);
+                    setPicked(null);
+                  }}
+                >
+                  Auswahl aufheben
+                </button>
+              </div>
+            )}
             {error ? (
               <div className="load-error">
                 {error}
@@ -1149,6 +1517,19 @@ export default function Planner() {
                 <Loader2 className="spin" />
                 Deine Woche wird geladen …
               </div>
+            ) : overview && overview !== "week" ? (
+              <CalendarOverview
+                large
+                period={`${overview}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : anchor.slice(0, 7) + "-01"}`}
+                todos={state.todos.filter(visible)}
+                events={state.events}
+                connections={state.connections}
+                onPick={(day) => {
+                  setAnchor(day);
+                  setMobileDay(day);
+                  setOverview(null);
+                }}
+              />
             ) : (
               <Timeline
                 days={days}
@@ -1159,13 +1540,44 @@ export default function Planner() {
                   state.connections.map((c) => [c.id, c.color]),
                 )}
                 selected={picked}
+                selectionMode={selectionMode}
+                selectedIds={selectedIds}
+                onSelection={(ids) => {
+                  setSelectedIds(ids);
+                  setPicked(ids[0] || null);
+                  setSelectionMode(false);
+                }}
+
                 onOpen={(id) => {
                   setPicked(id);
+                  setSelectedIds([id]);
                   setPasteTarget(null);
                   setSelected(id);
                 }}
                 onToggle={toggle}
                 onResize={reschedule}
+                onExtend={async (todo, days) => {
+                  try {
+                    await mutate({
+                      action: "createMany",
+                      todos: days.map((day) => ({
+                        ...structuredClone(todo),
+                        id: crypto.randomUUID(),
+                        plannedDate: day,
+                        done: false,
+                        createdAt: new Date().toISOString(),
+                        subtasks: todo.subtasks.map((t) => ({
+                          ...t,
+                          id: crypto.randomUUID(),
+                          done: false,
+                        })),
+                      })),
+                    });
+                    setToast({ text: `${days.length} Tageskopien erstellt` });
+                  } catch (e) {
+                    handleError(e);
+                  }
+                }}
                 targetSlot={pasteTarget}
                 onSelectSlot={(day, time) => {
                   setPasteTarget({ day, time });
@@ -1173,7 +1585,7 @@ export default function Planner() {
                 }}
                 onDayOpen={setDayPanel}
                 onCreate={(day, time, duration, days) => {
-                  setPasteTarget(null);
+                  setPasteTarget({ day, time });
                   setNewSlot({ day, time, duration, days });
                   setNewOpen(true);
                 }}
@@ -1189,6 +1601,16 @@ export default function Planner() {
                       .map((event) => (
                         <button
                           className="calendar-event"
+                          style={
+                            {
+                              "--event-color": eventPresentation(
+                                event,
+                                state.connections.find(
+                                  (c) => c.id === event.connectionId,
+                                )?.color,
+                              ).color,
+                            } as React.CSSProperties
+                          }
                           key={event.id}
                           onClick={() =>
                             setToast({
@@ -1266,28 +1688,33 @@ export default function Planner() {
             />
           ) : null}
         </DragOverlay>
+        {dayPanel && (
+          <DayPanel
+            day={dayPanel}
+            state={state}
+            onClose={() => setDayPanel(null)}
+            onOpen={(id) => {
+              setDayPanel(null);
+              setSelected(id);
+              setPicked(id);
+            }}
+            onAdd={(title) => add(title, periodRange(dayPanel)!.start)}
+            onDay={(day) => {
+              setAnchor(day);
+              setMobileDay(day);
+              setDayPanel(null);
+            }}
+            onNote={async (content) => {
+              await api("/api/notes", { date: dayPanel, content });
+              setState((s) => ({
+                ...s,
+                dayNotes: { ...s.dayNotes, [dayPanel]: content },
+              }));
+            }}
+            onConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
+          />
+        )}
       </DndContext>
-      {dayPanel && (
-        <DayPanel
-          day={dayPanel}
-          state={state}
-          onClose={() => setDayPanel(null)}
-          onOpen={(id) => {
-            setDayPanel(null);
-            setSelected(id);
-            setPicked(id);
-          }}
-          onAdd={(title) => add(title, dayPanel)}
-          onNote={async (content) => {
-            await api("/api/notes", { date: dayPanel, content });
-            setState((s) => ({
-              ...s,
-              dayNotes: { ...s.dayNotes, [dayPanel]: content },
-            }));
-          }}
-          onConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
-        />
-      )}
       {planning && (
         <AiPlanner
           start={dateKey(start)}
@@ -1304,6 +1731,7 @@ export default function Planner() {
       {current && (
         <Detail
           key={current.id}
+          onNavigate={(key) => navigateTask(current.id, key, true)}
           todo={current}
           onClose={() => setSelected(null)}
           onSave={save}
@@ -1323,61 +1751,42 @@ export default function Planner() {
         />
       )}
       {newOpen && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setNewOpen(false);
+        <Detail
+          isNew
+          todo={{
+            ...newTodo("", newSlot?.day || null, state.todos.length + 1),
+            time: newSlot?.time || "",
+            duration: newSlot?.time ? newSlot.duration || 60 : null,
           }}
-        >
-          <div
-            className="modal new-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Neue Aufgabe"
-          >
-            <div className="modal-heading">
-              <h2>Ein Gedanke weniger im Kopf.</h2>
-              <IconButton title="Schließen" onClick={() => setNewOpen(false)}>
-                <X size={18} />
-              </IconButton>
-            </div>
-            <NewTaskForm
-              initialSlot={newSlot}
-              onAdd={async (title, day, time, duration, color, notes) => {
-                if (newSlot?.days && newSlot.days.length > 1 && day) {
-                  try {
-                    const shift = Math.round(
-                      (new Date(`${day}T12:00:00Z`).getTime() -
-                        new Date(`${newSlot.day}T12:00:00Z`).getTime()) /
-                        86400000,
-                    );
-                    await mutate({
-                      action: "createMany",
-                      todos: newSlot.days.map((d) => ({
-                        ...newTodo(
-                          title,
-                          dateKey(addDays(new Date(`${d}T12:00:00`), shift)),
-                          state.todos.length + 1,
-                        ),
-                        time,
-                        duration,
-                        color,
-                        notes,
-                      })),
-                    });
-                    setToast({
-                      text: `${newSlot.days.length} Termine hinzugefügt`,
-                    });
-                  } catch (e) {
-                    handleError(e);
-                    throw e;
-                  }
-                } else await add(title, day, time, duration, color, notes);
-                setNewOpen(false);
-              }}
-            />
-          </div>
-        </div>
+          onClose={() => setNewOpen(false)}
+          onDelete={() => setNewOpen(false)}
+          onRepeat={async () => {}}
+          aiAvailable={state.aiAvailable}
+          onAiConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
+          onError={handleError}
+          onSave={async (draft) => {
+            const dates = newSlot?.days?.length
+              ? newSlot.days
+              : [draft.plannedDate];
+            const todos = dates.map((day) => ({
+              ...draft,
+              id: crypto.randomUUID(),
+              plannedDate: day,
+              subtasks: draft.subtasks.map((t) => ({
+                ...t,
+                id: crypto.randomUUID(),
+              })),
+            }));
+            await mutate({ action: "createMany", todos });
+            setNewOpen(false);
+            setToast({
+              text:
+                todos.length > 1
+                  ? `${todos.length} Termine erstellt`
+                  : "Aufgabe erstellt",
+            });
+          }}
+        />
       )}
       {settings && (
         <Settings
@@ -1385,6 +1794,12 @@ export default function Planner() {
           onClose={() => setSettings(false)}
           onRefresh={load}
           onError={handleError}
+          accent={accent}
+          onAccent={(v) => {
+            setAccent(v);
+            document.documentElement.dataset.accent = v;
+            localStorage.setItem("raum-accent", v);
+          }}
         />
       )}
       {toast && (
@@ -1449,130 +1864,9 @@ function DayNote({
     </div>
   );
 }
-function NewTaskForm({
-  onAdd,
-  initialSlot,
-}: {
-  initialSlot: {
-    day: string;
-    time: string;
-    duration?: number;
-    days?: string[];
-  } | null;
-  onAdd: (
-    title: string,
-    day: string | null,
-    time: string,
-    duration: number | null,
-    color: Todo["color"],
-    notes: string,
-  ) => Promise<void>;
-}) {
-  const [notes, setNotes] = useState("");
-  const [time, setTime] = useState(initialSlot?.time || ""),
-    [duration, setDuration] = useState(initialSlot?.duration || 60),
-    [color, setColor] = useState<Todo["color"]>("green");
-  const [title, setTitle] = useState(""),
-    [day, setDay] = useState(initialSlot?.day || ""),
-    [busy, setBusy] = useState(false);
-  return (
-    <form
-      className="new-form"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (!title.trim()) return;
-        setBusy(true);
-        try {
-          await onAdd(
-            title.trim(),
-            day || null,
-            time,
-            time ? duration : null,
-            color,
-            notes,
-          );
-        } catch {
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <input
-        autoFocus
-        placeholder="Was möchtest du erledigen?"
-        aria-label="Titel der neuen Aufgabe"
-        required
-        maxLength={500}
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-      {initialSlot?.days && initialSlot.days.length > 1 && (
-        <p className="creation-summary">
-          {initialSlot.days.length} Tage ·{" "}
-          {initialSlot.days
-            .map((d) =>
-              new Date(`${d}T12:00:00`).toLocaleDateString("de-DE", {
-                weekday: "short",
-              }),
-            )
-            .join(", ")}
-        </p>
-      )}
-      <label>
-        Einplanen{" "}
-        <input
-          type="date"
-          value={day}
-          aria-label="Geplanter Tag"
-          onInput={(e) => setDay(e.currentTarget.value)}
-          onChange={(e) => setDay(e.target.value)}
-        />
-      </label>
-      <label>
-        Beginn
-        <input
-          type="time"
-          aria-label="Beginn"
-          disabled={!day}
-          value={time}
-          onInput={(e) => setTime(e.currentTarget.value)}
-          onChange={(e) => setTime(e.target.value)}
-        />
-      </label>
-      {time && day && (
-        <label>
-          Dauer in Minuten
-          <input
-            type="number"
-            aria-label="Dauer in Minuten"
-            min={15}
-            max={10080}
-            step={15}
-            value={duration}
-            onChange={(e) => setDuration(Number(e.target.value))}
-          />
-        </label>
-      )}
-      <label>
-        Notizen
-        <textarea
-          aria-label="Notizen zur neuen Aufgabe"
-          value={notes}
-          maxLength={30000}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-        />
-      </label>
-      <ColorPicker value={color} onChange={setColor} />
-
-      <button className="primary-button" disabled={busy || !title.trim()}>
-        {busy ? <Loader2 className="spin" size={15} /> : <Plus size={15} />}
-        Aufgabe hinzufügen
-      </button>
-    </form>
-  );
-}
 function Detail({
+  isNew = false,
+  onNavigate,
   todo,
   onClose,
   onSave,
@@ -1582,6 +1876,8 @@ function Detail({
   onRepeat,
   onAiConnected,
 }: {
+  isNew?: boolean;
+  onNavigate?: (key: string) => void;
   todo: Todo;
   onClose: () => void;
   onSave: (todo: Todo) => Promise<void>;
@@ -1618,10 +1914,23 @@ function Detail({
     }
   };
   const close = async () => {
-    if (!dirty || (await persist())) onClose();
+    if (isNew || !dirty || (await persist())) onClose();
   };
   useEffect(() => {
     const listener = (e: KeyboardEvent) => {
+      if (
+        onNavigate &&
+        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) &&
+        !(e.target as HTMLElement).closest(
+          "input,textarea,select,[contenteditable]",
+        )
+      ) {
+        e.preventDefault();
+        void (async () => {
+          if (!dirty || (await persist())) onNavigate(e.key);
+        })();
+        return;
+      }
       if (
         ["Backspace", "Delete"].includes(e.key) &&
         !(e.target as HTMLElement).closest(
@@ -1632,6 +1941,20 @@ function Detail({
         e.stopPropagation();
         onDelete();
         return;
+      }
+      if (
+        /^[1-5]$/.test(e.key) &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !(e.target as HTMLElement).closest(
+          "input,textarea,select,[contenteditable]",
+        )
+      ) {
+        e.preventDefault();
+        update({
+          color: Object.keys(TASK_COLORS)[Number(e.key) - 1] as Todo["color"],
+        });
       }
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -1659,18 +1982,27 @@ function Detail({
         className="detail-panel compact-detail"
         role="dialog"
         aria-modal="true"
-        aria-label="Aufgabendetails"
+        aria-label={isNew ? "Neue Aufgabe" : "Aufgabendetails"}
+        tabIndex={-1}
+        onMouseDown={(e) => {
+          if (
+            !(e.target as HTMLElement).closest(
+              "input,textarea,select,button,a,[contenteditable]",
+            )
+          )
+            e.currentTarget.focus();
+        }}
       >
         <div className="detail-top">
           <span>
             <Circle size={14} />
-            AUFGABENDETAILS
+            {isNew ? "NEUE AUFGABE" : "AUFGABENDETAILS"}
           </span>
           <button
             type="button"
             className="icon-button"
             aria-label="Details schließen und speichern"
-            data-initial-focus
+            data-initial-focus={isNew ? undefined : true}
             onClick={close}
           >
             <X size={19} />
@@ -1686,6 +2018,8 @@ function Detail({
               {draft.done && <Check size={13} />}
             </button>
             <textarea
+              data-initial-focus={isNew ? true : undefined}
+              placeholder="Was möchtest du erledigen?"
               aria-label="Aufgabentitel"
               value={draft.title}
               maxLength={500}
@@ -1703,7 +2037,7 @@ function Detail({
             <button
               className="assistant-heading"
               onClick={async () => {
-                if (!chat && dirty && !(await persist())) return;
+                if (!isNew && !chat && dirty && !(await persist())) return;
                 setChat(!chat);
               }}
             >
@@ -1716,7 +2050,12 @@ function Detail({
                 style={{ transform: chat ? "rotate(180deg)" : "" }}
               />
             </button>
-            {chat && (
+            {chat && isNew && (
+              <p className="assessment-label">
+                Nach dem Anlegen kannst du die KI zu dieser Aufgabe fragen.
+              </p>
+            )}
+            {chat && !isNew && (
               <TodoChat
                 todo={draft}
                 available={aiAvailable}
@@ -1743,77 +2082,92 @@ function Detail({
                 ? `${parseDate(draft.plannedDate).toLocaleDateString("de-DE")}${draft.time ? ` · ${draft.time} · ${draft.duration || 60} Min.` : " · Ohne Zeit"}`
                 : "Inbox"}
             </div>
-            <details className="repeat-details">
-              <summary>Wiederholen</summary>
-              <fieldset className="repeat-picker">
-                <legend>Wöchentlich wiederholen</legend>
-                <div className="repeat-days">
-                  {DAYS.map((day, i) => (
-                    <button
-                      type="button"
-                      key={day}
-                      aria-pressed={repeatDays.includes(i)}
-                      onClick={() =>
-                        setRepeatDays((d) =>
-                          d.includes(i) ? d.filter((x) => x !== i) : [...d, i],
-                        )
-                      }
-                    >
-                      {day.slice(0, 2)}
-                    </button>
-                  ))}
-                </div>
-                <label>
-                  Zeitraum
-                  <select
-                    value={repeatWeeks}
-                    onChange={(e) => setRepeatWeeks(Number(e.target.value))}
-                  >
-                    {[4, 8, 12, 26, 52].map((n) => (
-                      <option key={n} value={n}>
-                        {n} Wochen
-                      </option>
+            {!isNew && (
+              <details className="repeat-details">
+                <summary>Wiederholen</summary>
+                <fieldset className="repeat-picker">
+                  <legend>Wöchentlich wiederholen</legend>
+                  <div className="repeat-days">
+                    {DAYS.map((day, i) => (
+                      <button
+                        type="button"
+                        key={day}
+                        aria-pressed={repeatDays.includes(i)}
+                        onClick={() =>
+                          setRepeatDays((d) =>
+                            d.includes(i)
+                              ? d.filter((x) => x !== i)
+                              : [...d, i],
+                          )
+                        }
+                      >
+                        {day.slice(0, 2)}
+                      </button>
                     ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={
-                    !draft.plannedDate || !repeatDays.length || repeating
-                  }
-                  onClick={async () => {
-                    setRepeating(true);
-                    try {
-                      if (dirty && !(await persist())) return;
-                      await onRepeat(repeatDays, repeatWeeks);
-                    } catch (e) {
-                      onError(e);
-                    } finally {
-                      setRepeating(false);
+                  </div>
+                  <label>
+                    Zeitraum
+                    <select
+                      value={repeatWeeks}
+                      onChange={(e) => setRepeatWeeks(Number(e.target.value))}
+                    >
+                      {[4, 8, 12, 26, 52].map((n) => (
+                        <option key={n} value={n}>
+                          {n} Wochen
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={
+                      !draft.plannedDate || !repeatDays.length || repeating
                     }
-                  }}
+                    onClick={async () => {
+                      setRepeating(true);
+                      try {
+                        if (dirty && !(await persist())) return;
+                        await onRepeat(repeatDays, repeatWeeks);
+                      } catch (e) {
+                        onError(e);
+                      } finally {
+                        setRepeating(false);
+                      }
+                    }}
+                  >
+                    {repeating ? "Wird angelegt …" : "Wiederholungen anlegen"}
+                  </button>
+                </fieldset>
+              </details>
+            )}
+            <fieldset className="priority-picker">
+              <legend>Priorität</legend>
+              {(
+                [
+                  ["high", "Hoch", "#df5b50"],
+                  ["medium", "Mittel", "#d3a63a"],
+                  ["low", "Niedrig", "#5b9c72"],
+                ] as const
+              ).map(([value, label, color]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-label={`${value === "high" ? "Hohe" : value === "medium" ? "Mittlere" : "Niedrige"} Priorität`}
+                  aria-pressed={draft.priority === value}
+                  className="priority-flag"
+                  style={{ "--flag-color": color } as React.CSSProperties}
+                  onClick={() =>
+                    update({
+                      priority: draft.priority === value ? "none" : value,
+                    })
+                  }
                 >
-                  {repeating ? "Wird angelegt …" : "Wiederholungen anlegen"}
+                  <Flag size={16} fill="currentColor" />
+                  <span>{label}</span>
                 </button>
-              </fieldset>
-            </details>
-            <label>
-              <Flag size={15} />
-              Priorität
-              <select
-                value={draft.priority}
-                onChange={(e) =>
-                  update({ priority: e.target.value as Todo["priority"] })
-                }
-              >
-                {Object.entries(PRIORITIES).map(([key, label]) => (
-                  <option value={key} key={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              ))}
+            </fieldset>
             <ColorPicker
               value={draft.color}
               onChange={(color) => update({ color })}
@@ -1937,7 +2291,7 @@ function Detail({
             ) : (
               <Check size={15} />
             )}
-            Speichern
+            {isNew ? "Aufgabe hinzufügen" : "Speichern"}
           </button>
         </div>
       </aside>
@@ -2098,8 +2452,12 @@ function Settings({
   onClose,
   onRefresh,
   onError,
+  accent,
+  onAccent,
 }: {
   state: AppState;
+  accent: string;
+  onAccent: (v: string) => void;
   onClose: () => void;
   onRefresh: () => Promise<void>;
   onError: (e: unknown) => void;
@@ -2194,6 +2552,30 @@ function Settings({
               </button>
             </div>
           ))}
+        </div>
+        <div className="settings-section">
+          <h3>Designfarbe</h3>
+          <fieldset className="theme-picker">
+            <legend>Gesamtdesign</legend>
+            {[
+              ["green", "Salbei"],
+              ["blue", "Ozean"],
+              ["purple", "Lavendel"],
+              ["orange", "Aprikose"],
+              ["rose", "Rosé"],
+            ].map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                className={`theme-choice theme-${v}`}
+                aria-pressed={accent === v}
+                onClick={() => onAccent(v)}
+              >
+                <i />
+                {label}
+              </button>
+            ))}
+          </fieldset>
         </div>
         <div className="settings-section">
           <h3>Kalender verbinden</h3>

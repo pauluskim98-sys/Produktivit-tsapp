@@ -8,6 +8,7 @@ import {
 } from "@dnd-kit/core";
 import { Check, GripVertical } from "lucide-react";
 import type { Todo, CalendarEvent } from "@/lib/types";
+import { eventPresentation } from "@/lib/subjects";
 import { dateKey, addDays } from "@/lib/dates";
 import {
   creationRange,
@@ -43,10 +44,14 @@ interface Props {
   colors: Record<string, string>;
   renderUnscheduled: (day: string) => React.ReactNode;
   selected?: string | null;
+  selectedIds?: string[];
+  selectionMode?: boolean;
+  onSelection?: (ids: string[]) => void;
   scale?: number;
   onOpen: (id: string) => void;
   onToggle: (todo: Todo) => void;
   onResize: (todo: Todo, change: TimeChange) => Promise<void>;
+  onExtend: (todo: Todo, days: string[]) => Promise<void>;
   onCreate: (
     day: string,
     time: string,
@@ -90,6 +95,7 @@ function TimedTask({
   onOpen,
   onToggle,
   onResize,
+  onExtend,
   scale = MINUTE_HEIGHT,
   selected,
 }: {
@@ -105,6 +111,7 @@ function TimedTask({
   onOpen: Props["onOpen"];
   onToggle: Props["onToggle"];
   onResize: Props["onResize"];
+  onExtend: Props["onExtend"];
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `scheduled:${todo.id}:${day}:${start < 360 ? "early" : "day"}`,
@@ -120,6 +127,84 @@ function TimedTask({
     scroller: HTMLElement | null;
     next: TimeChange;
   } | null>(null);
+  const [extension, setExtension] = useState(0);
+  const side = useRef<{
+    x: number;
+    day: string;
+    left: number;
+    right: number;
+  } | null>(null);
+  function sideHandle(edge: "left" | "right") {
+    return (
+      <button
+        type="button"
+        className={`side-handle side-${edge}`}
+        aria-label={`${todo.title} nach ${edge === "left" ? "links" : "rechts"} auf weitere Tage erweitern`}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const bounds = e.currentTarget
+            .closest("article")!
+            .getBoundingClientRect();
+          side.current = {
+            x: e.clientX,
+            day,
+            left: bounds.left,
+            right: bounds.right,
+          };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (!side.current) return;
+          const cols = Array.from(
+            document.querySelectorAll<HTMLElement>("[data-day-grid]"),
+          );
+          const col = cols.find((el) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && e.clientX >= r.left && e.clientX < r.right;
+          });
+          if (col) {
+            side.current.day = col.dataset.dayGrid!;
+            const r = col.getBoundingClientRect();
+            const own = side.current;
+            setExtension(
+              edge === "right"
+                ? Math.max(0, r.right - own.right)
+                : Math.min(0, r.left - own.left),
+            );
+          }
+        }}
+        onPointerUp={(e) => {
+          const g = side.current;
+          side.current = null;
+          setExtension(0);
+          e.currentTarget.releasePointerCapture(e.pointerId);
+          if (!g || Math.abs(e.clientX - g.x) < 5) return;
+          const keys = Array.from(
+            document.querySelectorAll<HTMLElement>("[data-day-grid]"),
+          )
+            .map((el) => el.dataset.dayGrid!)
+            .filter(
+              (d) =>
+                d !== day &&
+                (edge === "right"
+                  ? d > day && d <= g.day
+                  : d < day && d >= g.day),
+            );
+          if (keys.length) void onExtend(todo, keys);
+        }}
+        onPointerCancel={() => {
+          side.current = null;
+          setExtension(0);
+        }}
+        onLostPointerCapture={() => {
+          side.current = null;
+          setExtension(0);
+        }}
+        onClick={(e) => e.stopPropagation()}
+      />
+    );
+  }
   const shown = { ...todo, ...preview };
   const segment = taskSegment(shown, day)!;
   const early = start < 360;
@@ -229,12 +314,13 @@ function TimedTask({
   return (
     <article
       ref={setNodeRef}
-      className={`timed-task ${selected === todo.id ? "is-selected" : ""} color-${todo.color || "green"} ${todo.done ? "is-done" : ""} ${preview ? "is-resizing" : ""} ${saving ? "is-saving" : ""}`}
+      className={`timed-task ${todo.priority === "high" ? "priority-high" : ""} ${selected === todo.id ? "is-selected" : ""} color-${todo.color || "green"} ${todo.done ? "is-done" : ""} ${preview ? "is-resizing" : ""} ${saving ? "is-saving" : ""}`}
       style={{
         top: gridMinute(displayedStart) * scale,
         height: Math.max(8, (displayedEnd - displayedStart) * scale),
-        left: `calc(${(lane / lanes) * 100}% + 2px)`,
-        width: `calc(${100 / lanes}% - 5px)`,
+        left: `calc(${(lane / lanes) * 100}% + 2px + ${Math.min(0, extension)}px)`,
+        width: `calc(${100 / lanes}% - 5px + ${Math.abs(extension)}px)`,
+        zIndex: extension ? 20 : undefined,
         opacity: isDragging ? 0.25 : 1,
       }}
       data-task-id={todo.id}
@@ -269,6 +355,12 @@ function TimedTask({
       {!segment?.continuesAfter &&
         displayedEnd === (segment?.end ?? end) &&
         handle("end")}
+      {offset === 0 && (
+        <>
+          {sideHandle("left")}
+          {sideHandle("right")}
+        </>
+      )}
       {preview && (
         <span className="resize-label">
           {shown.time} · {shown.duration} Min.
@@ -286,11 +378,13 @@ function TimeColumn({
   onOpen,
   onToggle,
   onResize,
+  onExtend,
   onEvent,
   onSelectSlot,
   targetSlot,
   scale = MINUTE_HEIGHT,
   selected,
+  selectedIds,
 }: Omit<Props, "days" | "mobileDay" | "renderUnscheduled"> & { day: string }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `timegrid:${day}`,
@@ -388,7 +482,7 @@ function TimeColumn({
                 (e.clientY -
                   e.currentTarget.parentElement!.getBoundingClientRect().top) /
                 scale;
-              onSelectSlot(day, scheduleAt(clockMinute(minutes)).time);
+              onCreate(day, scheduleAt(clockMinute(minutes)).time, 60);
             }}
             onDoubleClick={(e) => {
               const minutes =
@@ -414,8 +508,11 @@ function TimeColumn({
             onOpen={onOpen}
             onToggle={onToggle}
             onResize={onResize}
+            onExtend={onExtend}
             scale={scale}
-            selected={selected}
+            selected={
+              selectedIds?.includes(item.todo.id) ? item.todo.id : selected
+            }
           />
         ) : (
           <button
@@ -426,7 +523,11 @@ function TimeColumn({
               height: Math.max(18, (item.end - item.start) * scale),
               left: `calc(${(item.lane / item.lanes) * 100}% + 2px)`,
               width: `calc(${100 / item.lanes}% - 5px)`,
-              borderLeftColor: colors[item.event!.connectionId],
+              borderLeftColor: eventPresentation(
+                item.event!,
+                colors[item.event!.connectionId],
+              ).color,
+              backgroundColor: `color-mix(in srgb, ${eventPresentation(item.event!, colors[item.event!.connectionId]).color} 16%, var(--surface))`,
             }}
             onClick={() => onEvent(item.event!)}
             title={`${item.event!.title}\n${item.event!.location}\nImportierter Kalendertermin (schreibgeschützt)`}
@@ -438,20 +539,6 @@ function TimeColumn({
             {item.event!.location && <small>{item.event!.location}</small>}
           </button>
         ),
-      )}
-      {targetSlot?.day === day && (
-        <div
-          className="paste-target"
-          style={{ top: gridMinute(toMinutes(targetSlot.time)) * scale }}
-        >
-          {targetSlot.time}
-          <button
-            onClick={() => onCreate(day, targetSlot.time)}
-            aria-label="Aufgabe an ausgewählter Stelle erstellen"
-          >
-            +
-          </button>
-        </div>
       )}
       {hover && (
         <div
@@ -474,6 +561,28 @@ function TimeColumn({
 }
 export default function Timeline(props: Props) {
   const scroll = useRef<HTMLDivElement>(null);
+  const selectGesture = useRef<{
+    x: number;
+    y: number;
+    pointer: number;
+  } | null>(null);
+  const [selectionRect, setSelectionRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const updateSelection = (x: number, y: number) => {
+    const g = selectGesture.current;
+    if (!g) return;
+    setSelectionRect({
+      left: Math.min(x, g.x),
+      top: Math.min(y, g.y),
+      width: Math.abs(x - g.x),
+      height: Math.abs(y - g.y),
+    });
+  };
+
   type Draw = {
     pointer: number;
     x: number;
@@ -553,11 +662,28 @@ export default function Timeline(props: Props) {
   }, []);
   return (
     <div
-      className="timeline-scroll"
+      className={`timeline-scroll ${props.selectionMode ? "selection-mode" : ""}`}
       ref={scroll}
       aria-label="Wochenkalender mit Stundenraster"
       data-clock-tick={tick}
       onPointerDownCapture={(e) => {
+        if (e.pointerType === "touch") return;
+        if (
+          props.selectionMode &&
+          e.button === 0 &&
+          (e.target as HTMLElement).closest(".timeline-body")
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          selectGesture.current = {
+            x: e.clientX,
+            y: e.clientY,
+            pointer: e.pointerId,
+          };
+          e.currentTarget.setPointerCapture(e.pointerId);
+          updateSelection(e.clientX, e.clientY);
+          return;
+        }
         if (e.button !== 0 || !(e.target as HTMLElement).closest(".time-slot"))
           return;
         const column = (e.target as HTMLElement).closest<HTMLElement>(
@@ -578,10 +704,41 @@ export default function Timeline(props: Props) {
         e.currentTarget.setPointerCapture(e.pointerId);
       }}
       onPointerMove={(e) => {
+        if (selectGesture.current) {
+          updateSelection(e.clientX, e.clientY);
+          return;
+        }
         if (drawing.current?.pointer !== e.pointerId) return;
         updateDraw(e.clientX, e.clientY);
       }}
       onPointerUp={(e) => {
+        if (selectGesture.current) {
+          const g = selectGesture.current;
+          const left = Math.min(g.x, e.clientX),
+            right = Math.max(g.x, e.clientX),
+            top = Math.min(g.y, e.clientY),
+            bottom = Math.max(g.y, e.clientY);
+          const ids = Array.from(
+            e.currentTarget.querySelectorAll<HTMLElement>("[data-task-id]"),
+          )
+            .filter((el) => {
+              const r = el.getBoundingClientRect();
+              return (
+                r.width > 0 &&
+                r.right >= left &&
+                r.left <= right &&
+                r.bottom >= top &&
+                r.top <= bottom
+              );
+            })
+            .map((el) => el.dataset.taskId!);
+          selectGesture.current = null;
+          setSelectionRect(null);
+          suppressClick.current = true;
+          e.currentTarget.releasePointerCapture(e.pointerId);
+          props.onSelection?.([...new Set(ids)]);
+          return;
+        }
         const d = drawing.current;
         if (!d || d.pointer !== e.pointerId) return;
         updateDraw(e.clientX, e.clientY);
@@ -603,11 +760,19 @@ export default function Timeline(props: Props) {
         } else {
           // Pointer capture targets the container on release, so handle taps here.
           suppressClick.current = true;
-          props.onSelectSlot(d.day, scheduleAt(clockMinute(d.anchor)).time);
+          props.onCreate(d.day, scheduleAt(clockMinute(d.anchor)).time, 60);
         }
       }}
-      onPointerCancel={cancelDraw}
-      onLostPointerCapture={cancelDraw}
+      onPointerCancel={() => {
+        cancelDraw();
+        selectGesture.current = null;
+        setSelectionRect(null);
+      }}
+      onLostPointerCapture={() => {
+        cancelDraw();
+        selectGesture.current = null;
+        setSelectionRect(null);
+      }}
       onClickCapture={(e) => {
         if (suppressClick.current) {
           suppressClick.current = false;
@@ -617,6 +782,9 @@ export default function Timeline(props: Props) {
       }}
       style={{ "--hour-height": `${scale * 60}px` } as React.CSSProperties}
     >
+      {selectionRect && (
+        <div className="selection-rectangle" style={selectionRect} />
+      )}
       <div className="timeline-head">
         <div className="timeline-gutter-head">
           <span>Ohne Zeit</span>

@@ -6,7 +6,7 @@
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
-    "test": "node --test tests/dates.test.ts tests/calendar-fetch.test.ts tests/calendar-sync.test.ts tests/schedule.test.ts tests/planning.test.ts",
+    "test": "node --test tests/dates.test.ts tests/calendar-fetch.test.ts tests/calendar-sync.test.ts tests/schedule.test.ts tests/planning.test.ts tests/interactions.test.ts",
     "test:api": "node --test tests/api.test.mjs",
     "format": "prettier --write app components lib tests *.json *.ts *.md",
     "test:server": "node --test tests/scheduler-start.test.mjs tests/planner-server.test.mjs"

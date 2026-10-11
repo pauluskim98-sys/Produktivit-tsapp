@@ -1,12 +1,12 @@
 import { db, USER } from "@/lib/db";
-import { isDateKey } from "@/lib/dates";
+import { periodRange } from "@/lib/calendar-interactions";
 import { sameOrigin, errorResponse } from "@/lib/validation";
 export async function POST(request: Request) {
   try {
     sameOrigin(request);
     const { date, content } = await request.json();
     if (
-      !isDateKey(date) ||
+      !periodRange(date) ||
       typeof content !== "string" ||
       content.length > 10000
     )

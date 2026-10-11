@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   try {
     sameOrigin(request);
     const body = await request.json();
-    if (body.action === "undo") {
+    if (body.action === "undo" || body.action === "batch") {
       if (!Array.isArray(body.changes) || body.changes.length > 10000)
         throw new Error("Ungültige Änderung.");
       const todos = getTodos();
@@ -42,6 +42,12 @@ export async function POST(request: Request) {
           return { ...c, before };
         },
       );
+      const deletedMany = changes
+        .filter((c: { before: unknown }) => c.before === null)
+        .map((c: { id: string }) => ({
+          id: c.id,
+          messages: getMessages(c.id),
+        }));
       transaction(() => {
         for (const c of changes) {
           if (c.before) {
@@ -62,6 +68,7 @@ export async function POST(request: Request) {
             );
         }
       });
+      return Response.json({ todos: getTodos(), deletedMany });
     } else if (body.action === "createMany") {
       if (
         !Array.isArray(body.todos) ||

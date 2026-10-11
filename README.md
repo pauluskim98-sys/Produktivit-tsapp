@@ -105,9 +105,9 @@ Der Kalender nutzt eine kompakte Werkzeugleiste ohne Begrüßungsblock. In schma
 
 Die kompakte Werkzeugleiste vereint Wochenwechsel, Suche, Filter und Einstellungen. Der Kalender scrollt unabhängig von der Leiste und passt auf üblichen Fensterhöhen 06:00 bis 24:00 in die sichtbare Fläche ein. Darunter folgen 00:00 bis 06:00 desselben Kalendertags.
 
-- Eine freie Stelle im Stundenraster anklicken, um die Einfügestelle zu markieren. Doppelklick oder das Plus an der Markierung öffnet eine neue Aufgabe mit Uhrzeit und Notizen.
+- Ein Klick auf eine freie Stelle öffnet die kompakte Erstellung. Gedrückt halten und ziehen wählt Dauer und Tage vor dem Loslassen. Es gibt keinen zusätzlichen Plus-Schritt.
 - Aufgaben ohne Uhrzeit stehen klein im Bereich „Ohne Zeit“ oder in der Inbox und werden beim Ziehen ins Raster zu Zeitblöcken.
-- Eigene Zeitblöcke seitlich auf einen anderen Tag ziehen: Dort entsteht eine Kopie zur ursprünglichen Uhrzeit. Das Original bleibt erhalten. Vertikales Ziehen innerhalb desselben Tages verschiebt die Uhrzeit.
+- Eigene Zeitblöcke an der Mitte ziehen, um Tag und Uhrzeit zu verschieben. Den linken oder rechten Seitenrand über weitere Tage ziehen, um dort Kopien zur gleichen Zeit anzulegen.
 - Nach dem Anklicken löscht Delete/Backspace den ausgewählten eigenen Termin, solange der Fokus nicht in einem Textfeld liegt. Der Hinweis „Rückgängig“ stellt ihn wieder her.
 - Oberen oder unteren Rand eines Zeitblocks ziehen, um Beginn oder Ende in 15-Minuten-Schritten anzupassen. Die fokussierten Griffe unterstützen auch die Pfeiltasten. Änderungen können über „Rückgängig“ zurückgenommen werden.
 - Fünf Farben (Grün, Blau, Violett, Orange, Rosa) sind beim Anlegen und in den Aufgabendetails wählbar und werden lokal gespeichert.
@@ -135,6 +135,20 @@ Ohne API-Verbindung gibt es in Aufgaben-, Tages- und Wochenansicht „Für ChatG
 
 ## Zwischenstand vom 11. Oktober 2026
 
-Enthält die begonnene Auswahl neuer Termine durch gedrücktes Ziehen im Kalender, einschließlich Auswahl mehrerer Tage und anschließender Eingabe von Titel, Farbe und Notizen. Typprüfung und die fünf Zeitraster-Tests bestanden. Die neueste Zieh-Funktion ist noch nicht vollständig im Browser geprüft; dieser Commit dient als Entwicklungs-Zwischenstand.
+Enthält die begonnene Auswahl neuer Termine durch gedrücktes Ziehen im Kalender, einschließlich Auswahl mehrerer Tage und anschließender Eingabe von Titel, Farbe und Notizen. Typprüfung und die fünf Zeitraster-Tests bestanden. Dieser Abschnitt beschreibt den damaligen GitHub-Zwischenstand. Die nachfolgenden Verbesserungen wurden zusätzlich im Browser geprüft.
 
 Persönliche Datenbanken, importierte Kalenderdaten und API-Schlüssel sind nicht Teil des Repositorys.
+
+## Monats- und Wochenüberblick
+
+Ein Klick auf den Monatsnamen öffnet die Monatsübersicht, ein Klick auf die Tageszahlen die Wochenübersicht. Beide bleiben über dem Stundenkalender sichtbar. Eigene Aufgaben können daraus direkt auf einen Kalenderzeitpunkt gezogen werden. Ein Klick auf ein Datum zeigt die zugehörige Woche. Importierte Termine sind weiterhin schreibgeschützt.
+
+In den Aufgabendetails wählen 1–5 die Farben Grün, Blau, Violett, Orange und Rosa; Texteingaben behalten ihre normale Tastaturbedienung.
+
+## Gemeinsamer Editor und Mehrfachauswahl
+
+Neue Aufgaben und bestehende Aufgaben verwenden denselben Editor mit Beschreibung, Priorität, Farbe, Tags, Unteraufgaben und Notizen. Ein Klick auf eine freie Fläche im Editor verlässt das Textfeld; 1–5 wählen dann die Farbe. Texteingaben bleiben davon ausgenommen. Pfeiltasten wechseln außerhalb von Textfeldern zum nächsten eigenen Termin (hoch/runter am selben Tag, links/rechts zum zeitlich nächsten Block des Nachbartags).
+
+A aktiviert im Kalender ohne Eingabefokus die Rechteckauswahl. Ausgewählte eigene Termine können gemeinsam verschoben, gelöscht oder mit Cmd/Ctrl+C und Cmd/Ctrl+V kopiert werden. Die Abstände bleiben erhalten; Cmd/Ctrl+Z nimmt die gesamte Änderung zurück. Escape beendet die Auswahl. Importierte Termine sind schreibgeschützt.
+
+Wochen- und Monatsübersichten enthalten Aufgaben, separate gespeicherte Notizen, einen Minikalender und Beratung für den jeweiligen Zeitraum. Die direkte KI benötigt weiterhin einen API-Schlüssel; ohne Verbindung steht die Übergabe an ChatGPT bereit.
