@@ -24,6 +24,7 @@ import { dateKey, addDays, parseDate, monday } from "@/lib/dates";
 import PeriodTask from "./period-task";
 import TabSettings from "./tab-settings";
 import SocialCircle from "./social-circle";
+import { suggestionKey } from "@/lib/suggestion-refresh";
 import PriorityList from "./priority-list";
 import WhatsappConnection from "./whatsapp-connection";
 type Suggestion = {
@@ -307,6 +308,7 @@ export default function LifeInbox({
     [life, setLife] = useState<LifeState | null>(null),
     [items, setItems] = useState<Suggestion[]>([]),
     [error, setError] = useState(""),
+    [discoveryNotice, setDiscoveryNotice] = useState(""),
     [loading, setLoading] = useState(false),
     [name, setName] = useState(""),
     [interval, setInterval] = useState(14),
@@ -417,24 +419,46 @@ export default function LifeInbox({
     const next = { ...life, hidden: [...life.hidden, id] };
     if (await save(next)) setTab(tabs.find(([x]) => x !== id)?.[0] || "");
   }
-  async function discover() {
+  const discoveryRequest = useRef<AbortController | null>(null);
+  const [findingNew, setFindingNew] = useState(false);
+  async function discover(refresh = false) {
+    discoveryRequest.current?.abort();
+    const controller = new AbortController();
+    discoveryRequest.current = controller;
+    setFindingNew(refresh);
+    setDiscoveryNotice("");
     setLoading(true);
-    setItems([]);
+    if (!refresh) setItems([]);
     setError("");
     try {
-      const r = await fetch(
-        `/api/suggestions?kind=${encodeURIComponent(rhythm?.online ? rhythm.id : tab)}`,
-      );
+      const params = new URLSearchParams({
+        kind: rhythm?.online ? rhythm.id : tab,
+      });
+      if (refresh) {
+        params.set("refresh", "1");
+        params.set("exclude", items.map(suggestionKey).join(","));
+      }
+      const r = await fetch(`/api/suggestions?${params}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       const d = await r.json();
-      if (d.error) throw new Error(d.error);
+      if (controller.signal.aborted || discoveryRequest.current !== controller)
+        return;
+      if (!r.ok || d.error)
+        throw new Error(d.error || "Vorschläge nicht erreichbar.");
       setItems(d.items || []);
+      setDiscoveryNotice(d.notice || "");
     } catch (e) {
-      setError((e as Error).message);
+      if (!controller.signal.aborted) setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (discoveryRequest.current === controller && !controller.signal.aborted)
+        setLoading(false);
     }
   }
   useEffect(() => {
+    setLoading(false);
+    setDiscoveryNotice("");
     if (
       life &&
       (life.tabSettings[tab]?.online ??
@@ -449,6 +473,7 @@ export default function LifeInbox({
           if (d.error) setError(d.error);
         })
         .catch(() => setError("Wetter derzeit nicht erreichbar."));
+    return () => discoveryRequest.current?.abort();
   }, [
     tab,
     life?.city,
@@ -881,11 +906,27 @@ export default function LifeInbox({
                 ? "Was kochen?"
                 : `${life?.city || "Köln"} · Vorschläge`}
             </strong>
-            <button disabled={loading} onClick={() => void discover()}>
+            <button
+              disabled={loading}
+              aria-label="Neue Vorschläge finden"
+              title="Neue Vorschläge finden"
+              onClick={() => void discover(true)}
+            >
               ↻
             </button>
           </div>
-          {loading && <p className="muted">Vorschläge werden geladen …</p>}
+          {loading && (
+            <p className="muted" role="status">
+              {findingNew
+                ? "Neue Vorschläge werden gesucht …"
+                : "Vorschläge werden geladen …"}
+            </p>
+          )}
+          {discoveryNotice && (
+            <p className="muted" role="status">
+              {discoveryNotice}
+            </p>
+          )}
           {items.map((item) => (
             <SuggestionCard
               defaultColor={life?.tabSettings[tab]?.defaultColor || "green"}
