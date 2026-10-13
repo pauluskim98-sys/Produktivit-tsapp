@@ -6987,3 +6987,35 @@ button[hidden] {
 .shortcut-switch span { display: block; width: 16px; height: 16px; background: var(--muted); border-radius: 50%; transition: transform .16s ease, background .16s ease; }
 .shortcut-switch[aria-checked="true"] { background: var(--green); border-color: var(--green); }
 .shortcut-switch[aria-checked="true"] span { transform: translateX(15px); background: #fff; }
+
+/* People retain their identity from address book to task and calendar. */
+.person-avatar { display: inline-grid; place-items: center; width: 32px; height: 32px; min-width: 32px; border-radius: 50%; overflow: hidden; background: var(--green-soft); color: var(--green); border: 1px solid var(--line); vertical-align: middle; flex-shrink: 0; }
+.person-avatar.small { width: 21px; height: 21px; min-width: 21px; margin-right: 6px; }
+.person-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.person-avatar > span { font-size: 11px; font-weight: 600; }
+.person-avatar.small > span { font-size: 8px; }
+.person-name { display: flex; align-items: center; }
+.folder-preview > div { display: flex; align-items: center; }
+.task-title:has(.person-avatar) { display: flex; align-items: center; }
+.timed-main:has(.person-avatar) { display: flex; align-items: flex-start; gap: 3px; }
+.timed-main .person-avatar.small { width: 18px; height: 18px; min-width: 18px; margin: 0; }
+.timed-main:has(.person-avatar) .fit-title { flex: 1; min-width: 0; }
+.wa-import-backdrop { z-index: 500; }
+.wa-import-modal { width: 510px; display: flex; flex-direction: column; }
+.wa-import-modal .modal-heading h2 { display: flex; gap: 10px; align-items: center; }
+.wa-import-search { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 5px 8px; color: var(--secondary); }
+.wa-import-search input { flex: 1; min-width: 0; padding: 7px 2px; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13px; }
+.wa-select-tools { display: flex; justify-content: space-between; gap: 8px; margin: 12px 0; }
+.wa-select-tools button { border: 0; background: transparent; color: var(--green); font: inherit; font-size: 12px; cursor: pointer; }
+.wa-contact-list { overflow-y: auto; min-height: 110px; max-height: 46dvh; }
+.wa-contact-choice { display: flex; align-items: center; gap: 11px; padding: 10px 8px; border-radius: 9px; cursor: pointer; margin: 2px 0; }
+.wa-contact-choice:hover { background: var(--hover); }
+.wa-contact-choice.new-contact { background: var(--surface-soft); }
+.wa-contact-choice input { accent-color: var(--green); width: 15px; height: 15px; margin: 0; flex-shrink: 0; }
+.wa-contact-choice > span:not(.person-avatar) { flex: 1; min-width: 0; }
+.wa-contact-choice strong { display: block; color: var(--ink); font-size: 13px; font-weight: 500; }
+.wa-contact-choice small { display: block; color: var(--secondary); font-size: 11px; margin-top: 2px; }
+.wa-contact-choice em { border: 1px solid var(--line); color: var(--green); background: var(--green-soft); font-size: 10px; font-style: normal; border-radius: 5px; padding: 2px 5px; }
+.wa-import-footer { border-top: 1px solid var(--line); padding-top: 15px; margin-top: 15px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.wa-import-footer small, .wa-sync-notice { color: var(--secondary); font-size: 11px; }
+.timed-main:has(.person-avatar) { flex-direction: row; }

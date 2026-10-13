@@ -1,4 +1,5 @@
 "use client";
+import { TaskPersonAvatar } from "./person-avatar";
 import { changedTaskFields, applySeriesEdit } from "@/lib/series-edit";
 import { priorityOrder } from "@/lib/priority-order";
 import { goBackView, goForwardView, useViewHistory } from "@/lib/view-history";
@@ -232,7 +233,10 @@ function TaskCard({
         {...listeners}
         onClick={() => onOpen(todo.id)}
       >
-        <span className="task-title">{todo.title}</span>
+        <span className="task-title">
+          <TaskPersonAvatar todo={todo} small />
+          {todo.title}
+        </span>
         {(todo.tags.length > 0 ||
           todo.time ||
           todo.duration ||
@@ -3290,6 +3294,7 @@ function Detail({
         </div>
         <div className="detail-scroll">
           <div className="detail-title">
+            <TaskPersonAvatar todo={draft} />
             <button
               className={`task-check ${draft.done ? "checked" : ""}`}
               aria-label="Status ändern"

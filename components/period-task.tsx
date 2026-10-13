@@ -1,4 +1,5 @@
 "use client";
+import { TaskPersonAvatar } from "./person-avatar";
 import { useId, useRef, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Todo } from "@/lib/types";
@@ -60,6 +61,7 @@ export default function PeriodTask({
           onOpen(todo.id);
         }}
       >
+        <TaskPersonAvatar todo={todo} small />
         <i className="entry-dot" />
         <strong>{abbreviated ? calendarTitle(todo.title) : todo.title}</strong>
         {!compact && <small>{todo.plannedDate}</small>}

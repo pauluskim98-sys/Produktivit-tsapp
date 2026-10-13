@@ -80,6 +80,33 @@ export function installHistory() {
           ? input.href
           : input.url;
     const path = new URL(url, location.href).pathname;
+    if (!running && init?.method === "POST" && path === "/api/whatsapp") {
+      const body = JSON.parse(String(init.body));
+      if (["import", "selection", "sync", "link"].includes(body.action)) {
+        const before = await (await original("/api/life")).json();
+        const response = await original(input, init);
+        if (response.ok) {
+          const after = (await response.clone().json()).life;
+          if (after && JSON.stringify(before) !== JSON.stringify(after)) {
+            const apply = async (from: unknown, to: unknown) => {
+              const current = await (await original("/api/life")).json();
+              const value = applyHistoryDelta(current, from, to);
+              const r = await original("/api/life", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(value),
+              });
+              if (!r.ok) throw new Error((await r.json()).error);
+            };
+            record({
+              undo: () => apply(after, before),
+              redo: () => apply(before, after),
+            });
+          }
+        }
+        return response;
+      }
+    }
     if (
       running ||
       init?.method !== "POST" ||
@@ -241,7 +268,9 @@ export function installHistory() {
   };
   const key = (e: KeyboardEvent) => {
     if (
-      (e.target as HTMLElement).closest(".shortcut-welcome") &&
+      (e.target as HTMLElement).closest(
+        ".shortcut-welcome,[data-native-tab]",
+      ) &&
       e.key !== "Escape"
     )
       return;

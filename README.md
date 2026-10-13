@@ -203,3 +203,9 @@ Erkennbar angegebene tägliche, wöchentliche oder monatliche Wiederholungen ers
 ## Shortcut-Hinweise
 
 Beim ersten Öffnen fragt Lifemap, ob passende Tasten und Gesten beim Darüberfahren angezeigt werden sollen. Die Dauer ist frei zwischen 1 und 365 Tagen wählbar; 3, 7, 14 und 30 Tage sind direkt auswählbar. Die Wahl wird für diesen Browser gespeichert. Nach Ablauf verschwinden die Shortcut-Hinweise automatisch, normale Termin-Informationen bleiben erhalten. Unter **Einstellungen → Shortcut-Hinweise** lassen sich die Hinweise deaktivieren oder für eine neue Dauer aktivieren.
+
+## WhatsApp-Kontakte übernehmen
+
+Im Reiter **Beziehungen** öffnet das Buchsymbol neben WhatsApp die Kontaktliste. Nur Personen werden angeboten, keine Gruppen, Status oder Kanäle. Neue Kontakte sind zunächst ausgewählt und mit **Neu** markiert. Häkchenänderungen bleiben auch beim Schließen gespeichert; beim Übernehmen werden die angezeigten Kontakte als geprüft markiert. Später neu erkannte Personen sind erneut markiert und zunächst ausgewählt. Ein weiterer Import aktualisiert verknüpfte Personen, ohne eigene Namen, Gruppen oder Kontaktziele zu ersetzen. Abgewählte bereits importierte Personen werden nicht gelöscht.
+
+Der kleine Aktualisieren-Button übernimmt die letzten Kontaktzeitpunkte aus den von WhatsApp übertragenen Einzelchats für die Personen in Beziehungen. Er kann keine nicht übertragenen älteren Nachrichten rekonstruieren. Verfügbare Profilbilder werden als kleine Bilder lokal in `data/whatsapp/avatars` gespeichert und auch in Kontakt-Aufgaben, Kalenderblöcken und Details gezeigt. Kontakte ohne sichtbares Foto erhalten Initialen. WhatsApp muss über den QR-Code als verknüpftes Gerät verbunden sein. Beim ersten Verbinden kann die Übertragung von Kontakten und Fotos etwas dauern. Kontakte, Bilder und die Auswahl bleiben lokal und gehören nicht in GitHub.

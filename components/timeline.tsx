@@ -1,4 +1,5 @@
 "use client";
+import { TaskPersonAvatar } from "./person-avatar";
 import { useEffect, useRef, useState } from "react";
 import {
   useDraggable,
@@ -401,6 +402,7 @@ function TimedTask({
         onClick={() => onOpen(todo.id)}
         aria-label={`${todo.title}, ${shown.time}, ${shown.duration || 60} Minuten`}
       >
+        <TaskPersonAvatar todo={todo} small />
         <FitTitle>
           {segment?.continuesBefore ? "↳ " : ""}
           {todo.title}
@@ -574,6 +576,7 @@ function TimeColumn({
               onClick={() => onOpen(t.id)}
               title={`${t.time} · ${t.title}`}
             >
+              <TaskPersonAvatar todo={t} small />
               {t.title}
             </button>
           ))}

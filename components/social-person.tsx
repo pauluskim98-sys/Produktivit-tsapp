@@ -1,5 +1,6 @@
 "use client";
 import { useId } from "react";
+import PersonAvatar from "./person-avatar";
 import { useDraggable } from "@dnd-kit/core";
 import type { TaskColor } from "@/lib/task-colors";
 import type { Friend } from "@/lib/life";
@@ -30,6 +31,7 @@ export default function SocialPerson({
       style={{ touchAction: "none", opacity: d.isDragging ? 0.4 : 1 }}
       onClick={() => void onAdd(item.title, item.tags, item.notes)}
     >
+      <PersonAvatar person={friend.id} name={friend.name} small />
       {friend.name}
     </button>
   );

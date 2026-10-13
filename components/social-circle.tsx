@@ -5,6 +5,7 @@ import type { LifeState, Friend } from "@/lib/life";
 import type { Todo } from "@/lib/types";
 import { dateKey } from "@/lib/dates";
 import SocialPerson from "./social-person";
+import PersonAvatar from "./person-avatar";
 export default function SocialCircle({
   life,
   todos,
@@ -250,6 +251,7 @@ export default function SocialCircle({
                 <div className="folder-preview" role="tooltip">
                   {people.map((f) => (
                     <div key={f.id}>
+                      <PersonAvatar person={f.id} name={f.name} small />
                       {f.name}
                       {icons(f)}
                     </div>

@@ -9,6 +9,7 @@ export interface Friend {
   meetInterval?: number | null;
   groupId?: string;
   whatsappId?: string;
+  avatar?: string;
 }
 export interface Rhythm {
   id: string;
@@ -31,6 +32,7 @@ export interface MealLog {
   quality: "balanced" | "mixed" | "treat" | "unknown";
 }
 export interface LifeState {
+  whatsappImport?: { selected: Record<string, boolean>; seen: string[] };
   tabOrder: string[];
   city: string;
   friends: Friend[];
@@ -70,7 +72,7 @@ export function saveLife(value: unknown) {
     s.city.length > 100 ||
     !Array.isArray(s.friends) ||
     !Array.isArray(s.rhythms) ||
-    s.friends.length > 200 ||
+    s.friends.length > 5000 ||
     s.rhythms.length > 100
   )
     throw new Error("Bitte Angaben prüfen.");
@@ -92,9 +94,30 @@ export function saveLife(value: unknown) {
         (typeof f.groupId !== "string" || f.groupId.length > 100)) ||
       typeof f.lastContact !== "string" ||
       (f.lastContact !== "" && !isDateKey(f.lastContact)) ||
-      (f.whatsappId && !/^[\w@.:-]{1,100}$/.test(f.whatsappId))
+      (f.whatsappId && !/^[\w@.:-]{1,100}$/.test(f.whatsappId)) ||
+      (f.avatar !== undefined &&
+        (typeof f.avatar !== "string" ||
+          (f.avatar !== "" &&
+            !/^\/api\/whatsapp\/avatar\?id=[\w%.@-]{1,120}$/.test(f.avatar))))
     )
       throw new Error("Person prüfen.");
+  if (s.whatsappImport) {
+    const p = s.whatsappImport;
+    const id = /^\d{1,30}@(s\.whatsapp\.net|lid)$/;
+    if (
+      !p.selected ||
+      typeof p.selected !== "object" ||
+      Array.isArray(p.selected) ||
+      Object.keys(p.selected).length > 20000 ||
+      Object.entries(p.selected).some(
+        ([k, v]) => !id.test(k) || typeof v !== "boolean",
+      ) ||
+      !Array.isArray(p.seen) ||
+      p.seen.length > 20000 ||
+      p.seen.some((k) => typeof k !== "string" || !id.test(k))
+    )
+      throw new Error("Kontaktauswahl prüfen.");
+  }
   for (const r of s.rhythms)
     if (
       !r.name?.trim() ||

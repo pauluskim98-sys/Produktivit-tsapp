@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import {
+  readFileSync,
   mkdirSync,
   writeFileSync,
   renameSync,
@@ -8,6 +9,12 @@ import {
   unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import {
+  personJid,
+  personalContacts,
+  matchesContact,
+} from "./whatsapp-contacts.mjs";
 import { DatabaseSync } from "node:sqlite";
 const appRequire = createRequire(import.meta.url);
 let libRequire = appRequire;
@@ -74,51 +81,162 @@ const auth = {
     },
   },
 };
-let state = { status: "starting", pid: process.pid, contacts: [] },
+let cached = {};
+try {
+  cached = JSON.parse(readFileSync(file, "utf8"));
+} catch {}
+let state = { status: "starting", pid: process.pid, contacts: [], protocol: 2 },
   socket,
   stopping = false,
   retries = 0;
-const contacts = new Map();
+const contacts = new Map(
+  personalContacts(cached.contacts || []).map((c) => [c.id, c]),
+);
+const pictureQueue = new Set();
+let fetchingPictures = false;
+const picturesDir = join(dir, "avatars");
+mkdirSync(picturesDir, { recursive: true, mode: 0o700 });
 function persist(patch) {
   state = { ...state, ...patch };
   writeFileSync(file + ".tmp", JSON.stringify(state), { mode: 0o600 });
   renameSync(file + ".tmp", file);
 }
-function absorb(list) {
-  for (const c of list) {
-    if (!c.id || (!c.id.endsWith("@s.whatsapp.net") && !c.id.endsWith("@lid")))
-      continue;
-    const prev = contacts.get(c.id) || {
-      id: c.id,
-      name: "Kontakt",
-      lastContact: "",
-    };
-    const raw =
-      c.conversationTimestamp || c.lastMessageRecvTimestamp || c.timestamp;
-    const seconds = Number(raw?.toNumber?.() || raw || 0);
-    const day =
-      seconds > 0
-        ? new Date(seconds * 1000).toLocaleDateString("sv-SE", {
-            timeZone: "Europe/Berlin",
-          })
-        : "";
-    contacts.set(c.id, {
-      id: c.id,
-      name: c.name || c.notify || c.verifiedName || c.pushName || prev.name,
-      lastContact: day > prev.lastContact ? day : prev.lastContact,
-    });
-  }
+function contactState() {
   persist({
-    contacts: [...contacts.values()].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    ),
+    contacts: [...contacts.values()],
     updatedAt: new Date().toISOString(),
   });
 }
+function absorb(list) {
+  const incoming = list
+    .filter((c) => personJid(c.id))
+    .map((c) => {
+      const raw =
+        c.conversationTimestamp || c.lastMessageRecvTimestamp || c.timestamp;
+      const seconds = Number(raw?.toNumber?.() || raw || 0);
+      return {
+        ...c,
+        lastContact:
+          seconds > 0 && Number.isFinite(seconds)
+            ? new Date(seconds * 1000).toLocaleDateString("sv-SE", {
+                timeZone: "Europe/Berlin",
+              })
+            : c.lastContact || "",
+      };
+    });
+  const own = personJid(socket?.user?.id || auth.creds.me?.id);
+  const merged = personalContacts([...contacts.values(), ...incoming]).filter(
+    (c) => !matchesContact(c, own),
+  );
+  contacts.clear();
+  for (const c of merged) {
+    contacts.set(c.id, c);
+    const changed = incoming.some(
+      (next) => matchesContact(c, next.id) && Object.hasOwn(next, "imgUrl"),
+    );
+    if (
+      changed ||
+      !c.pictureCheckedAt ||
+      Date.now() - c.pictureCheckedAt > 86400000
+    )
+      pictureQueue.add(c.id);
+  }
+  contactState();
+  void updatePictures();
+}
+async function updatePictures() {
+  if (fetchingPictures || state.status !== "ready" || !socket) return;
+  fetchingPictures = true;
+  try {
+    while (pictureQueue.size && state.status === "ready" && !stopping) {
+      const id = pictureQueue.values().next().value;
+      pictureQueue.delete(id);
+      const c = contacts.get(id);
+      if (!c) continue;
+      try {
+        const href = await socket.profilePictureUrl(id, "preview", 5000);
+        if (!href) {
+          c.avatarFile = "";
+          continue;
+        }
+        const url = new URL(href);
+        // Fetch only a WhatsApp CDN thumbnail, never a supplied arbitrary URL.
+        if (
+          url.protocol !== "https:" ||
+          !(
+            url.hostname === "pps.whatsapp.net" ||
+            url.hostname.endsWith(".whatsapp.net") ||
+            url.hostname.endsWith(".fbcdn.net")
+          )
+        )
+          continue;
+        const response = await fetch(url, {
+          redirect: "error",
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!response.ok) continue;
+        const reader = response.body?.getReader();
+        if (!reader) continue;
+        const chunks = [];
+        let size = 0;
+        try {
+          for (;;) {
+            const part = await reader.read();
+            if (part.done) break;
+            size += part.value.length;
+            if (size > 2 * 1024 * 1024) throw new Error("Thumbnail too large");
+            chunks.push(Buffer.from(part.value));
+          }
+        } finally {
+          await reader.cancel();
+        }
+        const bytes = Buffer.concat(chunks);
+        const ext =
+          bytes[0] === 255 && bytes[1] === 216
+            ? "jpg"
+            : bytes
+                  .subarray(0, 8)
+                  .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+              ? "png"
+              : bytes.toString("ascii", 0, 4) === "RIFF" &&
+                  bytes.toString("ascii", 8, 12) === "WEBP"
+                ? "webp"
+                : "";
+        if (!ext) continue;
+        const name =
+          createHash("sha256").update(id).digest("hex") +
+          "-" +
+          createHash("sha256").update(bytes).digest("hex") +
+          "." +
+          ext;
+        writeFileSync(join(picturesDir, name), bytes, { mode: 0o600 });
+        const current = [...contacts.values()].find((p) =>
+          matchesContact(p, id),
+        );
+        if (current) current.avatarFile = name;
+      } catch {
+        /* No visible photo: initials are shown instead. */
+      } finally {
+        c.pictureCheckedAt = Date.now();
+        contactState();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  } finally {
+    fetchingPictures = false;
+  }
+}
+
 function messages(list) {
   absorb(
     list.map((m) => ({
       id: m.key?.remoteJid,
+      phoneNumber: m.key?.remoteJidAlt?.endsWith("@s.whatsapp.net")
+        ? m.key.remoteJidAlt
+        : undefined,
+      lid: m.key?.remoteJidAlt?.endsWith("@lid")
+        ? m.key.remoteJidAlt
+        : undefined,
       pushName: m.key?.fromMe ? undefined : m.pushName,
       timestamp: m.messageTimestamp,
     })),
@@ -126,16 +244,20 @@ function messages(list) {
 }
 function updatePeople() {
   if (state.status !== "ready") return;
+  let db;
   try {
-    const db = new DatabaseSync(
+    db = new DatabaseSync(
       process.env.DATABASE_PATH || join(process.cwd(), "data", "raum.sqlite"),
     );
     db.exec("PRAGMA busy_timeout=5000");
+    db.exec("BEGIN IMMEDIATE");
     const row = db.prepare("SELECT content FROM LifeState WHERE id=1").get();
     if (row) {
       const life = JSON.parse(row.content);
       life.friends = (life.friends || []).map((f) => {
-        const c = contacts.get(f.whatsappId);
+        const c = [...contacts.values()].find((c) =>
+          matchesContact(c, f.whatsappId),
+        );
         return c?.lastContact && c.lastContact > f.lastContact
           ? { ...f, lastContact: c.lastContact }
           : f;
@@ -144,9 +266,14 @@ function updatePeople() {
         JSON.stringify(life),
       );
     }
-    db.close();
+    db.exec("COMMIT");
   } catch {
+    try {
+      db?.exec("ROLLBACK");
+    } catch {}
     persist({ error: "Kontaktzeitpunkte konnten nicht übernommen werden." });
+  } finally {
+    db?.close();
   }
 }
 async function connect() {
@@ -185,6 +312,10 @@ async function connect() {
       if (connection === "open") {
         retries = 0;
         persist({ status: "ready", qr: undefined, error: undefined });
+        for (const c of contacts.values())
+          if (!c.pictureCheckedAt || Date.now() - c.pictureCheckedAt > 86400000)
+            pictureQueue.add(c.id);
+        void updatePictures();
         updatePeople();
       }
       if (connection === "close" && !stopping) {
@@ -227,6 +358,17 @@ setInterval(() => {
   if (existsSync(stop)) {
     unlinkSync(stop);
     void shutdown();
-  } else updatePeople();
+  } else {
+    const refresh = join(dir, "refresh-contacts");
+    if (existsSync(refresh) && state.status === "ready") {
+      unlinkSync(refresh);
+      for (const c of contacts.values()) pictureQueue.add(c.id);
+      void socket
+        .resyncAppState(["regular", "regular_low", "regular_high"], false)
+        .catch(() => {});
+      void updatePictures();
+    }
+    updatePeople();
+  }
 }, 4000);
 connect().catch(fail);
