@@ -6961,3 +6961,29 @@ button[hidden] {
   font-size: 11px;
   color: var(--import-ink);
 }
+
+/* Optional, time-limited hints keep controls quiet once they are familiar. */
+.action-shortcut { margin-top: 5px; }
+.action-shortcut:only-child { margin-top: 0; }
+.action-shortcut kbd { font: inherit; font-size: 11px; color: var(--ink); background: var(--bg); padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; display: inline-block; }
+.shortcut-welcome-backdrop { z-index: 500; }
+.shortcut-welcome { position: relative; max-width: 440px; padding: 30px; }
+.shortcut-welcome-close { position: absolute; top: 12px; right: 12px; }
+.shortcut-welcome-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; background: var(--bg); color: var(--green); margin-bottom: 18px; }
+.shortcut-welcome h2 { font-size: 22px; margin: 0 0 10px; }
+.shortcut-welcome p, .shortcut-settings p { color: var(--secondary); font-size: 13px; line-height: 1.6; }
+.shortcut-example { margin: 18px 0; display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; background: var(--bg); }
+.shortcut-example kbd { border: 1px solid var(--line); background: var(--surface); border-radius: 5px; padding: 3px 7px; font: inherit; }
+.shortcut-duration label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--ink); }
+.shortcut-duration input { width: 66px; min-height: 34px; padding: 6px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font: inherit; }
+.shortcut-presets { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.shortcut-presets button { padding: 5px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.shortcut-presets button[aria-pressed="true"] { color: var(--ink); border-color: var(--green); background: var(--bg); }
+.shortcut-welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 14px; }
+.shortcut-welcome small { color: var(--muted); font-size: 11px; }
+.shortcut-settings-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.shortcut-settings-heading h3 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.shortcut-switch { width: 38px; height: 22px; border-radius: 20px; border: 1px solid var(--line); padding: 2px; background: var(--bg); cursor: pointer; flex-shrink: 0; }
+.shortcut-switch span { display: block; width: 16px; height: 16px; background: var(--muted); border-radius: 50%; transition: transform .16s ease, background .16s ease; }
+.shortcut-switch[aria-checked="true"] { background: var(--green); border-color: var(--green); }
+.shortcut-switch[aria-checked="true"] span { transform: translateX(15px); background: #fff; }

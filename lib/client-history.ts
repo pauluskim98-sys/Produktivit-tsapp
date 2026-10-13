@@ -240,6 +240,11 @@ export function installHistory() {
       );
   };
   const key = (e: KeyboardEvent) => {
+    if (
+      (e.target as HTMLElement).closest(".shortcut-welcome") &&
+      e.key !== "Escape"
+    )
+      return;
     const editing = (e.target as HTMLElement).closest(
       "input,textarea,select,[contenteditable]",
     );

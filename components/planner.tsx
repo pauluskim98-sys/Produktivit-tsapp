@@ -14,6 +14,12 @@ import ReminderSetup from "./reminder-setup";
 import LifeInbox from "./life-inbox";
 import InboxReturnDrop from "./inbox-return-drop";
 import ColorPicker from "./task-color-picker";
+import { useActionHints } from "./use-action-hints";
+import {
+  useShortcutPreferences,
+  ShortcutWelcome,
+  ShortcutSettings,
+} from "./shortcut-hints";
 import { taskColorForKey } from "@/lib/task-colors";
 import DurationHours from "./duration-hours";
 import {
@@ -398,83 +404,9 @@ function QuickAdd({
     </form>
   );
 }
-function useFastHoverHints() {
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let active: HTMLElement | null = null;
-    const tip = document.createElement("div");
-    tip.className = "fast-hover-hint";
-    tip.setAttribute("role", "tooltip");
-    tip.hidden = true;
-    document.body.append(tip);
-    const position = (x: number, y: number) => {
-      const left = Math.max(8, Math.min(window.innerWidth - 328, x + 12));
-      const top = Math.max(
-        8,
-        Math.min(window.innerHeight - tip.offsetHeight - 8, y + 16),
-      );
-      tip.style.left = `${left}px`;
-      tip.style.top = `${top}px`;
-    };
-    const enter = (event: PointerEvent) => {
-      if (event.pointerType !== "mouse") return;
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest(".app-shell")) return;
-      const el =
-        target.closest<HTMLElement>("[title]") ||
-        target.closest<HTMLElement>("[data-fast-hover-title]");
-      if (!el) return;
-      const text = el.dataset.fastHoverTitle || el.getAttribute("title") || "";
-      if (!text.trim()) return;
-      if (active !== el) {
-        if (timer) clearTimeout(timer);
-        tip.hidden = true;
-        active = el;
-        el.dataset.fastHoverTitle = text;
-        el.removeAttribute("title");
-        timer = setTimeout(() => {
-          if (active !== el || !el.isConnected) return;
-          tip.textContent = text;
-          tip.hidden = false;
-          position(event.clientX, event.clientY);
-        }, 45);
-      } else if (!tip.hidden) position(event.clientX, event.clientY);
-    };
-    const move = (event: PointerEvent) => {
-      if (active && !tip.hidden) position(event.clientX, event.clientY);
-    };
-    const leave = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const el = target.closest<HTMLElement>("[data-fast-hover-title]");
-      if (
-        !el ||
-        (event.relatedTarget instanceof Node &&
-          el.contains(event.relatedTarget))
-      )
-        return;
-      if (active === el) {
-        if (timer) clearTimeout(timer);
-        tip.hidden = true;
-        el.setAttribute("title", el.dataset.fastHoverTitle || "");
-        delete el.dataset.fastHoverTitle;
-        active = null;
-      }
-    };
-    window.addEventListener("pointerover", enter, true);
-    window.addEventListener("pointermove", move, true);
-    window.addEventListener("pointerout", leave, true);
-    return () => {
-      if (timer) clearTimeout(timer);
-      window.removeEventListener("pointerover", enter, true);
-      window.removeEventListener("pointermove", move, true);
-      window.removeEventListener("pointerout", leave, true);
-      tip.remove();
-    };
-  }, []);
-}
 
 export default function Planner() {
+  const shortcutHints = useShortcutPreferences();
   const [state, setState] = useState<AppState>(EMPTY),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
@@ -1712,7 +1644,7 @@ export default function Planner() {
     [overview],
   );
 
-  useFastHoverHints();
+  useActionHints(shortcutHints.enabled);
 
   usePanelSwipe({
     navigate,
@@ -1785,6 +1717,9 @@ export default function Planner() {
         if (item) setRenameBlock({ old: item.title, title: item.title });
       }}
     >
+      {shortcutHints.firstUse && (
+        <ShortcutWelcome onChoose={shortcutHints.configure} />
+      )}
       {areaSelection.rect && (
         <div
           className="selection-rectangle global-selection-rectangle"
@@ -2047,9 +1982,11 @@ export default function Planner() {
                   <Plus size={14} />
                   Kalender verbinden
                 </button>
-                <span className="keyboard-hint">
-                  <kbd>N</kbd> Neue Aufgabe <kbd>T</kbd> Heute
-                </span>
+                {shortcutHints.enabled && (
+                  <span className="keyboard-hint">
+                    <kbd>N</kbd> Neue Aufgabe <kbd>T</kbd> Heute
+                  </span>
+                )}
               </div>
             </LifeInbox>
           </aside>
@@ -2708,6 +2645,7 @@ export default function Planner() {
       {settings && (
         <Settings
           state={state}
+          shortcutHints={shortcutHints}
           onClose={() => {
             setSettings(false);
           }}
@@ -3362,6 +3300,7 @@ function Detail({
             <textarea
               data-initial-focus={isNew ? true : undefined}
               placeholder="Was möchtest du erledigen?"
+              data-shortcut="Enter → Termin erstellen / speichern · Shift Enter → neue Zeile"
               aria-label="Aufgabentitel"
               data-imported={imported("title")}
               value={draft.title}
@@ -4197,6 +4136,7 @@ function TodoChat({
 }
 function Settings({
   state,
+  shortcutHints,
   onClose,
   onRefresh,
   onError,
@@ -4204,6 +4144,7 @@ function Settings({
   onAccent,
 }: {
   state: AppState;
+  shortcutHints: ReturnType<typeof useShortcutPreferences>;
   accent: string;
   onAccent: (v: string) => void;
   onClose: () => void;
@@ -4301,6 +4242,11 @@ function Settings({
             </div>
           ))}
         </div>
+        <ShortcutSettings
+          preference={shortcutHints.preference}
+          enabled={shortcutHints.enabled}
+          onChange={shortcutHints.configure}
+        />
         <div className="settings-section">
           <ReminderSetup />
         </div>

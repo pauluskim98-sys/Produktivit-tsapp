@@ -24,6 +24,7 @@ export default function ColorPicker({
           className={`color-swatch color-${color}`}
           aria-label={TASK_COLORS[color]}
           title={`${TASK_COLORS[color]} · ${index === 9 ? 0 : index + 1}`}
+          data-shortcut={`Taste ${index === 9 ? 0 : index + 1} · außerhalb der Texteingabe`}
           aria-pressed={(value || "green") === color}
           onClick={() => onChange(color)}
         >
