@@ -1,0 +1,8 @@
+# Lifemap: automatic GitHub checkpoints
+
+The user explicitly authorized saving all completed application changes automatically to https://github.com/pauluskim98-sys/Produktivit-tsapp (`main`). This is a standing preference. After implementing and validating a requested change, commit and publish the finished source without asking for confirmation again. Also save a requested interim checkpoint. Do not promise continuous background synchronization: this workflow runs when working on the project.
+
+- Check the current remote branch head and file tree first. Preserve history and unrelated remote work; never force-push. With the GitHub connector, create a tree based on the current tree, create a commit with that head as parent, then update the ref using `expected_sha`. If it changes, inspect the new head before retrying.
+- Include application source, tests, documentation, dependency lockfiles and public assets. Check `.gitignore` and inspect the upload manifest before publishing. Never include `data/`, databases, private calendar exports, screenshots supplied by the user, API keys, `.env` files except the empty `.env.example` template, WhatsApp sessions, logs, `node_modules/`, `.next*/`, or temporary build output.
+- Compare the saved GitHub tree with the local source hashes after publishing. Record the verified commit URL locally outside the uploaded app directory and provide it to the user. If uploading fails, keep local work and explain that it has not yet been saved to GitHub.
+- Code checkpoints are separate from personal calendar data and website deployment. Do not publish either as part of this workflow.

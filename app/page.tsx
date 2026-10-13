@@ -1,4 +1,4 @@
-import Planner from "@/components/planner";
+import { redirect } from "next/navigation";
 export default function Page() {
-  return <Planner />;
+  redirect("/lifemap");
 }

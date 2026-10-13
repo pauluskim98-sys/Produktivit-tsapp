@@ -1,3 +1,4 @@
+import type { TaskColor } from "./task-colors";
 export type Priority = "none" | "low" | "medium" | "high";
 export interface Subtask {
   id: string;
@@ -11,7 +12,13 @@ export interface Todo {
   notes: string;
   done: boolean;
   priority: Priority;
-  color?: "green" | "blue" | "purple" | "orange" | "pink";
+  reminder?: boolean;
+  location?: string;
+  travelBefore?: number;
+  travelAfter?: number;
+  travelMode?: "" | "bike" | "transit";
+  seriesId?: string;
+  color?: TaskColor;
   plannedDate: string | null;
   time: string;
   deadline: string | null;
@@ -32,6 +39,7 @@ export interface CalendarConnection {
   lastError: string;
 }
 export interface CalendarEvent {
+  originalTitle?: string;
   id: string;
   connectionId: string;
   title: string;

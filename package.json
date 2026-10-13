@@ -6,20 +6,24 @@
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
-    "test": "node --test tests/dates.test.ts tests/calendar-fetch.test.ts tests/calendar-sync.test.ts tests/schedule.test.ts tests/planning.test.ts tests/interactions.test.ts",
+    "test": "node --test tests/dates.test.ts tests/calendar-fetch.test.ts tests/calendar-sync.test.ts tests/schedule.test.ts tests/planning.test.ts tests/interactions.test.ts tests/history.test.ts tests/appointment-input.test.ts tests/screenshot-paste.test.ts tests/screenshot-import.test.ts tests/travel.test.ts tests/panel-gestures.test.mjs tests/series-edit.test.ts",
     "test:api": "node --test tests/api.test.mjs",
     "format": "prettier --write app components lib tests *.json *.ts *.md",
-    "test:server": "node --test tests/scheduler-start.test.mjs tests/planner-server.test.mjs"
+    "test:server": "node --test tests/scheduler-start.test.mjs tests/planner-server.test.mjs",
+    "whatsapp:setup": "npm install --prefix data/whatsapp-socket @whiskeysockets/baileys@7.0.0-rc14 qrcode"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "ical.js": "^2.2.1",
     "lucide-react": "^0.468.0",
     "next": "^15.5.0",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tesseract.js": "^6.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

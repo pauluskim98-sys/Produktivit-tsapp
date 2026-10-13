@@ -1,0 +1,4 @@
+allowBuilds:
+  '@whiskeysockets/baileys': set this to true or false
+  protobufjs: set this to true or false
+  tesseract.js: set this to true or false

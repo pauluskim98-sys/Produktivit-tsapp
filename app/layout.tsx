@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 export const metadata: Metadata = {
-  title: "Raum · Deine Woche, klar geplant",
+  title: "Lifemap · Deine Woche, klar geplant",
   description: "Ein ruhiger Ort für deine Aufgaben, Termine und Gedanken.",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "Raum", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Lifemap", statusBarStyle: "default" },
   icons: { icon: "/icon.svg", apple: "/icon-192.png" },
 };
 export const viewport: Viewport = {

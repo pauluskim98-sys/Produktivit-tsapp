@@ -1,3 +1,4 @@
+import { TASK_COLOR_VALUES } from "./task-colors.ts";
 import type { Todo } from "./types";
 import { isDateKey } from "./dates.ts";
 export function validTodo(value: unknown): Todo {
@@ -14,7 +15,10 @@ export function validTodo(value: unknown): Todo {
   )
     throw new Error("Ungültiger Status.");
   for (const field of ["description", "notes"] as const)
-    if (typeof t[field] !== "string" || t[field].length > 30000)
+    if (
+      typeof t[field] !== "string" ||
+      t[field].length > (field === "description" ? 60000 : 30000)
+    )
       throw new Error("Notiz ist zu lang.");
   for (const field of ["plannedDate", "deadline"] as const)
     if (t[field] !== null && !isDateKey(t[field]))
@@ -58,13 +62,36 @@ export function validTodo(value: unknown): Todo {
     !Number.isFinite(Date.parse(t.createdAt))
   )
     throw new Error("Ungültiges Erstellungsdatum.");
-  if (
-    t.color !== undefined &&
-    !["green", "blue", "purple", "orange", "pink"].includes(t.color)
-  )
+  if (t.color !== undefined && !TASK_COLOR_VALUES.includes(t.color))
     throw new Error("Ungültige Farbe.");
+  if (t.reminder !== undefined && typeof t.reminder !== "boolean")
+    throw new Error("Ungültige Erinnerung.");
+  if (
+    t.seriesId !== undefined &&
+    (typeof t.seriesId !== "string" ||
+      (t.seriesId !== "" && !/^[a-zA-Z0-9-]{1,80}$/.test(t.seriesId)))
+  )
+    throw new Error("Ungültige Termingruppe.");
+  if (
+    t.location !== undefined &&
+    (typeof t.location !== "string" || t.location.length > 1000)
+  )
+    throw new Error("Ungültige Adresse.");
+  if (
+    t.travelMode !== undefined &&
+    !["", "bike", "transit"].includes(t.travelMode)
+  )
+    throw new Error("Ungültiges Verkehrsmittel.");
+  for (const key of ["travelBefore", "travelAfter"] as const)
+    if (
+      t[key] !== undefined &&
+      (!Number.isInteger(t[key]) || t[key]! < 0 || t[key]! > 1440)
+    )
+      throw new Error("Wegzeit muss zwischen 0 und 1440 Minuten liegen.");
   return {
     ...t,
+    seriesId: t.seriesId || "",
+    reminder: Boolean(t.reminder),
     color: t.color || "green",
     title: t.title.trim(),
     tags: [...new Set(t.tags.map((s) => s.trim()))],

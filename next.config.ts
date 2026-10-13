@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
-  serverExternalPackages: ["node:sqlite"],
+  distDir: process.env.LIFEMAP_BUILD_DIR || ".next",
+  serverExternalPackages: ["node:sqlite", "tesseract.js"],
   poweredByHeader: false,
 };
 export default config;

@@ -206,10 +206,21 @@ test("KI-Konfiguration wird ohne Schlüssel klar gemeldet; Chat bleibt unveränd
   }
 });
 
-test("Five task colors persist and scheduling changes preserve task content", async () => {
+test("Ten task colors persist and scheduling changes preserve task content", async () => {
   const todo = sample();
   try {
-    for (const color of ["green", "blue", "purple", "orange", "pink"]) {
+    for (const color of [
+      "green",
+      "blue",
+      "purple",
+      "orange",
+      "pink",
+      "red",
+      "yellow",
+      "teal",
+      "indigo",
+      "slate",
+    ]) {
       const r = await request("/api/todos", {
         action: "save",
         todo: { ...todo, color },
@@ -227,7 +238,7 @@ test("Five task colors persist and scheduling changes preserve task content", as
     const saved = changed.data.todos.find((t) => t.id === todo.id);
     assert.equal(saved.time, "10:15");
     assert.equal(saved.duration, 105);
-    assert.equal(saved.color, "pink");
+    assert.equal(saved.color, "slate");
     assert.deepEqual(saved.subtasks, todo.subtasks);
     const state = await request("/api/state");
     assert.equal(state.data.todos.find((t) => t.id === todo.id).duration, 105);
@@ -367,28 +378,352 @@ test("multi-day creation is atomic, does not replace existing tasks and undoes t
   }
 });
 
-test('week and month notes and advice histories are isolated', async()=>{
- const keys=['2098-01-06','week:2098-01-06','month:2098-01-01'];
- const original=(await request('/api/state')).data.dayNotes;
- try {
-  for(const [i,date] of keys.entries()) assert.equal((await request('/api/notes',{date,content:`QA period ${i}`})).status,200);
-  const state=(await request('/api/state')).data;
-  for(const [i,date] of keys.entries()) {
-   assert.equal(state.dayNotes[date],`QA period ${i}`);
-   assert.equal((await request('/api/day?date='+encodeURIComponent(date))).status,200);
+test("week and month notes and advice histories are isolated", async () => {
+  const keys = ["2098-01-06", "week:2098-01-06", "month:2098-01-01"];
+  const original = (await request("/api/state")).data.dayNotes;
+  try {
+    for (const [i, date] of keys.entries())
+      assert.equal(
+        (await request("/api/notes", { date, content: `QA period ${i}` }))
+          .status,
+        200,
+      );
+    const state = (await request("/api/state")).data;
+    for (const [i, date] of keys.entries()) {
+      assert.equal(state.dayNotes[date], `QA period ${i}`);
+      assert.equal(
+        (await request("/api/day?date=" + encodeURIComponent(date))).status,
+        200,
+      );
+    }
+    assert.equal(
+      (
+        await request("/api/notes", {
+          date: "month:2098-02-31",
+          content: "bad",
+        })
+      ).status,
+      400,
+    );
+  } finally {
+    for (const date of keys)
+      await request("/api/notes", { date, content: original[date] || "" });
   }
-  assert.equal((await request('/api/notes',{date:'month:2098-02-31',content:'bad'})).status,400);
- } finally {for(const date of keys)await request('/api/notes',{date,content:original[date]||''});}
 });
-test('batch changes reject stale state atomically and undo group deletion',async()=>{
- const a=sample(),b=sample();
- try {
-  const saved=(await request('/api/todos',{action:'createMany',todos:[a,b]})).data.todos.filter(t=>[a.id,b.id].includes(t.id));
-  let r=await request('/api/todos',{action:'batch',changes:saved.map((t,i)=>({id:t.id,before:null,after:i?{...t,title:'stale'}:t}))});
-  assert.equal(r.status,400);assert.equal((await request('/api/state')).data.todos.filter(t=>[a.id,b.id].includes(t.id)).length,2);
-  r=await request('/api/todos',{action:'batch',changes:saved.map(t=>({id:t.id,before:null,after:t}))});
-  assert.equal(r.status,200);assert.equal(r.data.deletedMany.length,2);
-  r=await request('/api/todos',{action:'undo',changes:saved.map(t=>({id:t.id,before:t,after:null}))});
-  assert.equal(r.status,200);assert.equal(r.data.todos.filter(t=>[a.id,b.id].includes(t.id)).length,2);
- }finally{for(const id of [a.id,b.id])await request('/api/todos',{action:'delete',id});}
+test("batch changes reject stale state atomically and undo group deletion", async () => {
+  const a = sample(),
+    b = sample();
+  try {
+    const saved = (
+      await request("/api/todos", { action: "createMany", todos: [a, b] })
+    ).data.todos.filter((t) => [a.id, b.id].includes(t.id));
+    let r = await request("/api/todos", {
+      action: "batch",
+      changes: saved.map((t, i) => ({
+        id: t.id,
+        before: null,
+        after: i ? { ...t, title: "stale" } : t,
+      })),
+    });
+    assert.equal(r.status, 400);
+    assert.equal(
+      (await request("/api/state")).data.todos.filter((t) =>
+        [a.id, b.id].includes(t.id),
+      ).length,
+      2,
+    );
+    r = await request("/api/todos", {
+      action: "batch",
+      changes: saved.map((t) => ({ id: t.id, before: null, after: t })),
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.data.deletedMany.length, 2);
+    r = await request("/api/todos", {
+      action: "undo",
+      changes: saved.map((t) => ({ id: t.id, before: t, after: null })),
+    });
+    assert.equal(r.status, 200);
+    assert.equal(
+      r.data.todos.filter((t) => [a.id, b.id].includes(t.id)).length,
+      2,
+    );
+  } finally {
+    for (const id of [a.id, b.id])
+      await request("/api/todos", { action: "delete", id });
+  }
+});
+
+test("Wiederholungen übernehmen Uhrzeit und Dauer aus den aktuellen Details", async () => {
+  const todo = {
+    ...sample(),
+    plannedDate: "2026-10-12",
+    time: "",
+    duration: null,
+  };
+  const ids = [];
+  try {
+    await request("/api/todos", { action: "save", todo });
+    ids.push(todo.id);
+    const r = await request("/api/todos", {
+      action: "repeat",
+      id: todo.id,
+      todo: { ...todo, time: "13:30", duration: 90 },
+      weekdays: [1],
+      weeks: 4,
+    });
+    assert.equal(r.status, 200);
+    const copies = r.data.todos.filter(
+      (t) => t.title === todo.title && t.createdAt >= todo.createdAt,
+    );
+    for (const t of copies) if (t.id !== todo.id) ids.push(t.id);
+    assert.equal(r.data.created, 4);
+    assert.ok(copies.every((t) => t.time === "13:30" && t.duration === 90));
+  } finally {
+    for (const id of ids) await request("/api/todos", { action: "delete", id });
+  }
+});
+test("Reiternamen, gelöschte Reiter und Essenswochen werden gespeichert", async () => {
+  const before = (await request("/api/life")).data;
+  try {
+    let r = await request("/api/life", {
+      ...before,
+      labels: { ...before.labels, sport: "Bewegung" },
+      hidden: [...before.hidden, "weather"],
+      meals: [
+        ...before.meals,
+        {
+          id: crypto.randomUUID(),
+          day: "2026-10-11",
+          name: "Mittagessen",
+          calories: 650,
+          quality: "balanced",
+        },
+      ],
+    });
+    assert.equal(r.status, 200);
+    r = await request("/api/life");
+    assert.equal(r.data.labels.sport, "Bewegung");
+    assert.ok(r.data.hidden.includes("weather"));
+    assert.equal(r.data.meals.at(-1).calories, 650);
+    const invalid = await request("/api/life", {
+      ...r.data,
+      meals: [
+        {
+          id: "invalid",
+          day: "2026-02-30",
+          name: "x",
+          calories: -1,
+          quality: "balanced",
+        },
+      ],
+    });
+    assert.equal(invalid.status, 400);
+  } finally {
+    await request("/api/life", before);
+  }
+});
+
+test("Termingruppen löschen und wiederherstellen, ohne doppelte Wiederholungen", async () => {
+  const source = {
+    ...sample(),
+    plannedDate: "2026-10-12",
+    time: "10:30",
+    duration: 90,
+  };
+  await request("/api/todos", { action: "save", todo: source });
+  const repeated = await request("/api/todos", {
+    action: "repeat",
+    id: source.id,
+    weekdays: [0, 2],
+    weeks: 4,
+  });
+  const group = repeated.data.todos
+    .filter((t) => t.seriesId === source.id)
+    .sort((a, b) => a.plannedDate.localeCompare(b.plannedDate));
+  assert.ok(group.length > 2);
+  assert.ok(group.every((t) => t.time === "10:30"));
+  const selected = group[2];
+  const removed = await request("/api/todos", {
+    action: "deleteSeries",
+    id: selected.id,
+    scope: "following",
+  });
+  assert.ok(
+    removed.data.todos
+      .filter((t) => t.seriesId === source.id)
+      .every((t) => t.plannedDate < selected.plannedDate),
+  );
+  const restore = group
+    .filter((t) => t.plannedDate >= selected.plannedDate)
+    .map((t) => ({ id: t.id, before: t, after: null }));
+  const restored = await request("/api/todos", {
+    action: "undo",
+    changes: restore,
+  });
+  assert.equal(restored.status, 200);
+  const retry = await request("/api/todos", {
+    action: "repeat",
+    id: source.id,
+    weekdays: [0, 2],
+    weeks: 4,
+  });
+  assert.equal(retry.data.created, 0);
+  await request("/api/todos", {
+    action: "deleteSeries",
+    id: source.id,
+    scope: "all",
+  });
+});
+test("Gewählte Gerichte und Drag-and-drop-Termine erfassen Essen samt Datum und Undo", async () => {
+  const todo = {
+    ...sample(),
+    title: "Kochen: Vegetarian pasta",
+    tags: ["Essen"],
+    plannedDate: null,
+  };
+  const created = await request("/api/todos", { action: "save", todo });
+  const saved = created.data.todos.find((t) => t.id === todo.id);
+  const meal = created.data.lifeChange.after.meals.find(
+    (m) => m.todoId === todo.id,
+  );
+  assert.equal(meal.diet, "vegetarian");
+  assert.equal(meal.calories, null);
+  const scheduled = await request("/api/todos", {
+    action: "schedule",
+    id: todo.id,
+    plannedDate: "2026-10-15",
+    time: "19:00",
+    duration: 45,
+  });
+  assert.equal(
+    scheduled.data.lifeChange.after.meals.find((m) => m.todoId === todo.id).day,
+    "2026-10-15",
+  );
+  const undone = await request("/api/todos", {
+    action: "undo",
+    changes: [
+      {
+        id: todo.id,
+        before: saved,
+        after: scheduled.data.todos.find((t) => t.id === todo.id),
+      },
+    ],
+    lifeChange: scheduled.data.lifeChange,
+  });
+  assert.equal(undone.status, 200);
+  const life = (await request("/api/life")).data;
+  assert.equal(life.meals.find((m) => m.todoId === todo.id).day, meal.day);
+  await request("/api/todos", { action: "delete", id: todo.id });
+  assert.ok(
+    !(await request("/api/life")).data.meals.some((m) => m.todoId === todo.id),
+  );
+});
+
+test("Kalender entfernen, per Verlauf wiederherstellen und erneut entfernen", async () => {
+  const ics =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:history-test\r\nDTSTART:20261015T100000Z\r\nDTEND:20261015T110000Z\r\nSUMMARY:History calendar\r\nEND:VEVENT\r\nEND:VCALENDAR";
+  const imported = await request("/api/calendar", {
+    action: "connect",
+    name: "QA Kalenderverlauf",
+    content: ics,
+  });
+  assert.equal(imported.status, 200);
+  assert.ok(imported.data.historyToken);
+  const connection = (await request("/api/state")).data.connections.find(
+    (c) => c.name === "QA Kalenderverlauf",
+  );
+  const removed = await request("/api/calendar", {
+    action: "disconnect",
+    id: connection.id,
+  });
+  assert.ok(removed.data.historyToken);
+  const restored = await request("/api/calendar", {
+    action: "history",
+    id: removed.data.historyToken,
+    redo: false,
+  });
+  assert.equal(restored.status, 200);
+  const state = (await request("/api/state")).data;
+  assert.ok(state.connections.some((c) => c.id === connection.id));
+  assert.ok(
+    state.events.some(
+      (e) => e.connectionId === connection.id && e.title === "History calendar",
+    ),
+  );
+  const redone = await request("/api/calendar", {
+    action: "history",
+    id: removed.data.historyToken,
+    redo: true,
+  });
+  assert.equal(redone.status, 200);
+  assert.ok(
+    !(await request("/api/state")).data.connections.some(
+      (c) => c.id === connection.id,
+    ),
+  );
+});
+
+test("Inbox-Reihenfolge und Stundenrhythmus bleiben gespeichert und werden validiert", async () => {
+  const original = (await request("/api/life")).data;
+  const changed = {
+    ...original,
+    tabOrder: ["weather", "todo", "social", "food", "events", "sport"],
+    rhythms: [
+      ...original.rhythms,
+      {
+        id: crypto.randomUUID(),
+        name: "Training",
+        tabId: "sport",
+        days: 7,
+        target: 2.5,
+        unit: "hours",
+      },
+    ],
+  };
+  try {
+    assert.equal((await request("/api/life", changed)).status, 200);
+    const actual = (await request("/api/life")).data;
+    assert.deepEqual(actual.tabOrder, changed.tabOrder);
+    assert.equal(actual.rhythms.at(-1).target, 2.5);
+    assert.equal(actual.rhythms.at(-1).unit, "hours");
+    assert.equal(
+      (await request("/api/life", { ...changed, tabOrder: ["todo", "todo"] }))
+        .status,
+      400,
+    );
+  } finally {
+    assert.equal((await request("/api/life", original)).status, 200);
+  }
+});
+
+test("Reiter-Standardfarben werden gespeichert und ungültige Farben abgewiesen", async () => {
+  const before = (await request("/api/life")).data;
+  try {
+    const changed = {
+      ...before,
+      tabSettings: {
+        ...before.tabSettings,
+        sport: { ...before.tabSettings.sport, defaultColor: "teal" },
+      },
+    };
+    assert.equal((await request("/api/life", changed)).status, 200);
+    assert.equal(
+      (await request("/api/life")).data.tabSettings.sport.defaultColor,
+      "teal",
+    );
+    assert.equal(
+      (
+        await request("/api/life", {
+          ...changed,
+          tabSettings: {
+            ...changed.tabSettings,
+            sport: { defaultColor: "invalid" },
+          },
+        })
+      ).status,
+      400,
+    );
+  } finally {
+    await request("/api/life", before);
+  }
 });

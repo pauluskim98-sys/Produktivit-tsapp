@@ -106,7 +106,7 @@ Der Kalender nutzt eine kompakte Werkzeugleiste ohne Begrüßungsblock. In schma
 Die kompakte Werkzeugleiste vereint Wochenwechsel, Suche, Filter und Einstellungen. Der Kalender scrollt unabhängig von der Leiste und passt auf üblichen Fensterhöhen 06:00 bis 24:00 in die sichtbare Fläche ein. Darunter folgen 00:00 bis 06:00 desselben Kalendertags.
 
 - Ein Klick auf eine freie Stelle öffnet die kompakte Erstellung. Gedrückt halten und ziehen wählt Dauer und Tage vor dem Loslassen. Es gibt keinen zusätzlichen Plus-Schritt.
-- Aufgaben ohne Uhrzeit stehen klein im Bereich „Ohne Zeit“ oder in der Inbox und werden beim Ziehen ins Raster zu Zeitblöcken.
+- Aufgaben ohne Uhrzeit stehen klein im Bereich oben am Tag oder in der Inbox und werden beim Ziehen ins Raster zu Zeitblöcken.
 - Eigene Zeitblöcke an der Mitte ziehen, um Tag und Uhrzeit zu verschieben. Den linken oder rechten Seitenrand über weitere Tage ziehen, um dort Kopien zur gleichen Zeit anzulegen.
 - Nach dem Anklicken löscht Delete/Backspace den ausgewählten eigenen Termin, solange der Fokus nicht in einem Textfeld liegt. Der Hinweis „Rückgängig“ stellt ihn wieder her.
 - Oberen oder unteren Rand eines Zeitblocks ziehen, um Beginn oder Ende in 15-Minuten-Schritten anzupassen. Die fokussierten Griffe unterstützen auch die Pfeiltasten. Änderungen können über „Rückgängig“ zurückgenommen werden.
@@ -152,3 +152,50 @@ Neue Aufgaben und bestehende Aufgaben verwenden denselben Editor mit Beschreibun
 A aktiviert im Kalender ohne Eingabefokus die Rechteckauswahl. Ausgewählte eigene Termine können gemeinsam verschoben, gelöscht oder mit Cmd/Ctrl+C und Cmd/Ctrl+V kopiert werden. Die Abstände bleiben erhalten; Cmd/Ctrl+Z nimmt die gesamte Änderung zurück. Escape beendet die Auswahl. Importierte Termine sind schreibgeschützt.
 
 Wochen- und Monatsübersichten enthalten Aufgaben, separate gespeicherte Notizen, einen Minikalender und Beratung für den jeweiligen Zeitraum. Die direkte KI benötigt weiterhin einen API-Schlüssel; ohne Verbindung steht die Übergabe an ChatGPT bereit.
+
+## Kalender und Inbox (11. Oktober 2026)
+
+Die großen Kalender bieten darunter Aufgaben, Zeitraum-Notizen und Beratung. Aufgaben können in große oder kleine Kalender gezogen werden. Der seitliche Griff erweitert eine geplante Aufgabe über mehrere Tage; danach öffnet sich die gemeinsame Uhrzeit in den Details. Ein Klick auf einen Tag öffnet dessen Woche. Monatseinträge werden chronologisch angezeigt; die Jahresübersicht zeigt Details beim Darüberfahren. Der KI-Planer übernimmt Woche, Monat oder Jahr als Zeitraum.
+
+Die Inbox enthält Essen (TheMealDB), Aktivitäten (Stadt Köln), Orte (Wikipedia), manuell gepflegte Kontakte und eigene Reiter mit Zeit- oder Häufigkeitszielen. WhatsApp ist noch nicht verbunden. Öffentliche Vorschläge enthalten ihre Quelle. Direkte KI-Antworten benötigen weiterhin einen OpenAI-API-Schlüssel.
+
+### Laptop-Erinnerungen
+
+In den Aufgabendetails „Erinnerung · 1 Tag vorher“ aktivieren und speichern. Einmalig `Erinnerungen-aktivieren.command` öffnen oder die Einrichtung unter Einstellungen herunterladen und öffnen. Das richtet einen macOS-LaunchAgent ein, der unabhängig von Browser und Webserver prüft. Der Mac muss angemeldet und eingeschaltet sein; Mitteilungen für osascript/Skripteditor müssen erlaubt sein. Ohne Uhrzeit gilt 09:00. Fällige Erinnerungen werden nach dem Aufwachen nachgeholt, solange der Termin noch bevorsteht.
+
+Der Dienst steht in `~/Library/LaunchAgents/de.raum.reminders.plist`, sein Skript in `scripts/reminder-worker.mjs`. Er speichert bereits gesendete Erinnerungen in `ReminderDelivery` und verschickt jede Aufgabe pro Erinnerungszeit nur einmal. Er benötigt den lokalen Node-Pfad und die App-Dateien; nach Verschieben der App die Einrichtung erneut ausführen.
+
+## Inbox, Essenswoche und Social Circle
+
+Todo sammelt Aufgaben ohne Termin und trennt Woche, Monat und Jahr. Aufgaben lassen sich in Prioritätsbereiche oder auf einen anderen Zeitraum ziehen, anschließend direkt in den Kalender. Reiter lassen sich im geöffneten Bereich umbenennen und über Backspace auf dem Reiter ausblenden. Unter + sind ausgeblendete Reiter wiederherstellbar; Aufgaben bleiben erhalten. Eigene Reiter können Wikipedia-Themenrecherche, öffentliche HTTPS-Quellen, WhatsApp oder die bereits verbundenen Kalender verwenden.
+
+Essen bietet Rezeptbilder und ein manuelles Tagebuch für kcal und die eigene Einschätzung (ausgewogen, gemischt, Genuss). Die Wochenwerte beziehen sich auf erfasste Mahlzeiten, Kalorien werden nicht erfunden. Wetter zeigt die Vorhersage von Open-Meteo für Köln; Sport enthält Bewegungsorte. Veranstaltungsbilder stammen vom Anbieter.
+
+### WhatsApp
+
+Im Social Circle „WhatsApp verbinden“ klicken, den QR-Code mit WhatsApp unter Verknüpfte Geräte scannen und eine vorhandene Person dem WhatsApp-Kontakt zuordnen. Danach werden Kontaktzeitpunkte aktualisiert. Die Anbindung verwendet Baileys und ist keine offizielle WhatsApp-API. Sie speichert Anmeldung und Schlüssel in einer separaten lokalen SQLite-Datei unter data/whatsapp, übernimmt Namen und Kontaktzeitpunkte und sendet keine Nachrichten. Nachrichtentexte werden nicht gespeichert oder an die KI geschickt. „Verbindung trennen“ meldet das verknüpfte Gerät ab und löscht dessen lokale Schlüssel. Für eine frische Installation alle Projektabhängigkeiten installieren, alternativ `npm run whatsapp:setup` für die lokale Verbindung.
+
+Die Nacht von 00–06 Uhr ist eine gemeinsame Zeile. Tageszeiten bleiben bei wiederholten Aufgaben erhalten und sind im Wiederholungsbereich anpassbar. Die Datumsteile der Kopfzeile zeigen beim Darüberfahren einen kleinen Kalender; die große Ansicht wird weiterhin über den separaten Ansichtsbutton gewechselt.
+
+### Inbox, Beziehungen und Verlauf
+
+Die Inboxbreite lässt sich am rechten Rand ziehen und bleibt lokal gespeichert. Todo ist eine gemeinsame Liste: Ziehen blendet Prioritätsflächen an den Einfügepositionen ein; Rot steht über Gelb, Gelb über Grün. Innerhalb der gewählten Priorität bleibt die gewünschte Reihenfolge erhalten. Neue Aufgaben beginnen mit niedriger Priorität. Aufgabenfarbe und Prioritätsstreifen sind getrennt.
+
+Reiternamen werden per Doppelklick bearbeitet; Rechtsklick öffnet ihre Einstellungen mit Internetumschalter und Websites. Eigene Optionen besitzen einen Rhythmus. Beziehungen bietet optionale Kontakt- und Treffintervalle, Gruppen und kompakte Kontaktanzeigen. Die WhatsApp-Anmeldung erfolgt weiterhin am eigenen Telefon über den QR-Code.
+
+Todo und die Aufgabenlisten unter Woche/Monat/Jahr verwenden dieselben Daten. Gewählte Gerichte werden beim Anlegen und Einplanen automatisch erfasst; Fleisch/Fisch und vegetarische Tage werden ausgewertet. Unklare Zutaten, Kalorien und Ernährungseinschätzungen bleiben als unbekannt markiert. Die Statistik zeigt Aufgabenzeit, Erledigung und Gerichte im sichtbaren Zeitraum.
+
+Cmd+Z/Cmd+Y (auch Ctrl) nehmen Änderungen in Aufgaben, Reitern, Beziehungen, Notizen, Design, Inboxbreite und Kalenderimporten zurück bzw. stellen sie wieder her. Der Verlauf umfasst die aktuelle Browsersitzung; unabhängige Änderungen werden bewahrt, Konflikte überschreiben keine neueren Angaben. Texteingaben nutzen den eigenen Bearbeitungsverlauf. Eine externe Anmeldung wird nicht durch Rückgängig abgemeldet. Escape schließt das vorderste Dialogfenster. Termingruppen haben die Löschoptionen einzelner Termin, dieser und folgende oder gesamte Gruppe.
+
+### Kalenderbedienung und Inbox (11. Oktober 2026, aktualisiert)
+
+Im Kalender wechseln Leertaste im Kreislauf zwischen Raster, Aufgaben/Notizen und Zahlenüberblick und Tab zwischen geöffneter und geschlossener Inbox. Texteingaben und Dialoge behalten ihre normale Tastaturbedienung. Escape schließt die zuletzt geöffnete Oberfläche, auch kleine Formulare, Namensbearbeitung, Kalender-Vorschauen und Unterfenster.
+
+Reiter werden direkt per Doppelklick umbenannt und durch Ziehen umgeordnet; die Reihenfolge bleibt gespeichert. Eigene Optionen unterstützen Häufigkeit oder Stunden pro Tag, Woche oder Monat. Wetter zeigt ausschließlich die Vorhersage. Terminblöcke zeigen ihre Titel; genaue Zeiten und Räume stehen im Hover-Hinweis. Die Prioritätsflächen erscheinen nur am jeweiligen aktiven Drop-Slot. Die Swipe-Schwelle bleibt bei 220, die Sperrzeit zwischen Navigationen ist auf 180 ms reduziert.
+
+
+### Screenshot-Termine prüfen und übernehmen
+
+Beim Einfügen eines Screenshots in den Aufgabentitel liest Lifemap den Text lokal aus. Mehrere explizite Termine werden als Vorschau angezeigt, einschließlich abweichender Titel und Uhrzeiten. Gleichnamige Termine erhalten beim gemeinsamen Speichern eine Serienzuordnung. Adressen, Telefonnummern und erkennbare kurze Hinweise werden in die Beschreibung übernommen; Kontaktangaben sind dort klickbar.
+
+Erkennbar angegebene tägliche, wöchentliche oder monatliche Wiederholungen erscheinen als änderbarer Vorschlag. Ohne Enddatum wird zunächst ein sichtbarer Zeitraum von acht Wochen verwendet. Zusätzliche Termine, Rhythmus, Enddatum und Anzahl sind vor der Übernahme bearbeitbar. Die aus dem Screenshot geänderten Felder bleiben bis zum erfolgreichen Speichern markiert. Ein Import wird gemeinsam gespeichert und lässt sich mit einer einzigen Rückgängig-Aktion zurücknehmen. Die lokale Erkennung nutzt ausdrückliche Datums- und Zeitangaben; mehrdeutige Screenshots sollten in der Vorschau geprüft werden.

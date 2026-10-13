@@ -1,12 +1,52 @@
 "use client";
+import { changedTaskFields, applySeriesEdit } from "@/lib/series-edit";
+import { priorityOrder } from "@/lib/priority-order";
+import { goBackView, goForwardView, useViewHistory } from "@/lib/view-history";
+import Statistics from "./statistics";
+import { useAreaSelection } from "./use-area-selection";
+import {
+  installHistory,
+  record,
+  travel,
+  historySize,
+} from "@/lib/client-history";
+import ReminderSetup from "./reminder-setup";
+import LifeInbox from "./life-inbox";
+import InboxReturnDrop from "./inbox-return-drop";
+import ColorPicker from "./task-color-picker";
+import { taskColorForKey } from "@/lib/task-colors";
+import DurationHours from "./duration-hours";
+import {
+  addressFromText,
+  mapsAddress,
+  phonesFromText,
+  phoneLink,
+} from "@/lib/addresses";
+import { pastedImage, prepareScreenshot } from "@/lib/pasted-image";
+import ScreenshotImportReview from "./screenshot-import-review";
+import {
+  parseScreenshotImport,
+  screenshotOccurrences,
+  screenshotTasks,
+  type ScreenshotEvent,
+  type ScreenshotImport,
+} from "@/lib/screenshot-import";
+import { parseAppointmentInput } from "@/lib/appointment-input";
+import { usePanelSwipe } from "./use-panel-swipe";
 import DayPanel from "./day-panel";
 import { CalendarOverview } from "./calendar-overview";
-import { nextTask, shiftTasks, periodRange } from "@/lib/calendar-interactions";
+import {
+  nextTask,
+  shiftTasks,
+  moveTaskGroup,
+  periodRange,
+} from "@/lib/calendar-interactions";
 import { eventPresentation } from "@/lib/subjects";
 import AiPlanner, { AiConnection } from "./ai-planner";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DndContext,
+  MeasuringStrategy,
   DragOverlay,
   PointerSensor,
   KeyboardSensor,
@@ -30,8 +70,6 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Circle,
   Clock3,
   Flag,
@@ -41,6 +79,7 @@ import {
   Loader2,
   Moon,
   Plus,
+  Play,
   Search,
   Settings2,
   Sparkles,
@@ -77,38 +116,6 @@ const PRIORITIES = {
   medium: "Mittel",
   high: "Hoch",
 };
-const TASK_COLORS = {
-  green: "Grün",
-  blue: "Blau",
-  purple: "Violett",
-  orange: "Orange",
-  pink: "Rosa",
-};
-function ColorPicker({
-  value,
-  onChange,
-}: {
-  value: Todo["color"];
-  onChange: (color: Todo["color"]) => void;
-}) {
-  return (
-    <fieldset className="color-picker">
-      <legend>Farbe</legend>
-      {Object.entries(TASK_COLORS).map(([color, label]) => (
-        <button
-          key={color}
-          type="button"
-          className={`color-swatch color-${color}`}
-          aria-label={label}
-          aria-pressed={(value || "green") === color}
-          onClick={() => onChange(color as Todo["color"])}
-        >
-          {(value || "green") === color && <Check size={15} />}
-        </button>
-      ))}
-    </fieldset>
-  );
-}
 const EMPTY: AppState = {
   todos: [],
   events: [],
@@ -142,7 +149,7 @@ function newTodo(
     description: "",
     notes: "",
     done: false,
-    priority: "none",
+    priority: "low",
     plannedDate,
     time: "",
     deadline: null,
@@ -203,6 +210,7 @@ function TaskCard({
         transition,
         opacity: isDragging ? 0.25 : 1,
       }}
+      data-task-id={todo.id}
       className={`task-card color-${todo.color || "green"} ${todo.done ? "completed" : ""} ${overlay ? "drag-overlay" : ""}`}
     >
       <button
@@ -342,6 +350,7 @@ function QuickAdd({
 }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   return (
     <form
       className="quick-add"
@@ -358,10 +367,17 @@ function QuickAdd({
         }
       }}
     >
-      <Plus size={15} />
+      <button
+        type="button"
+        aria-label="Aufgabe eingeben"
+        onClick={() => inputRef.current?.focus()}
+      >
+        <Plus size={15} />
+      </button>
       <input
+        ref={inputRef}
         aria-label={day ? `Aufgabe für ${day}` : "Aufgabe für die Inbox"}
-        placeholder="Aufgabe hinzufügen"
+        placeholder={day ? "" : "Aufgabe hinzufügen"}
         value={value}
         maxLength={500}
         autoFocus={autoFocus}
@@ -382,6 +398,82 @@ function QuickAdd({
     </form>
   );
 }
+function useFastHoverHints() {
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let active: HTMLElement | null = null;
+    const tip = document.createElement("div");
+    tip.className = "fast-hover-hint";
+    tip.setAttribute("role", "tooltip");
+    tip.hidden = true;
+    document.body.append(tip);
+    const position = (x: number, y: number) => {
+      const left = Math.max(8, Math.min(window.innerWidth - 328, x + 12));
+      const top = Math.max(
+        8,
+        Math.min(window.innerHeight - tip.offsetHeight - 8, y + 16),
+      );
+      tip.style.left = `${left}px`;
+      tip.style.top = `${top}px`;
+    };
+    const enter = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse") return;
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest(".app-shell")) return;
+      const el =
+        target.closest<HTMLElement>("[title]") ||
+        target.closest<HTMLElement>("[data-fast-hover-title]");
+      if (!el) return;
+      const text = el.dataset.fastHoverTitle || el.getAttribute("title") || "";
+      if (!text.trim()) return;
+      if (active !== el) {
+        if (timer) clearTimeout(timer);
+        tip.hidden = true;
+        active = el;
+        el.dataset.fastHoverTitle = text;
+        el.removeAttribute("title");
+        timer = setTimeout(() => {
+          if (active !== el || !el.isConnected) return;
+          tip.textContent = text;
+          tip.hidden = false;
+          position(event.clientX, event.clientY);
+        }, 45);
+      } else if (!tip.hidden) position(event.clientX, event.clientY);
+    };
+    const move = (event: PointerEvent) => {
+      if (active && !tip.hidden) position(event.clientX, event.clientY);
+    };
+    const leave = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const el = target.closest<HTMLElement>("[data-fast-hover-title]");
+      if (
+        !el ||
+        (event.relatedTarget instanceof Node &&
+          el.contains(event.relatedTarget))
+      )
+        return;
+      if (active === el) {
+        if (timer) clearTimeout(timer);
+        tip.hidden = true;
+        el.setAttribute("title", el.dataset.fastHoverTitle || "");
+        delete el.dataset.fastHoverTitle;
+        active = null;
+      }
+    };
+    window.addEventListener("pointerover", enter, true);
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerout", leave, true);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("pointerover", enter, true);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerout", leave, true);
+      tip.remove();
+    };
+  }, []);
+}
+
 export default function Planner() {
   const [state, setState] = useState<AppState>(EMPTY),
     [loading, setLoading] = useState(true),
@@ -405,10 +497,30 @@ export default function Planner() {
   };
   const history = useRef<Change[][]>([]);
   const [historyCount, setHistoryCount] = useState(0);
+  const [deleteSeries, setDeleteSeries] = useState<Todo | null>(null);
+  useEffect(() => {
+    const uninstall = installHistory();
+    const refresh = () => {
+      void load();
+    };
+    const count = () => setHistoryCount(historySize());
+    const error = (e: Event) =>
+      handleError(new Error((e as CustomEvent).detail));
+    window.addEventListener("raum-data-changed", refresh);
+    window.addEventListener("raum-history-count", count);
+    window.addEventListener("raum-history-error", error);
+    return () => {
+      uninstall();
+      window.removeEventListener("raum-data-changed", refresh);
+      window.removeEventListener("raum-history-count", count);
+      window.removeEventListener("raum-history-error", error);
+    };
+  }, []);
   const remember = (
     before: Todo[],
     after: Todo[],
     deleted?: { id: string; messages: ChatMessage[] }[],
+    lifeChange?: { before: unknown; after: unknown },
   ) => {
     const changes = [...new Set([...before, ...after].map((t) => t.id))]
       .map((id) => ({
@@ -421,30 +533,31 @@ export default function Planner() {
       }))
       .filter((c) => JSON.stringify(c.before) !== JSON.stringify(c.after));
     if (changes.length) {
+      const apply = async (redo: boolean) => {
+        const result = await api("/api/todos", {
+          action: "undo",
+          changes: redo
+            ? changes.map((c) => ({ ...c, before: c.after, after: c.before }))
+            : changes,
+          lifeChange: lifeChange
+            ? redo
+              ? { before: lifeChange.after, after: lifeChange.before }
+              : lifeChange
+            : undefined,
+        });
+        setState((s) => ({ ...s, todos: result.todos }));
+        setSelected(null);
+      };
+      record({ undo: () => apply(false), redo: () => apply(true) });
       history.current.push(changes);
       if (history.current.length > 50) history.current.shift();
-      setHistoryCount(history.current.length);
+      setHistoryCount(historySize());
     }
   };
   const undoLast = async () => {
-    if (lock.current || !history.current.length) return;
-    lock.current = true;
-    setBusy(true);
-    try {
-      const changes = history.current.at(-1)!;
-      const data = await api("/api/todos", { action: "undo", changes });
-      history.current.pop();
-      setHistoryCount(history.current.length);
-      setState((s) => ({ ...s, todos: data.todos }));
-      setSelected(null);
-      setToast({ text: "Änderung rückgängig gemacht" });
-    } catch (e) {
-      handleError(e);
-    } finally {
-      lock.current = false;
-      setBusy(false);
-    }
+    await travel();
   };
+  const [datePreview, setDatePreview] = useState<string | null>(null);
   const [overview, setOverview] = useState<"month" | "week" | "year" | null>(
     null,
   );
@@ -455,25 +568,130 @@ export default function Planner() {
     [query, setQuery] = useState(""),
     [tagFilter, setTagFilter] = useState(""),
     [showDone, setShowDone] = useState(true);
+  const [inboxWidth, setInboxWidth] = useState(300);
+  const resizeStart = useRef(300);
+  useEffect(() => {
+    const w = Number(localStorage.getItem("raum-inbox-width"));
+    if (w >= 230 && w <= 650) setInboxWidth(w);
+  }, []);
   const [inboxOpen, setInboxOpen] = useState(true),
     [mobileInbox, setMobileInbox] = useState(false),
     [settings, setSettings] = useState(false),
     [newOpen, setNewOpen] = useState(false),
     [dark, setDark] = useState(false);
+  const floatingInbox = Boolean(
+    (dayPanel || selected || planning || settings || newOpen) &&
+    (inboxOpen || mobileInbox),
+  );
+  const areaSelection = useAreaSelection(selectionMode, selectedIds, (ids) => {
+    setSelectedIds(ids);
+    setPicked(ids[0] || null);
+    setSelectionMode(false);
+  });
+  const [editGroup, setEditGroup] = useState<string[]>([]);
   const [accent, setAccent] = useState("green");
-  const swipe = useRef<{ x: number; y: number } | null>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const wheelGesture = useRef({ amount: 0, lastEvent: 0, lastPage: 0 });
+  const backView = useViewHistory(
+    {
+      anchor,
+      mobileDay,
+      overview,
+      dayPanel,
+      selected,
+      planning,
+      settings,
+      newOpen,
+      inboxOpen,
+      mobileInbox,
+    },
+    (view) => {
+      setAnchor(view.anchor);
+      setMobileDay(view.mobileDay);
+      setOverview(view.overview);
+      setDayPanel(view.dayPanel);
+      setSelected(
+        view.selected && state.todos.some((t) => t.id === view.selected)
+          ? view.selected
+          : null,
+      );
+      setPlanning(view.planning);
+      setSettings(view.settings);
+      setNewOpen(view.newOpen);
+      setInboxOpen(view.inboxOpen);
+      setMobileInbox(view.mobileInbox);
+      setPicked(null);
+      setSelectedIds([]);
+      setSelectionMode(false);
+    },
+    true,
+    (before, after) => {
+      const keys = [
+        "dayPanel",
+        "selected",
+        "planning",
+        "settings",
+        "newOpen",
+        "inboxOpen",
+        "mobileInbox",
+      ] as const;
+      return (
+        before.anchor === after.anchor &&
+        before.overview === after.overview &&
+        keys.some((key) => Boolean(before[key]) && !after[key]) &&
+        !keys.some((key) => !before[key] && Boolean(after[key]))
+      );
+    },
+  );
+  useEffect(() => {
+    const back = (event: Event) => {
+      if (event.defaultPrevented) return;
+      if (selectionMode || selectedIds.length || picked) {
+        setSelectionMode(false);
+        setSelectedIds([]);
+        setPicked(null);
+        event.preventDefault();
+      } else if (query) {
+        setQuery("");
+        event.preventDefault();
+      } else if (inboxOpen || mobileInbox) {
+        setInboxOpen(false);
+        setMobileInbox(false);
+        event.preventDefault();
+      } else if (goBackView()) event.preventDefault();
+    };
+    window.addEventListener("raum-view-back", back);
+    return () => window.removeEventListener("raum-view-back", back);
+  }, [
+    backView,
+    selectionMode,
+    selectedIds,
+    picked,
+    query,
+    inboxOpen,
+    mobileInbox,
+  ]);
+  const spaceJump = useRef<{
+    index: number;
+    target: number | null;
+    at: number;
+  }>({ index: 0, target: null, at: 0 });
+  useEffect(() => {
+    spaceJump.current = { index: 0, target: null, at: 0 };
+  }, [anchor, overview]);
+  const navigationAnchor = useRef(anchor);
+  navigationAnchor.current = anchor;
   const [newSlot, setNewSlot] = useState<{
     day: string;
     time: string;
     duration?: number;
     days?: string[];
+    drawn?: boolean;
   } | null>(null);
   const [dragged, setDragged] = useState<Todo | null>(null),
     [toast, setToast] = useState<{
       text: string;
       undo?: () => Promise<void>;
+      detail?: string;
     } | null>(null),
     [busy, setBusy] = useState(false);
   useDialog(
@@ -557,9 +775,88 @@ export default function Planner() {
   };
   useEffect(() => {
     function key(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
       const input = (e.target as HTMLElement).closest(
         "input,textarea,select,[contenteditable]",
       );
+      const neutral =
+        !input &&
+        !document.querySelector('[role="dialog"], [role="menu"]') &&
+        !selected &&
+        !newOpen &&
+        !planning &&
+        !settings &&
+        !dayPanel &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey;
+      if (
+        !input &&
+        e.key.toLowerCase() === "a" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.repeat
+      ) {
+        e.preventDefault();
+        setSelectionMode((value) => !value);
+        return;
+      }
+      if (
+        !input &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        selectedIds.length > 1 &&
+        ["Delete", "Backspace"].includes(e.key)
+      ) {
+        e.preventDefault();
+        void deleteGroup().catch(() => {});
+        return;
+      }
+      if (neutral && e.key === "Tab") {
+        e.preventDefault();
+        setInboxOpen((v) => !v);
+        setMobileInbox((v) => !v);
+        return;
+      }
+      if (neutral && (e.code === "Space" || e.key === " ")) {
+        const main = mainRef.current;
+        const footer = main?.querySelector<HTMLElement>(".period-overview");
+        if (main && footer) {
+          e.preventDefault();
+          const offset = (section: HTMLElement) =>
+            Math.min(
+              main.scrollHeight - main.clientHeight,
+              Math.max(
+                0,
+                section.getBoundingClientRect().top -
+                  main.getBoundingClientRect().top +
+                  main.scrollTop -
+                  64,
+              ),
+            );
+          const targets = [0, offset(footer)];
+          const previous = spaceJump.current;
+          const continuing =
+            previous.target !== null &&
+            (Date.now() - previous.at < 800 ||
+              Math.abs(main.scrollTop - previous.target) < 32);
+          const current = continuing
+            ? previous.index
+            : main.scrollTop >= targets[1] - 32
+              ? 1
+              : 0;
+          const next = (current + 1) % 2;
+          spaceJump.current = {
+            index: next,
+            target: targets[next],
+            at: Date.now(),
+          };
+          main.scrollTo({ top: targets[next], behavior: "smooth" });
+        }
+        return;
+      }
       if (
         !input &&
         !selected &&
@@ -571,20 +868,10 @@ export default function Planner() {
         !e.ctrlKey &&
         !e.altKey
       ) {
-        if (e.key.toLowerCase() === "a") {
-          e.preventDefault();
-          setSelectionMode((v) => !v);
-          return;
-        }
         if (e.key === "Escape") {
           setSelectionMode(false);
           setSelectedIds([]);
           setPicked(null);
-        }
-        if (selectedIds.length > 1 && ["Delete", "Backspace"].includes(e.key)) {
-          e.preventDefault();
-          void deleteGroup().catch(() => {});
-          return;
         }
         if (picked && e.key.startsWith("Arrow")) {
           e.preventDefault();
@@ -614,7 +901,7 @@ export default function Planner() {
         !settings &&
         !dayPanel &&
         picked &&
-        /^[1-5]$/.test(e.key) &&
+        taskColorForKey(e.key) &&
         !e.metaKey &&
         !e.ctrlKey &&
         !e.altKey
@@ -624,7 +911,7 @@ export default function Planner() {
         if (t)
           void save({
             ...t,
-            color: Object.keys(TASK_COLORS)[Number(e.key) - 1] as Todo["color"],
+            color: taskColorForKey(e.key),
           }).catch(handleError);
         return;
       }
@@ -678,9 +965,8 @@ export default function Planner() {
       target instanceof HTMLElement &&
       Boolean(target.closest("input,textarea,select,[contenteditable]"));
     const copy = (e: ClipboardEvent) => {
-      if (editable(e.target) || planning || settings || newOpen || dayPanel)
-        return;
-      if (!selected && selectedIds.length > 1 && e.clipboardData) {
+      if (editable(e.target) || planning || settings || newOpen) return;
+      if (selectedIds.length > 1 && e.clipboardData) {
         e.preventDefault();
         groupClipboard.current = state.todos.filter((t) =>
           selectedIds.includes(t.id),
@@ -710,7 +996,6 @@ export default function Planner() {
       if (
         planning ||
         settings ||
-        dayPanel ||
         ((editable(e.target) || newOpen) && !(newOpen && newSlot && blockPaste))
       )
         return;
@@ -724,15 +1009,16 @@ export default function Planner() {
             group.every(
               (t) =>
                 typeof t.title === "string" &&
-                t.plannedDate &&
-                t.time &&
+                Array.isArray(t.tags) &&
                 Array.isArray(t.subtasks),
             )
           ) {
             e.preventDefault();
             const target = pasteTarget || {
-              day: group[0].plannedDate,
-              time: group[0].time,
+              day: dayPanel
+                ? periodRange(dayPanel)!.start
+                : group[0].plannedDate,
+              time: group[0].time || "",
             };
             void pasteGroup(group, target.day, target.time)
               .then(() => setNewOpen(false))
@@ -762,6 +1048,12 @@ export default function Planner() {
         void duplicate(todo, pasteTarget.day, pasteTarget.time).then(() =>
           setNewOpen(false),
         );
+      else if (dayPanel)
+        void duplicate(
+          todo,
+          periodRange(dayPanel)!.start,
+          todo.time || "",
+        ).catch(handleError);
       else setToast({ text: "Zuerst eine Stelle im Kalender auswählen." });
     };
     window.addEventListener("keydown", key);
@@ -786,7 +1078,124 @@ export default function Planner() {
     selectionMode,
     anchor,
   ]);
-  const mutate = async (body: unknown) => {
+  useEffect(() => {
+    const forward = (e: Event) => {
+      if (goForwardView()) e.preventDefault();
+    };
+    const inbox = (e: Event) => {
+      e.preventDefault();
+      const open = inboxOpen || mobileInbox;
+      setInboxOpen(!open);
+      setMobileInbox(!open);
+    };
+    const select = (e: Event) => {
+      e.preventDefault();
+      setSelectionMode((v) => !v);
+    };
+    const removeSelection = (e: Event) => {
+      if (selectedIds.length) {
+        e.preventDefault();
+        if (selectedIds.length === 1) {
+          const task = state.todos.find((t) => t.id === selectedIds[0]);
+          if (task) void remove(task).catch(handleError);
+        } else void deleteGroup().catch(handleError);
+      }
+    };
+    window.addEventListener("raum-view-forward", forward);
+    window.addEventListener("raum-inbox-toggle", inbox);
+    window.addEventListener("raum-selection-toggle", select);
+    window.addEventListener("raum-selection-delete", removeSelection);
+    return () => {
+      window.removeEventListener("raum-view-forward", forward);
+      window.removeEventListener("raum-inbox-toggle", inbox);
+      window.removeEventListener("raum-selection-toggle", select);
+      window.removeEventListener("raum-selection-delete", removeSelection);
+    };
+  }, [inboxOpen, mobileInbox, selectedIds, state.todos]);
+  const [seriesQuestion, setSeriesQuestion] = useState<{
+    title: string;
+    resolve: (all: boolean | null) => void;
+  } | null>(null);
+  const [renameBlock, setRenameBlock] = useState<{
+    old: string;
+    title: string;
+  } | null>(null);
+  const calendarClick = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (calendarClick.current) clearTimeout(calendarClick.current);
+    },
+    [],
+  );
+  const askSeries = (title: string) =>
+    new Promise<boolean | null>((resolve) =>
+      setSeriesQuestion({ title, resolve }),
+    );
+  const mutate = async (body: unknown, ask = true) => {
+    if (ask) {
+      const command = body as {
+        action: string;
+        todo?: Todo;
+        id?: string;
+        plannedDate?: string | null;
+        time?: string;
+        duration?: number | null;
+        moves?: Partial<Todo>[];
+        changes?: { id: string; before: Todo | null; after: Todo | null }[];
+      };
+      const updates: Todo[] =
+        command.action === "save" && command.todo
+          ? [command.todo]
+          : command.action === "schedule"
+            ? state.todos
+                .filter((t) => t.id === command.id)
+                .map((t) => ({
+                  ...t,
+                  plannedDate: command.plannedDate ?? null,
+                  time: command.time || "",
+                  duration: command.duration ?? null,
+                }))
+            : command.action === "move"
+              ? (command.moves || []).flatMap((m) => {
+                  const t = state.todos.find((t) => t.id === m.id);
+                  return t ? [{ ...t, ...m }] : [];
+                })
+              : command.action === "batch"
+                ? (command.changes || []).flatMap((c) =>
+                    c.before ? [c.before] : [],
+                  )
+                : [];
+      const expanded = new Map(updates.map((t) => [t.id, t]));
+      const asked = new Set<string>();
+      let scopeAsked = false;
+      for (const edited of updates) {
+        const source = state.todos.find((t) => t.id === edited.id);
+        if (
+          !source?.seriesId ||
+          asked.has(source.seriesId) ||
+          !changedTaskFields(source, edited).length
+        )
+          continue;
+        const chain = state.todos.filter((t) => t.seriesId === source.seriesId);
+        if (chain.length < 2) continue;
+        asked.add(source.seriesId);
+        scopeAsked = true;
+        const all = await askSeries(source.title);
+        if (all === null) throw new Error("Änderung abgebrochen.");
+        if (all)
+          for (const target of chain)
+            expanded.set(target.id, applySeriesEdit(source, edited, target));
+      }
+      if (scopeAsked)
+        body = {
+          action: "batch",
+          changes: [...expanded.values()].map((t) => ({
+            id: t.id,
+            before: t,
+            after: state.todos.find((x) => x.id === t.id) || null,
+          })),
+        };
+    }
     if (lock.current)
       throw new Error(
         "Eine Änderung wird gerade gespeichert. Bitte kurz warten.",
@@ -794,15 +1203,19 @@ export default function Planner() {
     lock.current = true;
     setBusy(true);
     try {
+      const before = (await api("/api/state")).todos as Todo[];
       const result = await api("/api/todos", body);
       remember(
-        state.todos,
+        before,
         result.todos,
         result.deleted
           ? [{ id: result.deleted.id, messages: result.messages }]
           : result.deletedMany,
+        result.lifeChange,
       );
       setState((prev) => ({ ...prev, todos: result.todos }));
+      if (result.lifeChange)
+        window.dispatchEvent(new Event("raum-life-changed"));
       return result;
     } finally {
       lock.current = false;
@@ -878,6 +1291,13 @@ export default function Planner() {
     }
   };
   const remove = async (todo: Todo) => {
+    if (
+      todo.seriesId &&
+      state.todos.filter((t) => t.seriesId === todo.seriesId).length > 1
+    ) {
+      setDeleteSeries(todo);
+      return;
+    }
     try {
       const result = await mutate({ action: "delete", id: todo.id });
       setSelected(null);
@@ -935,6 +1355,13 @@ export default function Planner() {
       if (detail) setSelected(next);
     }
   };
+  const openCalendarTask = (id: string) => {
+    setInboxOpen(false);
+    setMobileInbox(false);
+    setSelected(id);
+    setPicked(id);
+    setSelectedIds([id]);
+  };
   const batchUpdate = async (todos: Todo[], ids: string[] = []) => {
     try {
       await mutate({
@@ -963,13 +1390,55 @@ export default function Planner() {
     setPicked(null);
     setToast({ text: "Auswahl gelöscht" });
   };
-  const pasteGroup = async (group: Todo[], day: string, time: string) => {
+  const pasteGroup = async (
+    group: Todo[],
+    day: string | null,
+    time: string,
+  ) => {
     if (!group.length) return;
-    const copies = shiftTasks(group, group[0], day, time, true);
+    const moved = day ? moveTaskGroup(group, group[0], day, time) : group;
+    const copies = moved.map((t, i) => ({
+      ...structuredClone(t),
+      id: crypto.randomUUID(),
+      done: false,
+      createdAt: new Date().toISOString(),
+      position: state.todos.length + i + 1,
+      subtasks: t.subtasks.map((s) => ({
+        ...s,
+        id: crypto.randomUUID(),
+        done: false,
+      })),
+    }));
     await batchUpdate(copies);
     setSelectedIds(copies.map((t) => t.id));
     setPicked(copies[0]?.id || null);
     setToast({ text: `${copies.length} Termine eingefügt` });
+  };
+  const extendAcross = async (source: Todo, days: string[]) => {
+    const dates = [...new Set(days)].filter((d) => d !== source.plannedDate);
+    if (!dates.length) return;
+    const copies = dates.map((day) => ({
+      ...structuredClone(source),
+      id: crypto.randomUUID(),
+      seriesId: source.seriesId || source.id,
+      plannedDate: day,
+      done: false,
+      createdAt: new Date().toISOString(),
+      subtasks: source.subtasks.map((s) => ({
+        ...s,
+        id: crypto.randomUUID(),
+        done: false,
+      })),
+    }));
+    await mutate({
+      action: "createMany",
+      todos: copies,
+      source: { ...source, seriesId: source.seriesId || source.id },
+    });
+    setDayPanel(null);
+    setEditGroup([source.id, ...copies.map((t) => t.id)]);
+    setSelected(source.id);
+    setPicked(source.id);
   };
   const move = async ({
     active,
@@ -979,26 +1448,105 @@ export default function Planner() {
   }: DragEndEvent) => {
     setDragged(null);
     if (!over || active.id === over.id) return;
-    const source = state.todos.find(
+    let source = state.todos.find(
       (t) => t.id === (active.data.current?.todoId || active.id),
     );
+    const suggestion = active.data.current?.suggestion;
+    if (!source && suggestion) {
+      source = {
+        ...newTodo(suggestion.title, null, state.todos.length + 1),
+        color: suggestion.color || "green",
+        tags: suggestion.tags,
+        notes: suggestion.notes + (suggestion.url ? `\n${suggestion.url}` : ""),
+      };
+      if (over.data.current?.kind !== "todo-priority")
+        await mutate({ action: "save", todo: source });
+    }
     if (!source) return;
-    if (over.data.current?.kind === "periodday") {
-      const day = over.data.current.day as string;
+    if (over.data.current?.kind === "inbox-return") {
+      const returning =
+        selectedIds.length > 1 && selectedIds.includes(source.id)
+          ? state.todos.filter((t) => selectedIds.includes(t.id))
+          : [source];
+      await batchUpdate(
+        returning.map((todo, i) => ({
+          ...todo,
+          plannedDate: null,
+          time: "",
+          duration: null,
+          position: state.todos.length + i + 1,
+        })),
+      );
+      setToast({
+        text:
+          returning.length > 1
+            ? "Aufgaben zurück in der Inbox"
+            : "Aufgabe zurück in der Inbox",
+      });
+      return;
+    }
+    if (source && over.data.current?.kind === "todo-priority") {
+      const data = over.data.current;
+      const inferred = source.priority;
       if (
         selectedIds.length > 1 &&
         selectedIds.includes(source.id) &&
-        source.plannedDate &&
-        source.time
+        !suggestion
       ) {
+        let current = state.todos;
+        const changed = new Set<string>();
+        for (const id of selectedIds) {
+          const task = current.find((t) => t.id === id);
+          if (!task) continue;
+          const updates = priorityOrder(
+            current,
+            task,
+            data.beforeId ?? null,
+            data.priority || inferred,
+            data.horizon,
+          );
+          updates.forEach((t) => changed.add(t.id));
+          current = current.map((t) => updates.find((u) => u.id === t.id) || t);
+        }
+        await batchUpdate(current.filter((t) => changed.has(t.id)));
+        return;
+      }
+      const updated = priorityOrder(
+        state.todos,
+        source,
+        data.beforeId ?? null,
+        data.priority || inferred,
+        data.horizon,
+      );
+      if (suggestion) {
+        const current = (await api("/api/state")).todos as Todo[];
+        await mutate({
+          action: "batch",
+          changes: updated.map((t) => ({
+            id: t.id,
+            before: t,
+            after: current.find((x) => x.id === t.id) || null,
+          })),
+        });
+      } else await batchUpdate(updated);
+      return;
+    }
+
+    if (["periodday", "periodpanel"].includes(over.data.current?.kind)) {
+      const day = over.data.current!.day as string;
+      if (selectedIds.length > 1 && selectedIds.includes(source.id)) {
         await batchUpdate(
-          shiftTasks(
+          moveTaskGroup(
             state.todos.filter((t) => selectedIds.includes(t.id)),
             source,
             day,
-            source.time,
           ),
         );
+        if (!source.time) {
+          setDayPanel(null);
+          setEditGroup(selectedIds);
+          setSelected(source.id);
+        }
         return;
       }
       await mutate({
@@ -1008,10 +1556,14 @@ export default function Planner() {
         time: source.time || "",
         duration: source.duration,
       });
+      setDayPanel(null);
+      setEditGroup([source.id]);
+      setSelected(source.id);
+      setPicked(source.id);
       return;
     }
     if (over.data.current?.kind === "timegrid") {
-      const day = over.data.current.day as string;
+      const day = over.data.current!.day as string;
       const grid = document.querySelector(`[data-day-grid="${day}"]`);
       if (grid && selectedIds.length > 1 && selectedIds.includes(source.id)) {
         const change = scheduleAt(
@@ -1024,7 +1576,7 @@ export default function Planner() {
           ),
         );
         await batchUpdate(
-          shiftTasks(
+          moveTaskGroup(
             state.todos.filter((t) => selectedIds.includes(t.id)),
             source,
             day,
@@ -1057,6 +1609,19 @@ export default function Planner() {
         ? null
         : String(over.id).replace(/^tab:/, "");
     if (day !== null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+    if (selectedIds.length > 1 && selectedIds.includes(source.id)) {
+      await batchUpdate(
+        state.todos
+          .filter((t) => selectedIds.includes(t.id))
+          .map((t, i) => ({
+            ...t,
+            plannedDate: day,
+            time: "",
+            position: state.todos.length + i,
+          })),
+      );
+      return;
+    }
     const list = state.todos
       .filter((t) => t.plannedDate === day && t.id !== source.id)
       .sort((a, b) => a.position - b.position);
@@ -1118,7 +1683,11 @@ export default function Planner() {
     (t) => t.plannedDate && weekKeys.includes(t.plannedDate),
   );
   const done = weekTodos.filter((t) => t.done).length;
-  const tags = [...new Set(state.todos.flatMap((t) => t.tags))].sort();
+  const tags = [
+    ...new Set(
+      state.todos.flatMap((t) => t.tags.filter((x) => !/^(k|r|h):/.test(x))),
+    ),
+  ].sort();
   const current = state.todos.find((t) => t.id === selected);
   const eventsFor = (day: string) =>
     state.events.filter((e) =>
@@ -1128,106 +1697,257 @@ export default function Planner() {
             new Date(`${dateKey(addDays(parseDate(day), 1))}T00:00:00`) &&
           new Date(e.end) > new Date(`${day}T00:00:00`),
     );
-  const navigate = (direction: number) => {
-    const next = parseDate(anchor);
-    if (overview === "month") next.setDate(1);
-    if (overview === "year") next.setMonth(0, 1);
-    if (overview === "year") next.setFullYear(next.getFullYear() + direction);
-    else if (overview === "month") next.setMonth(next.getMonth() + direction);
-    else next.setDate(next.getDate() + direction * 7);
-    setAnchor(dateKey(next));
-    setMobileDay(dateKey(next));
-  };
-  const cycleOverview = () =>
-    setOverview((v) => (v === null ? "month" : v === "month" ? "year" : null));
-  const swipePage = (e: React.TouchEvent) => {
-    if (
-      selectionMode ||
-      settings ||
-      selected ||
-      newOpen ||
-      planning ||
-      dayPanel
-    )
-      return;
-    const t = e.target as HTMLElement;
-    if (t.closest("input,textarea,.timed-task,.task-card,.overview-task"))
-      return;
-    const origin = swipe.current;
-    swipe.current = null;
-    if (!origin) return;
-    const dx = e.changedTouches[0].clientX - origin.x,
-      dy = e.changedTouches[0].clientY - origin.y;
-    if (Math.abs(dx) > 75 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-      e.preventDefault();
-      navigate(dx < 0 ? 1 : -1);
-    }
-  };
+  const navigate = useCallback(
+    (direction: number) => {
+      const next = parseDate(navigationAnchor.current);
+      if (overview === "month") next.setDate(1);
+      if (overview === "year") next.setMonth(0, 1);
+      if (overview === "year") next.setFullYear(next.getFullYear() + direction);
+      else if (overview === "month") next.setMonth(next.getMonth() + direction);
+      else next.setDate(next.getDate() + direction * 7);
+      navigationAnchor.current = dateKey(next);
+      setAnchor(dateKey(next));
+      setMobileDay(dateKey(next));
+    },
+    [overview],
+  );
 
-  useEffect(() => {
-    const main = mainRef.current;
-    if (!main) return;
-    const gesture = wheelGesture.current;
-    const wheel = (event: WheelEvent) => {
-      if (
-        dayPanel ||
-        settings ||
-        selected ||
-        newOpen ||
-        planning ||
-        dragged ||
-        event.ctrlKey
-      )
-        return;
-      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.5) return;
-      const now = Date.now();
-      event.preventDefault();
-      if (now - gesture.lastEvent > 180) gesture.amount = 0;
-      gesture.lastEvent = now;
-      gesture.amount += event.deltaX;
-      if (Math.abs(gesture.amount) >= 85 && now - gesture.lastPage > 400) {
-        navigate(gesture.amount > 0 ? 1 : -1);
-        gesture.amount = 0;
-        gesture.lastPage = now;
+  useFastHoverHints();
+
+  usePanelSwipe({
+    navigate,
+    openDetail: () => {
+      if (picked && state.todos.some((todo) => todo.id === picked))
+        setSelected(picked);
+      else {
+        setNewSlot({ day: dateKey(new Date()), time: "", drawn: false });
+        setNewOpen(true);
       }
-    };
-    main.addEventListener("wheel", wheel, { passive: false });
-    return () => main.removeEventListener("wheel", wheel);
-  }, [
-    anchor,
-    overview,
-    dayPanel,
-    settings,
-    selected,
-    newOpen,
-    planning,
-    dragged,
-  ]);
+    },
+    inboxOpen: inboxOpen || mobileInbox,
+    detailOpen: Boolean(selected || newOpen),
+    blocked: Boolean(dragged || selectionMode),
+    setInbox: (open) => {
+      if ((inboxOpen || mobileInbox) === open) return;
+      setInboxOpen(open);
+      setMobileInbox(open);
+    },
+  });
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${selectionMode ? "area-selection-mode" : ""} ${floatingInbox ? "floating-inbox-open" : ""}`}
+      {...areaSelection.bind}
+      onClickCapture={(event) => {
+        const node = (event.target as Element).closest<HTMLElement>(
+          "[data-calendar-task],[data-calendar-event]",
+        );
+        if (
+          !node ||
+          !(event.target as Element).closest(
+            ".timeline,.timeline-scroll,.calendar-overview",
+          )
+        )
+          return;
+        event.stopPropagation();
+        if (calendarClick.current) clearTimeout(calendarClick.current);
+        if (event.detail > 1) return;
+        const id = node.dataset.calendarTask,
+          eventId = node.dataset.calendarEvent;
+        const open = () => {
+          if (id) {
+            openCalendarTask(id);
+          } else {
+            const item = state.events.find((e) => e.id === eventId);
+            if (item) setToast({ text: item.title });
+          }
+        };
+        if (event.detail === 0) open();
+        else calendarClick.current = setTimeout(open, 300);
+      }}
+      onDoubleClickCapture={(event) => {
+        const node = (event.target as Element).closest<HTMLElement>(
+          "[data-calendar-task],[data-calendar-event]",
+        );
+        if (
+          !node ||
+          !(event.target as Element).closest(
+            ".timeline,.timeline-scroll,.calendar-overview",
+          )
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (calendarClick.current) clearTimeout(calendarClick.current);
+        const item = node.dataset.calendarTask
+          ? state.todos.find((t) => t.id === node.dataset.calendarTask)
+          : state.events.find((e) => e.id === node.dataset.calendarEvent);
+        if (item) setRenameBlock({ old: item.title, title: item.title });
+      }}
+    >
+      {areaSelection.rect && (
+        <div
+          className="selection-rectangle global-selection-rectangle"
+          style={areaSelection.rect}
+        />
+      )}
       <DndContext
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
         sensors={sensors}
         collisionDetection={(args) => {
-          const hits = pointerWithin(args);
-          return hits.length ? hits : closestCorners(args);
+          if (args.active.data.current?.kind === "life-tab") {
+            const filtered = {
+              ...args,
+              droppableContainers: args.droppableContainers.filter(
+                (c) => c.data.current?.kind === "life-tab",
+              ),
+            };
+            const tabHits = pointerWithin(filtered);
+            return tabHits.length ? tabHits : closestCorners(filtered);
+          }
+          const scoped = {
+            ...args,
+            droppableContainers:
+              dayPanel || selected || settings || planning || newOpen
+                ? args.droppableContainers.filter((c) =>
+                    c.node.current?.closest(
+                      dayPanel
+                        ? '.day-panel[role="dialog"],.sidebar'
+                        : ".sidebar",
+                    ),
+                  )
+                : args.droppableContainers,
+          };
+          const hits = pointerWithin(scoped);
+          const inboxReturn = hits.find((hit) => hit.id === "inbox-return");
+          if (inboxReturn) return [inboxReturn];
+          if (hits.length)
+            return [...hits].sort(
+              (a, b) =>
+                Number(
+                  Boolean(
+                    args.droppableContainers.find((c) => c.id === b.id)?.data
+                      .current?.priority,
+                  ),
+                ) -
+                  Number(
+                    Boolean(
+                      args.droppableContainers.find((c) => c.id === a.id)?.data
+                        .current?.priority,
+                    ),
+                  ) ||
+                (args.droppableRects.get(a.id)?.width || 0) *
+                  (args.droppableRects.get(a.id)?.height || 0) -
+                  (args.droppableRects.get(b.id)?.width || 0) *
+                    (args.droppableRects.get(b.id)?.height || 0),
+            );
+          if (
+            args.pointerCoordinates &&
+            (dayPanel || selected || settings || planning || newOpen)
+          )
+            return [];
+          return closestCorners(scoped);
         }}
         onDragStart={(e) =>
           setDragged(
             state.todos.find(
               (t) => t.id === (e.active.data.current?.todoId || e.active.id),
-            ) || null,
+            ) ||
+              (e.active.data.current?.suggestion
+                ? {
+                    ...newTodo(e.active.data.current.suggestion.title, null, 0),
+                    color: e.active.data.current.suggestion.color || "green",
+                  }
+                : null),
           )
         }
+        onDragMove={({ activatorEvent, delta }) => {
+          if (
+            "clientX" in activatorEvent &&
+            Number(activatorEvent.clientX) + delta.x <= 26
+          ) {
+            setInboxOpen(true);
+            setMobileInbox(true);
+          }
+        }}
         onDragCancel={() => setDragged(null)}
         onDragEnd={(event) => {
+          if (event.active.data.current?.kind === "life-tab") {
+            if (event.over?.data.current?.kind === "life-tab")
+              window.dispatchEvent(
+                new CustomEvent("raum-tab-reorder", {
+                  detail: {
+                    active: event.active.data.current.tabId,
+                    over: event.over.data.current.tabId,
+                  },
+                }),
+              );
+            return;
+          }
           void move(event).catch(handleError);
         }}
       >
         <div
+          style={{ "--inbox-width": `${inboxWidth}px` } as React.CSSProperties}
           className={`workspace ${!inboxOpen ? "inbox-collapsed" : ""} ${mobileInbox ? "show-mobile-inbox" : ""}`}
         >
-          <aside className="sidebar">
+          <aside
+            className="sidebar"
+            onMouseLeave={(event) => {
+              if (event.buttons || dragged || selectionMode) return;
+              const next = event.relatedTarget;
+              if (
+                next instanceof Element &&
+                next.closest('[role="menu"], [role="dialog"]')
+              )
+                return;
+              setInboxOpen(false);
+              setMobileInbox(false);
+            }}
+            data-escape-layer={floatingInbox ? "" : undefined}
+            data-escape-modal={floatingInbox ? "" : undefined}
+          >
+            <div
+              className="inbox-resize"
+              role="separator"
+              aria-label="Inboxbreite"
+              aria-orientation="vertical"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                resizeStart.current = inboxWidth;
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                  const width = Math.max(
+                    230,
+                    Math.min(
+                      650,
+                      e.clientX -
+                        e.currentTarget.parentElement!.getBoundingClientRect()
+                          .left,
+                    ),
+                  );
+                  setInboxWidth(width);
+                  localStorage.setItem("raum-inbox-width", String(width));
+                }
+              }}
+              onPointerUp={(e) => {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                const before = resizeStart.current,
+                  after = inboxWidth;
+                const apply = async (w: number) => {
+                  setInboxWidth(w);
+                  localStorage.setItem("raum-inbox-width", String(w));
+                };
+                if (before !== after)
+                  record({
+                    undo: () => apply(before),
+                    redo: () => apply(after),
+                  });
+              }}
+            />
+
             <div className="sidebar-heading">
               <span>
                 <Inbox size={18} />
@@ -1246,85 +1966,132 @@ export default function Planner() {
                 <PanelLeftClose size={15} />
               </IconButton>
             </div>
-            <p className="sidebar-caption">Erst sammeln. Später einplanen.</p>
-            <QuickAdd day={null} onAdd={add} />
-            <TaskList
-              id="inbox"
-              todos={tasksFor(null)}
-              onOpen={setSelected}
-              onToggle={toggle}
-            >
-              {tasksFor(null).length === 0 && (
-                <div className="inbox-empty">
-                  <Inbox size={27} strokeWidth={1.2} />
-                  <strong>Platz für deine Gedanken</strong>
-                  <p>
-                    Was möchtest du erledigen?
-                    <br />
-                    Sammle es hier in deiner Inbox.
-                  </p>
-                </div>
-              )}
-            </TaskList>
-            <div className="sidebar-footer">
-              <span className="eyebrow">DEINE KALENDER</span>
-              {state.connections.length === 0 ? (
-                <p>Noch kein Kalender verbunden</p>
-              ) : (
-                state.connections.map((c) => (
-                  <div className="calendar-label" key={c.id}>
-                    <i style={{ background: c.color }} />
-                    {c.name}
-                  </div>
-                ))
-              )}
-              <button className="text-button" onClick={() => setSettings(true)}>
-                <Plus size={14} />
-                Kalender verbinden
-              </button>
-              <span className="keyboard-hint">
-                <kbd>N</kbd> Neue Aufgabe <kbd>T</kbd> Heute
-              </span>
-            </div>
-          </aside>
-          <main
-            ref={mainRef}
-            className="main-content"
-            onTouchStart={(e) => {
-              const t = e.target as HTMLElement;
-              if (
-                !t.closest(
-                  "input,textarea,.timed-task,.task-card,.overview-task",
-                )
-              )
-                swipe.current = {
-                  x: e.touches[0].clientX,
-                  y: e.touches[0].clientY,
+            <InboxReturnDrop todos={state.todos} />
+            <LifeInbox
+              events={state.events}
+              todos={state.todos}
+              onAdd={async (title, tags, notes, color) => {
+                const task = {
+                  ...newTodo(title, null, state.todos.length + 1),
+                  tags,
+                  notes,
+                  color: color || "green",
                 };
-            }}
-            onTouchEnd={swipePage}
-          >
+                await mutate({ action: "save", todo: task });
+              }}
+              onOpen={setSelected}
+              onPriority={(todo, priority, horizon) => {
+                const ranks = { high: 0, medium: 1, low: 2, none: 2 };
+                const first = state.todos
+                  .filter(
+                    (t) =>
+                      t.id !== todo.id &&
+                      !t.plannedDate &&
+                      !t.done &&
+                      (t.tags.find((tag) => /^h:/.test(tag)) || "h:week") ===
+                        `h:${horizon}` &&
+                      ranks[t.priority] >= ranks[priority],
+                  )
+                  .sort(
+                    (a, b) =>
+                      ranks[a.priority] - ranks[b.priority] ||
+                      a.position - b.position,
+                  )[0];
+                void batchUpdate(
+                  priorityOrder(
+                    state.todos,
+                    todo,
+                    first?.id || null,
+                    priority,
+                    horizon,
+                  ),
+                ).catch(handleError);
+              }}
+            >
+              <p className="sidebar-caption">Erst sammeln. Später einplanen.</p>
+              <QuickAdd day={null} onAdd={add} />
+              <TaskList
+                id="inbox"
+                todos={tasksFor(null)}
+                onOpen={setSelected}
+                onToggle={toggle}
+              >
+                {tasksFor(null).length === 0 && (
+                  <div className="inbox-empty">
+                    <Inbox size={27} strokeWidth={1.2} />
+                    <strong>Platz für deine Gedanken</strong>
+                    <p>
+                      Was möchtest du erledigen?
+                      <br />
+                      Sammle es hier in deiner Inbox.
+                    </p>
+                  </div>
+                )}
+              </TaskList>
+              <div className="sidebar-footer">
+                <span className="eyebrow">DEINE KALENDER</span>
+                {state.connections.length === 0 ? (
+                  <p>Noch kein Kalender verbunden</p>
+                ) : (
+                  state.connections.map((c) => (
+                    <div className="calendar-label" key={c.id}>
+                      <i style={{ background: c.color }} />
+                      {c.name}
+                    </div>
+                  ))
+                )}
+                <button
+                  className="text-button"
+                  onClick={() => setSettings(true)}
+                >
+                  <Plus size={14} />
+                  Kalender verbinden
+                </button>
+                <span className="keyboard-hint">
+                  <kbd>N</kbd> Neue Aufgabe <kbd>T</kbd> Heute
+                </span>
+              </div>
+            </LifeInbox>
+          </aside>
+          <main ref={mainRef} className="main-content">
             <div className="planner-toolbar">
               <div className="week-nav">
                 {!inboxOpen && (
                   <IconButton
                     title="Inbox öffnen"
-                    onClick={() => setInboxOpen(true)}
+                    onClick={() => {
+                      setInboxOpen(true);
+                      setMobileInbox(true);
+                    }}
                   >
                     <PanelLeft size={17} />
                   </IconButton>
                 )}
-                <h2 className="overview-nav date-navigation">
+                <h2
+                  className="overview-nav date-navigation"
+                  onMouseLeave={() => setDatePreview(null)}
+                >
                   <button
                     aria-label="Wochenübersicht öffnen"
-                    onClick={() => setDayPanel(`week:${dateKey(start)}`)}
+                    onClick={() => {
+                      setOverview(null);
+                      setDatePreview(null);
+                    }}
+                    onMouseEnter={() =>
+                      setDatePreview(`month:${anchor.slice(0, 7)}-01`)
+                    }
                   >
                     {start.getDate()}.–{end.getDate()}.
                   </button>
                   <button
                     aria-label="Monatsübersicht öffnen"
-                    onClick={() =>
-                      setDayPanel(`month:${anchor.slice(0, 7)}-01`)
+                    onClick={() => {
+                      setOverview("month");
+                      setAnchor(`${anchor.slice(0, 7)}-01`);
+                      setDatePreview(null);
+                    }}
+                    onMouseEnter={() =>
+                      setDatePreview(`month:${anchor.slice(0, 7)}-01`)
                     }
                   >
                     {parseDate(anchor).toLocaleDateString("de-DE", {
@@ -1334,25 +2101,48 @@ export default function Planner() {
                   <button
                     className="header-year"
                     aria-label="Jahresübersicht öffnen"
-                    onClick={() =>
-                      setDayPanel(`year:${anchor.slice(0, 4)}-01-01`)
+                    onClick={() => {
+                      setOverview("year");
+                      setAnchor(`${anchor.slice(0, 4)}-01-01`);
+                      setDatePreview(null);
+                    }}
+                    onMouseEnter={() =>
+                      setDatePreview(`year:${anchor.slice(0, 4)}-01-01`)
                     }
                   >
                     {anchor.slice(2, 4)}
                   </button>
+                  {datePreview && (
+                    <div className="header-date-preview" data-escape-layer>
+                      <button
+                        hidden
+                        data-close
+                        type="button"
+                        onClick={() => setDatePreview(null)}
+                      >
+                        Schließen
+                      </button>
+                      <CalendarOverview
+                        period={datePreview}
+                        todos={state.todos}
+                        events={state.events}
+                        connections={state.connections}
+                        onPick={(day) => {
+                          setAnchor(day);
+                          setMobileDay(day);
+                          setOverview(null);
+                          setDatePreview(null);
+                        }}
+                        onNavigatePeriod={(period) => {
+                          setAnchor(period.anchor);
+                          setMobileDay(period.anchor);
+                          setOverview(period.view);
+                          setDatePreview(null);
+                        }}
+                      />
+                    </div>
+                  )}
                 </h2>
-                <button
-                  className="calendar-view-cycle"
-                  aria-label="Große Kalenderansicht wechseln"
-                  onClick={cycleOverview}
-                >
-                  <CalendarDays size={16} />
-                  {overview === "month"
-                    ? "Monat"
-                    : overview === "year"
-                      ? "Jahr"
-                      : "Woche"}
-                </button>
                 {overview === null && (
                   <span className="week-badge">KW {weekNumber(start)}</span>
                 )}
@@ -1380,6 +2170,24 @@ export default function Planner() {
                   <kbd>⌘ K</kbd>
                 )}
               </label>
+              <form
+                className="planning-bar"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setPlanning(true);
+                }}
+              >
+                <Sparkles size={15} />
+                <input
+                  aria-label={`${overview === "year" ? "Jahr" : overview === "month" ? "Monat" : "Woche"} mit KI planen`}
+                  placeholder={`${overview === "year" ? "Jahr" : overview === "month" ? "Monat" : "Woche"} planen, Ziele besprechen …`}
+                  value={planningInput}
+                  onChange={(e) => setPlanningInput(e.target.value)}
+                />
+                <button type="submit" aria-label="KI-Planung öffnen">
+                  <ArrowRight size={14} />
+                </button>
+              </form>
               <select
                 aria-label="Nach Tag filtern"
                 value={tagFilter}
@@ -1398,21 +2206,16 @@ export default function Planner() {
                 />
                 Erledigte
               </label>
-              <button
-                className="primary-button new-task-button"
-                aria-label="Neue Aufgabe"
-                onClick={() => {
-                  setNewSlot(null);
-                  setNewOpen(true);
-                }}
-              >
-                <Plus size={17} />
-                <span>Neue Aufgabe</span>
-                <kbd>N</kbd>
-              </button>
               <IconButton
                 title={dark ? "Helles Design" : "Dunkles Design"}
-                onClick={() => setDark(!dark)}
+                onClick={() => {
+                  const previous = dark;
+                  setDark(!dark);
+                  record({
+                    undo: async () => setDark(previous),
+                    redo: async () => setDark(!previous),
+                  });
+                }}
               >
                 {dark ? <Sun size={16} /> : <Moon size={16} />}
               </IconButton>
@@ -1426,24 +2229,6 @@ export default function Planner() {
                 {busy ? "Speichert …" : ""}
               </span>
             </div>
-            <form
-              className="planning-bar"
-              onSubmit={(e) => {
-                e.preventDefault();
-                setPlanning(true);
-              }}
-            >
-              <Sparkles size={15} />
-              <input
-                aria-label="Woche mit KI planen"
-                placeholder="Woche planen, Ziele besprechen …"
-                value={planningInput}
-                onChange={(e) => setPlanningInput(e.target.value)}
-              />
-              <button type="submit">
-                KI-Planung öffnen <ArrowRight size={14} />
-              </button>
-            </form>
             <nav className="mobile-tabs">
               <MobileDay
                 day={null}
@@ -1520,6 +2305,17 @@ export default function Planner() {
             ) : overview && overview !== "week" ? (
               <CalendarOverview
                 large
+                onExtend={extendAcross}
+                onCreate={(day) => {
+                  setInboxOpen(false);
+                  setMobileInbox(false);
+                  setNewSlot({ day, time: "", drawn: false });
+                  setNewOpen(true);
+                }}
+                onOpen={(id) => {
+                  setEditGroup([id]);
+                  openCalendarTask(id);
+                }}
                 period={`${overview}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : anchor.slice(0, 7) + "-01"}`}
                 todos={state.todos.filter(visible)}
                 events={state.events}
@@ -1528,6 +2324,11 @@ export default function Planner() {
                   setAnchor(day);
                   setMobileDay(day);
                   setOverview(null);
+                }}
+                onNavigatePeriod={(period) => {
+                  setAnchor(period.anchor);
+                  setMobileDay(period.anchor);
+                  setOverview(period.view);
                 }}
               />
             ) : (
@@ -1549,10 +2350,8 @@ export default function Planner() {
                 }}
 
                 onOpen={(id) => {
-                  setPicked(id);
-                  setSelectedIds([id]);
                   setPasteTarget(null);
-                  setSelected(id);
+                  openCalendarTask(id);
                 }}
                 onToggle={toggle}
                 onResize={reschedule}
@@ -1560,9 +2359,11 @@ export default function Planner() {
                   try {
                     await mutate({
                       action: "createMany",
+                      source: { ...todo, seriesId: todo.seriesId || todo.id },
                       todos: days.map((day) => ({
                         ...structuredClone(todo),
                         id: crypto.randomUUID(),
+                        seriesId: todo.seriesId || todo.id,
                         plannedDate: day,
                         done: false,
                         createdAt: new Date().toISOString(),
@@ -1584,16 +2385,14 @@ export default function Planner() {
                   setPicked(null);
                 }}
                 onDayOpen={setDayPanel}
-                onCreate={(day, time, duration, days) => {
+                onCreate={(day, time, duration, days, drawn) => {
+                  setInboxOpen(false);
+                  setMobileInbox(false);
                   setPasteTarget({ day, time });
-                  setNewSlot({ day, time, duration, days });
+                  setNewSlot({ day, time, duration, days, drawn });
                   setNewOpen(true);
                 }}
-                onEvent={(event) =>
-                  setToast({
-                    text: `${event.title}${event.location ? ` · ${event.location}` : ""} — Importierter Kalendertermin (schreibgeschützt)`,
-                  })
-                }
+                onEvent={(event) => setToast({ text: event.title })}
                 renderUnscheduled={(key) => (
                   <>
                     {eventsFor(key)
@@ -1648,6 +2447,44 @@ export default function Planner() {
                 )}
               />
             )}
+            <DayPanel
+              inline
+              key={`bottom:${overview}:${anchor}`}
+              day={`${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`}
+              state={state}
+              onClose={() => {}}
+              onOpen={(id) => {
+                setSelected(id);
+                setPicked(id);
+              }}
+              onAdd={async (title) => {
+                const task = {
+                  ...newTodo(title, null, state.todos.length + 1),
+                  tags: [`h:${overview || "week"}`],
+                };
+                await save(task);
+              }}
+              onNote={async (content) => {
+                const date = `${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`;
+                await api("/api/notes", { date, content });
+                setState((s) => ({
+                  ...s,
+                  dayNotes: { ...s.dayNotes, [date]: content },
+                }));
+              }}
+              onConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
+              onDay={(day) => {
+                setAnchor(day);
+                setMobileDay(day);
+                setOverview(null);
+              }}
+              onExtend={extendAcross}
+            />
+            <Statistics
+              state={state}
+              anchor={anchor}
+              kind={overview || "week"}
+            />
             {query && (
               <div className="search-outside">
                 {state.todos
@@ -1691,8 +2528,11 @@ export default function Planner() {
         {dayPanel && (
           <DayPanel
             day={dayPanel}
+            onExtend={extendAcross}
             state={state}
-            onClose={() => setDayPanel(null)}
+            onClose={() => {
+              setDayPanel(null);
+            }}
             onOpen={(id) => {
               setDayPanel(null);
               setSelected(id);
@@ -1703,6 +2543,7 @@ export default function Planner() {
               setAnchor(day);
               setMobileDay(day);
               setDayPanel(null);
+              setOverview(null);
             }}
             onNote={async (content) => {
               await api("/api/notes", { date: dayPanel, content });
@@ -1717,7 +2558,14 @@ export default function Planner() {
       </DndContext>
       {planning && (
         <AiPlanner
-          start={dateKey(start)}
+          start={
+            overview === "year"
+              ? anchor.slice(0, 4) + "-01-01"
+              : overview === "month"
+                ? anchor.slice(0, 7) + "-01"
+                : dateKey(start)
+          }
+          period={overview || "week"}
           initialMessage={planningInput}
           available={state.aiAvailable}
           onConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
@@ -1725,20 +2573,61 @@ export default function Planner() {
             remember(state.todos, todos);
             setState((s) => ({ ...s, todos }));
           }}
-          onClose={() => setPlanning(false)}
+          onClose={() => {
+            setPlanning(false);
+          }}
         />
       )}
       {current && (
         <Detail
+          editSchedule={editGroup.includes(current.id)}
+          groupCount={editGroup.length}
           key={current.id}
           onNavigate={(key) => navigateTask(current.id, key, true)}
           todo={current}
-          onClose={() => setSelected(null)}
-          onSave={save}
+          onClose={() => {
+            setSelected(null);
+            setEditGroup([]);
+          }}
+          onSave={async (draft, imported) => {
+            if (imported) {
+              const tasks = screenshotTasks(
+                draft,
+                imported,
+                () => crypto.randomUUID(),
+                true,
+              );
+              await batchUpdate(tasks);
+              if (tasks.length > 1)
+                setToast({
+                  text: `${tasks.length} Screenshot-Termine gespeichert`,
+                });
+              return;
+            }
+            if (editGroup.length > 1 && editGroup.includes(draft.id)) {
+              await batchUpdate(
+                state.todos
+                  .filter((t) => editGroup.includes(t.id))
+                  .map((t) => ({
+                    ...t,
+                    title: draft.title,
+                    description: draft.description,
+                    notes: draft.notes,
+                    color: draft.color,
+                    priority: draft.priority,
+                    time: draft.time,
+                    duration: draft.time ? draft.duration || 60 : null,
+                    reminder: draft.reminder,
+                  })),
+              );
+            } else await save(draft);
+          }}
           onDelete={() => remove(current)}
-          onRepeat={async (weekdays, weeks) => {
+          onRepeat={async (weekdays, weeks, source) => {
+            await save(source);
             const result = await mutate({
               action: "repeat",
+              todo: source,
               id: current.id,
               weekdays,
               weeks,
@@ -1753,24 +2642,53 @@ export default function Planner() {
       {newOpen && (
         <Detail
           isNew
+          showSchedule={!newSlot?.drawn}
           todo={{
             ...newTodo("", newSlot?.day || null, state.todos.length + 1),
             time: newSlot?.time || "",
             duration: newSlot?.time ? newSlot.duration || 60 : null,
           }}
-          onClose={() => setNewOpen(false)}
+          onClose={() => {
+            setNewOpen(false);
+          }}
           onDelete={() => setNewOpen(false)}
-          onRepeat={async () => {}}
+          onRepeat={async (weekdays, weeks, source) => {
+            await mutate({ action: "save", todo: source });
+            await mutate({
+              action: "repeat",
+              id: source.id,
+              todo: source,
+              weekdays,
+              weeks,
+            });
+            setNewOpen(false);
+            setSelected(source.id);
+          }}
           aiAvailable={state.aiAvailable}
           onAiConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
           onError={handleError}
-          onSave={async (draft) => {
-            const dates = newSlot?.days?.length
-              ? newSlot.days
-              : [draft.plannedDate];
+          onSave={async (draft, imported) => {
+            if (imported) {
+              const tasks = screenshotTasks(draft, imported, () =>
+                crypto.randomUUID(),
+              );
+              await mutate({ action: "createMany", todos: tasks });
+              setToast({
+                text:
+                  tasks.length > 1
+                    ? `${tasks.length} Screenshot-Termine erstellt`
+                    : "Screenshot-Termin erstellt",
+              });
+              return;
+            }
+            const dates =
+              (newSlot?.days?.length || 0) > 1
+                ? newSlot!.days!
+                : [draft.plannedDate];
             const todos = dates.map((day) => ({
               ...draft,
               id: crypto.randomUUID(),
+              seriesId: dates.length > 1 ? draft.id : "",
               plannedDate: day,
               subtasks: draft.subtasks.map((t) => ({
                 ...t,
@@ -1778,7 +2696,6 @@ export default function Planner() {
               })),
             }));
             await mutate({ action: "createMany", todos });
-            setNewOpen(false);
             setToast({
               text:
                 todos.length > 1
@@ -1791,21 +2708,177 @@ export default function Planner() {
       {settings && (
         <Settings
           state={state}
-          onClose={() => setSettings(false)}
+          onClose={() => {
+            setSettings(false);
+          }}
           onRefresh={load}
           onError={handleError}
           accent={accent}
           onAccent={(v) => {
-            setAccent(v);
-            document.documentElement.dataset.accent = v;
-            localStorage.setItem("raum-accent", v);
+            const previous = accent;
+            const apply = async (value: string) => {
+              setAccent(value);
+              document.documentElement.dataset.accent = value;
+              localStorage.setItem("raum-accent", value);
+            };
+            void apply(v);
+            record({ undo: () => apply(previous), redo: () => apply(v) });
           }}
         />
+      )}
+      {seriesQuestion && (
+        <div className="detail-backdrop" style={{ zIndex: 160 }}>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Wiederholung ändern"
+            className="series-delete"
+          >
+            <button
+              className="icon-button"
+              aria-label="Rückfrage schließen"
+              onClick={() => {
+                seriesQuestion.resolve(null);
+                setSeriesQuestion(null);
+              }}
+            >
+              <X size={18} />
+            </button>
+            <h3>Änderung übernehmen für …</h3>
+            <p>{seriesQuestion.title}</p>
+            {[false, true].map((all) => (
+              <button
+                key={String(all)}
+                className="secondary-button"
+                onClick={() => {
+                  seriesQuestion.resolve(all);
+                  setSeriesQuestion(null);
+                }}
+              >
+                {all ? "Alle wiederholten Termine" : "Nur diesen Termin"}
+              </button>
+            ))}
+          </section>
+        </div>
+      )}
+      {renameBlock && (
+        <div className="detail-backdrop" style={{ zIndex: 160 }}>
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-label="Themenname bearbeiten"
+            className="series-delete"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!renameBlock.title.trim()) return;
+              try {
+                const result = await api("/api/block-names", {
+                  action: "rename",
+                  from: renameBlock.old,
+                  to: renameBlock.title.trim(),
+                });
+                const apply = async (snapshot: unknown, expected: unknown) => {
+                  await api("/api/block-names", {
+                    action: "restore",
+                    snapshot,
+                    expected,
+                  });
+                  await load();
+                };
+                record({
+                  undo: () => apply(result.before, result.after),
+                  redo: () => apply(result.after, result.before),
+                });
+                await load();
+                setRenameBlock(null);
+                setToast({ text: "Gleichnamige Blöcke umbenannt" });
+              } catch (e) {
+                handleError(e);
+              }
+            }}
+          >
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Namensbearbeitung schließen"
+              onClick={() => setRenameBlock(null)}
+            >
+              <X size={18} />
+            </button>
+            <h3>Themenname</h3>
+            <input
+              autoFocus
+              aria-label="Neuer Themenname"
+              value={renameBlock.title}
+              onChange={(e) =>
+                setRenameBlock({ ...renameBlock, title: e.target.value })
+              }
+            />
+            <p>Für alle Blöcke mit diesem Namen.</p>
+            <button className="primary-button" type="submit">
+              Übernehmen
+            </button>
+          </form>
+        </div>
+      )}
+      {deleteSeries && (
+        <div className="detail-backdrop" style={{ zIndex: 120 }}>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Termingruppe löschen"
+            className="series-delete"
+          >
+            <button
+              className="icon-button"
+              aria-label="Löschfenster schließen"
+              onClick={() => setDeleteSeries(null)}
+            >
+              <X size={18} />
+            </button>
+            <h3>Welche Termine löschen?</h3>
+            <p>{deleteSeries.title}</p>
+            {[
+              ["one", "Nur diesen Termin"],
+              ["following", "Diesen und alle folgenden"],
+              ["all", "Die ganze Gruppe"],
+            ].map(([scope, label]) => (
+              <button
+                key={scope}
+                className="secondary-button"
+                onClick={async () => {
+                  try {
+                    await mutate(
+                      scope === "one"
+                        ? { action: "delete", id: deleteSeries.id }
+                        : {
+                            action: "deleteSeries",
+                            id: deleteSeries.id,
+                            scope,
+                          },
+                    );
+                    setDeleteSeries(null);
+                    setSelected(null);
+                  } catch (e) {
+                    handleError(e);
+                  }
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </section>
+        </div>
       )}
       {toast && (
         <div className="toast" role="status">
           <Check size={16} />
-          <span>{toast.text}</span>
+          <span>
+            {toast.text}
+            {toast.detail && (
+              <small className="toast-detail">{toast.detail}</small>
+            )}
+          </span>
           {historyCount > 0 && (
             <button
               onClick={async () => {
@@ -1842,23 +2915,43 @@ function DayNote({
     [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   return (
-    <div className="day-note">
-      {open ? (
-        <textarea
-          aria-label={`Tagesnotiz ${day}`}
-          placeholder="Ein Gedanke für diesen Tag …"
-          value={draft}
-          maxLength={10000}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => {
+    <div className="day-note" data-escape-layer={open ? "" : undefined}>
+      {open && (
+        <button
+          hidden
+          data-close
+          type="button"
+          onClick={() => {
             if (draft !== value) onSave(draft);
-            if (!draft) setOpen(false);
+            setOpen(false);
           }}
-        />
+        >
+          Schließen
+        </button>
+      )}
+      {open ? (
+        <div className="day-note-entry">
+          <FileText size={12} aria-hidden="true" />
+          <textarea
+            autoFocus
+            aria-label={`Tagesnotiz ${day}`}
+            placeholder=""
+            value={draft}
+            maxLength={10000}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              if (draft !== value) onSave(draft);
+              if (!draft) setOpen(false);
+            }}
+          />
+        </div>
       ) : (
-        <button onClick={() => setOpen(true)}>
-          <FileText size={12} />
-          Tagesnotiz
+        <button
+          aria-label={`Tagesnotiz ${day} bearbeiten`}
+          title="Tagesnotiz"
+          onClick={() => setOpen(true)}
+        >
+          <FileText size={12} aria-hidden="true" />
         </button>
       )}
     </div>
@@ -1866,6 +2959,9 @@ function DayNote({
 }
 function Detail({
   isNew = false,
+  editSchedule = false,
+  showSchedule = true,
+  groupCount = 1,
   onNavigate,
   todo,
   onClose,
@@ -1877,17 +2973,45 @@ function Detail({
   onAiConnected,
 }: {
   isNew?: boolean;
+  editSchedule?: boolean;
+  showSchedule?: boolean;
+  groupCount?: number;
   onNavigate?: (key: string) => void;
   todo: Todo;
   onClose: () => void;
-  onSave: (todo: Todo) => Promise<void>;
+  onSave: (todo: Todo, imported?: ScreenshotEvent[]) => Promise<void>;
   onDelete: () => void;
-  onRepeat: (days: number[], weeks: number) => Promise<void>;
+  onRepeat: (days: number[], weeks: number, source: Todo) => Promise<void>;
   onAiConnected: () => void;
   aiAvailable: boolean;
   onError: (e: unknown) => void;
 }) {
-  const [draft, setDraft] = useState(todo),
+  const panelRef = useRef<HTMLElement>(null);
+  const closeTimer = useRef<number | null>(null);
+  const [closing, setClosing] = useState(false);
+  const [readingImage, setReadingImage] = useState(false);
+  const [travelBusy, setTravelBusy] = useState(false);
+  const [travelOrigin, setTravelOrigin] = useState("");
+  const [travelOptions, setTravelOptions] = useState<
+    {
+      mode: "bike" | "transit";
+      before?: number;
+      after?: number;
+      label?: string;
+      error?: string;
+    }[]
+  >([]);
+  const [routeLabel, setRouteLabel] = useState("");
+  useEffect(() => {
+    setTravelOrigin(localStorage.getItem("lifemap-travel-origin") || "");
+  }, []);
+  const imageRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => imageRequest.current?.abort(), []);
+  const [draft, setDraft] = useState({
+      ...todo,
+      description: [todo.description, todo.notes].filter(Boolean).join("\n\n"),
+      notes: "",
+    }),
     [saving, setSaving] = useState(false),
     [subtask, setSubtask] = useState(""),
     [chat, setChat] = useState(false),
@@ -1895,15 +3019,173 @@ function Detail({
   const [repeatDays, setRepeatDays] = useState<number[]>([]),
     [repeatWeeks, setRepeatWeeks] = useState(8),
     [repeating, setRepeating] = useState(false);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(todo);
-  const update = (patch: Partial<Todo>) => {
-    setDraft((t) => ({ ...t, ...patch }));
+  const [screenshot, setScreenshot] = useState<ScreenshotImport | null>(null);
+  const [importedFields, setImportedFields] = useState<string[]>([]);
+  const dirty =
+    Boolean(screenshot) || JSON.stringify(draft) !== JSON.stringify(todo);
+  type DraftSnapshot = {
+    todo: Todo;
+    screenshot: ScreenshotImport | null;
+    fields: string[];
+  };
+  const draftPast = useRef<DraftSnapshot[]>([]),
+    draftFuture = useRef<DraftSnapshot[]>([]);
+  const snapshot = (): DraftSnapshot => ({
+    todo: draft,
+    screenshot,
+    fields: importedFields,
+  });
+  const restoreDraft = (value: DraftSnapshot) => {
+    setDraft(value.todo);
+    setScreenshot(value.screenshot);
+    setImportedFields(value.fields);
+  };
+  const rememberDraft = () => {
+    draftPast.current.push(snapshot());
+    draftFuture.current = [];
     setSaved(false);
   };
+  const update = (patch: Partial<Todo>) => {
+    rememberDraft();
+    setDraft((t) => ({ ...t, ...patch }));
+  };
+  const changeScreenshot = (plan: ScreenshotImport) => {
+    rememberDraft();
+    setScreenshot(plan);
+  };
+  const imported = (field: string) =>
+    importedFields.includes(field) ? true : undefined;
+  const extractTitle = (raw = draft.title) => {
+    const parsed = parseAppointmentInput(
+      raw,
+      draft.plannedDate || dateKey(new Date()),
+    );
+    return {
+      ...draft,
+      title: parsed.title,
+      location:
+        parsed.location ||
+        addressFromText(draft.description) ||
+        draft.location ||
+        "",
+      description: [
+        ...new Set(
+          [draft.description, parsed.description]
+            .filter(Boolean)
+            .flatMap((text) => text.split(/\n+/)),
+        ),
+      ].join("\n"),
+      plannedDate:
+        parsed.plannedDate ||
+        (parsed.time
+          ? draft.plannedDate || dateKey(new Date())
+          : draft.plannedDate),
+      time: parsed.time || draft.time,
+      duration:
+        parsed.duration ||
+        (parsed.time ? draft.duration || 60 : draft.duration),
+    };
+  };
+  const applyTitle = (raw = draft.title) => {
+    const next = extractTitle(raw);
+    if (JSON.stringify(next) !== JSON.stringify(draft)) update(next);
+  };
+  const applyScreenshot = (text: string, before: string, after: string) => {
+    const proposal = parseScreenshotImport(
+      text,
+      draft.plannedDate || dateKey(new Date()),
+    );
+    const first = proposal.events[0];
+    const title =
+      [before.trim(), first.title, after.trim()]
+        .filter(Boolean)
+        .join(" ")
+        .slice(0, 500) || draft.title;
+    const next = {
+      ...draft,
+      title,
+      description: [
+        ...new Set(
+          [draft.description, first.description]
+            .filter(Boolean)
+            .flatMap((value) => value.split(/\n+/)),
+        ),
+      ].join("\n"),
+      plannedDate: first.plannedDate || draft.plannedDate,
+      time: first.time || draft.time,
+      duration:
+        first.duration || (first.time ? draft.duration || 60 : draft.duration),
+      location: first.location || draft.location || "",
+    };
+    const fields = (
+      [
+        "title",
+        "description",
+        "plannedDate",
+        "time",
+        "duration",
+        "location",
+      ] as const
+    ).filter((field) => next[field] !== draft[field]);
+    rememberDraft();
+    setDraft(next);
+    setScreenshot(proposal);
+    setImportedFields([
+      ...new Set([
+        ...importedFields,
+        ...fields,
+        ...(proposal.events.length > 1 ? ["occurrences"] : []),
+        ...(proposal.recurrence ? ["recurrence"] : []),
+      ]),
+    ]);
+    if (next.location !== draft.location) setTravelOptions([]);
+  };
+  const destination =
+    addressFromText(draft.title + "\n" + draft.description) ||
+    draft.location ||
+    "";
+  const calculateTravel = async () => {
+    if (!destination || !travelOrigin.trim() || travelBusy) return;
+    setTravelBusy(true);
+    try {
+      const response = await fetch("/api/travel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: travelOrigin,
+          destination,
+          start: new Date(`${draft.plannedDate}T${draft.time}`).toISOString(),
+          end: new Date(
+            new Date(`${draft.plannedDate}T${draft.time}`).getTime() +
+              (draft.duration || 60) * 60000,
+          ).toISOString(),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setTravelOptions(result.options);
+      localStorage.setItem("lifemap-travel-origin", travelOrigin);
+      setRouteLabel(`${result.origin} → ${result.destination}`);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setTravelBusy(false);
+    }
+  };
   const persist = async () => {
+    if (closing || (isNew && saved)) return false;
+    if (readingImage || imageRequest.current || travelBusy) return false;
     setSaving(true);
     try {
-      await onSave(draft);
+      const parsed = extractTitle();
+      await onSave(
+        parsed,
+        screenshot ? screenshotOccurrences(screenshot, parsed) : undefined,
+      );
+      setScreenshot(null);
+      setImportedFields([]);
+      draftPast.current = [];
+      draftFuture.current = [];
       setSaved(true);
       return true;
     } catch (e) {
@@ -1913,11 +3195,42 @@ function Detail({
       setSaving(false);
     }
   };
-  const close = async () => {
-    if (isNew || !dirty || (await persist())) onClose();
+  const beginClose = () => {
+    if (closing) return;
+    setClosing(true);
+    closeTimer.current = window.setTimeout(onClose, 220);
   };
+  const close = async () => {
+    if (closing) return;
+    if (isNew || !dirty || (await persist())) beginClose();
+  };
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
     const listener = (e: KeyboardEvent) => {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        ["z", "y"].includes(e.key.toLowerCase()) &&
+        (Boolean(screenshot) ||
+          !(e.target as HTMLElement).closest(
+            "input,textarea,[contenteditable]",
+          ))
+      ) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const redo = e.key.toLowerCase() === "y" || e.shiftKey;
+        const from = redo ? draftFuture.current : draftPast.current,
+          to = redo ? draftPast.current : draftFuture.current;
+        if (from.length) {
+          to.push(snapshot());
+          restoreDraft(from.pop()!);
+        } else void travel(redo);
+        return;
+      }
       if (
         onNavigate &&
         ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) &&
@@ -1943,7 +3256,7 @@ function Detail({
         return;
       }
       if (
-        /^[1-5]$/.test(e.key) &&
+        taskColorForKey(e.key) &&
         !e.metaKey &&
         !e.ctrlKey &&
         !e.altKey &&
@@ -1953,7 +3266,7 @@ function Detail({
       ) {
         e.preventDefault();
         update({
-          color: Object.keys(TASK_COLORS)[Number(e.key) - 1] as Todo["color"],
+          color: taskColorForKey(e.key),
         });
       }
       if (e.key === "Escape") {
@@ -1973,17 +3286,46 @@ function Detail({
   }, [dirty]);
   return (
     <div
-      className="detail-backdrop"
+      className={`detail-backdrop task-detail-backdrop ${closing ? "is-closing" : ""}`}
+      aria-hidden={closing || undefined}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close();
       }}
     >
       <aside
+        ref={panelRef}
+        data-draft-editor
         className="detail-panel compact-detail"
         role="dialog"
         aria-modal="true"
         aria-label={isNew ? "Neue Aufgabe" : "Aufgabendetails"}
         tabIndex={-1}
+        onKeyDown={(e) => {
+          if (
+            e.key !== "Enter" ||
+            e.defaultPrevented ||
+            e.nativeEvent.isComposing ||
+            e.repeat ||
+            e.metaKey ||
+            e.ctrlKey ||
+            e.altKey ||
+            e.shiftKey ||
+            (e.target as HTMLElement).closest(
+              "input,textarea,select,[contenteditable]",
+            ) ||
+            (e.target as HTMLElement).closest('[role="dialog"]') !==
+              e.currentTarget
+          )
+            return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (saving || readingImage || !draft.title.trim()) return;
+          void (async () => {
+            if (isNew) {
+              if (await persist()) beginClose();
+            } else await close();
+          })();
+        }}
         onMouseDown={(e) => {
           if (
             !(e.target as HTMLElement).closest(
@@ -2021,21 +3363,147 @@ function Detail({
               data-initial-focus={isNew ? true : undefined}
               placeholder="Was möchtest du erledigen?"
               aria-label="Aufgabentitel"
+              data-imported={imported("title")}
               value={draft.title}
               maxLength={500}
               onChange={(e) => update({ title: e.target.value })}
+              onBlur={() => applyTitle()}
+              onKeyDown={(e) => {
+                if (
+                  e.key !== "Enter" ||
+                  e.shiftKey ||
+                  e.metaKey ||
+                  e.ctrlKey ||
+                  e.altKey ||
+                  e.nativeEvent.isComposing
+                )
+                  return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (
+                  e.repeat ||
+                  saving ||
+                  readingImage ||
+                  !extractTitle().title.trim()
+                )
+                  return;
+                void (async () => {
+                  if (await persist()) {
+                    beginClose();
+                  }
+                })();
+              }}
+              disabled={readingImage}
+              onPaste={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (readingImage || imageRequest.current) return;
+                const input = e.currentTarget;
+                const before = draft.title.slice(0, input.selectionStart);
+                const after = draft.title.slice(input.selectionEnd);
+                const text = e.clipboardData.getData("text/plain");
+                const controller = new AbortController();
+                imageRequest.current = controller;
+                try {
+                  const image = await pastedImage(e.clipboardData);
+                  if (controller.signal.aborted) return;
+                  if (!image) {
+                    if (/^[©®™\uFFFC\s]+$/.test(text))
+                      throw new Error(
+                        "Das Bild wurde von der Zwischenablage nicht übergeben. Bitte den Screenshot erneut in die Zwischenablage kopieren und einfügen.",
+                      );
+                    if (text) applyTitle(before + text + after);
+                    return;
+                  }
+                  setReadingImage(true);
+                  const prepared = await prepareScreenshot(image);
+                  const response = await fetch("/api/ocr", {
+                    method: "POST",
+                    body: prepared,
+                    signal: controller.signal,
+                  });
+                  const result = await response.json();
+                  if (!response.ok) throw new Error(result.error);
+                  applyScreenshot(result.text, before, after);
+                } catch (error) {
+                  if (!controller.signal.aborted) onError(error);
+                } finally {
+                  imageRequest.current = null;
+                  if (!controller.signal.aborted) setReadingImage(false);
+                }
+              }}
             />
           </div>
+          {readingImage && (
+            <p role="status" className="assessment-label">
+              Screenshot wird gelesen …
+            </p>
+          )}
           <textarea
             className="description-input"
             aria-label="Beschreibung"
+            data-imported={imported("description")}
             placeholder="Worum geht es? Ergänze eine Beschreibung …"
             value={draft.description}
-            onChange={(e) => update({ description: e.target.value })}
+            onChange={(e) => {
+              const location =
+                addressFromText(e.target.value) || addressFromText(draft.title);
+              const changed = location !== (draft.location || "");
+              if (changed) setTravelOptions([]);
+              update({
+                description: e.target.value,
+                location,
+                ...(changed
+                  ? { travelBefore: 0, travelAfter: 0, travelMode: "" as const }
+                  : {}),
+              });
+            }}
           />
-          <div className="assistant-section">
+          {destination && (
+            <a
+              className="address-link"
+              data-imported={imported("location")}
+              href={mapsAddress(destination)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {destination} ↗
+            </a>
+          )}
+          {phonesFromText(draft.description).map((number) => (
+            <a
+              key={number}
+              className="contact-detail-link"
+              data-imported={imported("description")}
+              href={phoneLink(number)}
+            >
+              {number} ↗
+            </a>
+          ))}
+          {screenshot && (
+            <ScreenshotImportReview
+              plan={screenshot}
+              draft={draft}
+              onChange={changeScreenshot}
+            />
+          )}
+          <div
+            className="assistant-section"
+            data-escape-layer={chat ? "" : undefined}
+          >
+            {chat && (
+              <button
+                hidden
+                data-close
+                type="button"
+                onClick={() => setChat(false)}
+              >
+                Schließen
+              </button>
+            )}
             <button
               className="assistant-heading"
+              disabled={Boolean(screenshot)}
               onClick={async () => {
                 if (!isNew && !chat && dirty && !(await persist())) return;
                 setChat(!chat);
@@ -2077,15 +3545,290 @@ function Detail({
             )}
           </div>
           <div className="detail-fields">
-            <div className="schedule-summary">
+            <div
+              className="schedule-summary"
+              data-imported={
+                imported("plannedDate") ||
+                imported("time") ||
+                imported("duration")
+              }
+            >
               {draft.plannedDate
                 ? `${parseDate(draft.plannedDate).toLocaleDateString("de-DE")}${draft.time ? ` · ${draft.time} · ${draft.duration || 60} Min.` : " · Ohne Zeit"}`
                 : "Inbox"}
             </div>
-            {!isNew && (
+            {((isNew && showSchedule) || screenshot) && (
+              <fieldset className="schedule-picker">
+                <legend>Datum & Uhrzeit</legend>
+                <label>
+                  <CalendarDays size={14} aria-hidden="true" />
+                  <input
+                    type="date"
+                    data-imported={imported("plannedDate")}
+                    aria-label="Termindatum"
+                    value={draft.plannedDate || ""}
+                    onChange={(e) =>
+                      update({ plannedDate: e.target.value || null })
+                    }
+                  />
+                </label>
+                <label>
+                  <Play size={14} aria-hidden="true" />
+                  <input
+                    type="time"
+                    data-imported={imported("time")}
+                    aria-label="Terminbeginn"
+                    value={draft.time}
+                    onChange={(e) =>
+                      update({
+                        time: e.target.value,
+                        plannedDate: draft.plannedDate || dateKey(new Date()),
+                        duration: draft.duration || 60,
+                      })
+                    }
+                  />
+                </label>
+                <label data-imported={imported("duration")}>
+                  <Clock3 size={14} aria-hidden="true" />
+                  <DurationHours
+                    minutes={draft.duration || 60}
+                    onChange={(duration) => update({ duration })}
+                  />
+                </label>
+              </fieldset>
+            )}
+            {editSchedule && !isNew && (
+              <fieldset className="schedule-picker">
+                <legend>
+                  {groupCount > 1
+                    ? `Uhrzeit für ${groupCount} Tage`
+                    : "Uhrzeit"}
+                </legend>
+                <label>
+                  <Play size={14} aria-hidden="true" />
+                  <input
+                    type="time"
+                    aria-label="Gemeinsame Uhrzeit"
+                    onInput={(e) =>
+                      update({
+                        time: e.currentTarget.value,
+                        duration: draft.duration || 60,
+                      })
+                    }
+                    value={draft.time}
+                    onChange={(e) =>
+                      update({
+                        time: e.target.value,
+                        duration: draft.duration || 60,
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  <Clock3 size={14} aria-hidden="true" />
+                  <DurationHours
+                    minutes={draft.duration || 60}
+                    onChange={(duration) => update({ duration })}
+                  />
+                </label>
+              </fieldset>
+            )}
+            <details className="travel-settings">
+              <summary>
+                Wegzeit berechnen
+                {draft.travelBefore || draft.travelAfter
+                  ? ` · ${(draft.travelBefore || 0) + (draft.travelAfter || 0)} Min.`
+                  : ""}
+              </summary>
+              <div className="travel-form">
+                <label>
+                  Startadresse
+                  <input
+                    aria-label="Startadresse für Wegzeit"
+                    value={travelOrigin}
+                    onChange={(e) => {
+                      setTravelOrigin(e.target.value);
+                      setTravelOptions([]);
+                    }}
+                    placeholder="Straße, Hausnummer, Stadt"
+                  />
+                </label>
+                <label>
+                  Zieladresse
+                  <input
+                    aria-label="Zieladresse für Wegzeit"
+                    value={destination}
+                    onChange={(e) => update({ location: e.target.value })}
+                    readOnly={Boolean(
+                      addressFromText(draft.title + "\n" + draft.description),
+                    )}
+                    placeholder="Adresse in den Notizen ergänzen"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={
+                    !destination ||
+                    !travelOrigin.trim() ||
+                    travelBusy ||
+                    !draft.time
+                  }
+                  onClick={() => void calculateTravel()}
+                >
+                  {travelBusy
+                    ? "Route wird berechnet …"
+                    : "Hin- und Rückweg berechnen"}
+                </button>
+                <div className="travel-choices">
+                  {(travelOptions.length
+                    ? travelOptions
+                    : [{ mode: "transit" as const }, { mode: "bike" as const }]
+                  ).map((option) => (
+                    <div
+                      key={option.mode}
+                      className={`travel-choice ${draft.travelMode === option.mode ? "selected" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={draft.travelMode === option.mode}
+                        disabled={travelBusy || !travelOptions.length}
+                        onClick={() =>
+                          update({
+                            ...extractTitle(),
+                            location: destination,
+                            travelMode: option.mode,
+                            travelBefore: option.before || 0,
+                            travelAfter: option.after || 0,
+                          })
+                        }
+                      >
+                        <strong>
+                          {option.mode === "bike" ? "Fahrrad" : "Bahn + Fußweg"}
+                        </strong>
+                        {option.before !== undefined ? (
+                          <span>
+                            {option.before} Min. hin · {option.after} Min.
+                            zurück
+                          </span>
+                        ) : (
+                          <span>
+                            {option.error || "Nach Berechnung auswählen"}
+                          </span>
+                        )}
+                      </button>
+                      {destination && travelOrigin && (
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(travelOrigin)}&destination=${encodeURIComponent(destination)}&travelmode=${option.mode === "bike" ? "bicycling" : "transit"}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Verbindung in Google Maps ↗
+                        </a>
+                      )}
+                      {option.label && <small>{option.label}</small>}
+                    </div>
+                  ))}
+                </div>
+                <small>
+                  Fahrrad: OpenStreetMap · Bahn und Fußwege: Fahrplanauskunft
+                </small>
+                {routeLabel && <small>{routeLabel}</small>}
+                {draft.travelMode || draft.travelBefore || draft.travelAfter ? (
+                  <div className="travel-minutes">
+                    <label>
+                      Hinweg
+                      <input
+                        type="number"
+                        min={0}
+                        max={1440}
+                        aria-label="Hinweg in Minuten"
+                        value={draft.travelBefore || 0}
+                        onChange={(e) =>
+                          update({
+                            travelBefore: Math.max(
+                              0,
+                              Math.min(1440, Number(e.target.value) || 0),
+                            ),
+                          })
+                        }
+                      />{" "}
+                      Min.
+                    </label>
+                    <label>
+                      Rückweg
+                      <input
+                        type="number"
+                        min={0}
+                        max={1440}
+                        aria-label="Rückweg in Minuten"
+                        value={draft.travelAfter || 0}
+                        onChange={(e) =>
+                          update({
+                            travelAfter: Math.max(
+                              0,
+                              Math.min(1440, Number(e.target.value) || 0),
+                            ),
+                          })
+                        }
+                      />{" "}
+                      Min.
+                    </label>
+                    <span>
+                      Gesamt:{" "}
+                      {(draft.duration || 60) +
+                        (draft.travelBefore || 0) +
+                        (draft.travelAfter || 0)}{" "}
+                      Min.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        update({
+                          travelBefore: 0,
+                          travelAfter: 0,
+                          travelMode: "",
+                        })
+                      }
+                    >
+                      Wegzeit entfernen
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </details>
+            <button
+              type="button"
+              className="reminder-toggle"
+              aria-pressed={Boolean(draft.reminder)}
+              onClick={() => update({ reminder: !draft.reminder })}
+            >
+              {draft.reminder ? "●" : "○"} Erinnerung · 1 Tag vorher
+            </button>
+            {!screenshot && (
               <details className="repeat-details">
                 <summary>Wiederholen</summary>
                 <fieldset className="repeat-picker">
+                  <label>
+                    Uhrzeit{" "}
+                    <input
+                      type="time"
+                      aria-label="Uhrzeit der Wiederholungen"
+                      value={draft.time}
+                      onInput={(e) =>
+                        update({
+                          time: e.currentTarget.value,
+                          duration: draft.duration || 60,
+                        })
+                      }
+                      onChange={(e) =>
+                        update({
+                          time: e.target.value,
+                          duration: draft.duration || 60,
+                        })
+                      }
+                    />
+                  </label>
                   <legend>Wöchentlich wiederholen</legend>
                   <div className="repeat-days">
                     {DAYS.map((day, i) => (
@@ -2127,8 +3870,8 @@ function Detail({
                     onClick={async () => {
                       setRepeating(true);
                       try {
-                        if (dirty && !(await persist())) return;
-                        await onRepeat(repeatDays, repeatWeeks);
+                        if (!isNew && dirty && !(await persist())) return;
+                        await onRepeat(repeatDays, repeatWeeks, draft);
                       } catch (e) {
                         onError(e);
                       } finally {
@@ -2178,10 +3921,15 @@ function Detail({
               <input
                 aria-label="Tags, mit Komma getrennt"
                 placeholder="Studium, Privat …"
-                value={draft.tags.join(", ")}
+                value={draft.tags
+                  .filter((x) => !/^(k|r|h):/.test(x))
+                  .join(", ")}
                 onChange={(e) =>
                   update({
-                    tags: e.target.value.split(",").map((t) => t.trimStart()),
+                    tags: [
+                      ...draft.tags.filter((x) => /^(k|r|h):/.test(x)),
+                      ...e.target.value.split(",").map((t) => t.trimStart()),
+                    ],
                   })
                 }
                 onBlur={() =>
@@ -2256,16 +4004,6 @@ function Detail({
               />
             </form>
           </div>
-          <div className="detail-section">
-            <h3>Notizen</h3>
-            <textarea
-              className="notes-input"
-              aria-label="Notizen"
-              placeholder="Links, Ideen und alles, was hilft …"
-              value={draft.notes}
-              onChange={(e) => update({ notes: e.target.value })}
-            />
-          </div>
           <p className="created-at">
             Erstellt am {new Date(todo.createdAt).toLocaleDateString("de-DE")}
           </p>
@@ -2283,15 +4021,25 @@ function Detail({
           </span>
           <button
             className="primary-button"
-            disabled={saving || !draft.title.trim()}
-            onClick={persist}
+            disabled={
+              saving || readingImage || travelBusy || !draft.title.trim()
+            }
+            onClick={async () => {
+              if (await persist()) {
+                if (isNew) beginClose();
+              }
+            }}
           >
             {saving ? (
               <Loader2 size={15} className="spin" />
             ) : (
               <Check size={15} />
             )}
-            {isNew ? "Aufgabe hinzufügen" : "Speichern"}
+            {screenshot
+              ? "Screenshot übernehmen"
+              : isNew
+                ? "Aufgabe hinzufügen"
+                : "Speichern"}
           </button>
         </div>
       </aside>
@@ -2552,6 +4300,9 @@ function Settings({
               </button>
             </div>
           ))}
+        </div>
+        <div className="settings-section">
+          <ReminderSetup />
         </div>
         <div className="settings-section">
           <h3>Designfarbe</h3>

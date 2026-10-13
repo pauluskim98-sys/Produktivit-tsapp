@@ -1,3 +1,4 @@
+import { totalDuration } from "./schedule.ts";
 import type { Todo, CalendarEvent } from "./types";
 export function dayAssessment(
   tasks: Todo[],
@@ -7,15 +8,16 @@ export function dayAssessment(
   const open = tasks.filter((t) => !t.done),
     planned = open.filter((t) => t.time),
     unplanned = open.length - planned.length;
-  const minutes = planned.reduce((n, t) => n + (t.duration || 60), 0);
+  const minutes = planned.reduce((n, t) => n + totalDuration(t), 0);
   const tips = [
     `${open.length} offene Aufgaben, davon ${unplanned} ohne Uhrzeit.`,
     `${Math.floor(minutes / 60)} Std. ${minutes % 60} Min. für Aufgaben eingeplant${events.length ? ` plus ${events.length} Kalendertermine` : ""}.`,
   ];
   const ranges = [
     ...planned.map((t) => {
-      const start = new Date(`${day}T${t.time}`).getTime();
-      return { start, end: start + (t.duration || 60) * 60000 };
+      const start =
+        new Date(`${day}T${t.time}`).getTime() - (t.travelBefore || 0) * 60000;
+      return { start, end: start + totalDuration(t) * 60000 };
     }),
     ...events
       .filter((e) => !e.allDay)

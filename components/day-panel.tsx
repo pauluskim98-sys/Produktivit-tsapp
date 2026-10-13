@@ -1,10 +1,11 @@
 "use client";
+import { totalDuration } from "@/lib/schedule";
 import { useDraggable } from "@dnd-kit/core";
 import { periodRange } from "@/lib/calendar-interactions";
 import { eventPresentation } from "@/lib/subjects";
 import { CalendarOverview } from "./calendar-overview";
 import type { Todo } from "@/lib/types";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Sparkles, Plus, Check, Copy } from "lucide-react";
 import { AiConnection } from "./ai-planner";
 import type { AppState } from "@/lib/types";
@@ -24,33 +25,9 @@ async function api(url: string, body?: unknown) {
   if (!r.ok) throw new Error(d.error || "Anfrage fehlgeschlagen.");
   return d;
 }
-function PeriodTask({
-  todo,
-  onOpen,
-}: {
-  todo: Todo;
-  onOpen: (id: string) => void;
-}) {
-  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
-    id: `period:${todo.id}`,
-    data: { todoId: todo.id },
-  });
-  return (
-    <button
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={`day-task color-${todo.color || "green"}`}
-      style={{ opacity: isDragging ? 0.3 : 1, touchAction: "none" }}
-      onClick={() => onOpen(todo.id)}
-    >
-      <strong>{todo.title}</strong>
-      <span>
-        {todo.plannedDate} · {todo.time || "Ohne Zeit"}
-      </span>
-    </button>
-  );
-}
+import PeriodTask from "./period-task";
+import { useDroppable } from "@dnd-kit/core";
+import { useId } from "react";
 export default function DayPanel({
   day,
   inline = false,
@@ -61,7 +38,9 @@ export default function DayPanel({
   onAdd,
   onNote,
   onConnected,
+  onExtend,
 }: {
+  onExtend?: (todo: Todo, days: string[]) => Promise<void>;
   inline?: boolean;
   onDay?: (day: string) => void;
   day: string;
@@ -73,6 +52,12 @@ export default function DayPanel({
   onConnected: () => void;
 }) {
   const range = periodRange(day)!;
+  const taskInputRef = useRef<HTMLInputElement>(null);
+  const dropId = useId();
+  const drop = useDroppable({
+    id: `period-panel:${dropId}`,
+    data: { kind: "periodpanel", day: range.start, period: day },
+  });
   const period = range.kind !== "day";
   const label =
     range.kind === "year"
@@ -98,11 +83,13 @@ export default function DayPanel({
         : range.kind === "year"
           ? "Jahresnotiz"
           : "Tagesnotiz";
-  const tasks = state.todos.filter(
-    (t) =>
-      t.plannedDate &&
-      t.plannedDate >= range.start &&
-      t.plannedDate <= range.end,
+  const tasks = state.todos.filter((t) =>
+    t.plannedDate
+      ? t.plannedDate >= range.start && t.plannedDate <= range.end
+      : period &&
+        !t.done &&
+        (t.tags.find((x) => /^h:(week|month|year)$/.test(x)) || "h:week") ===
+          `h:${range.kind}`,
   );
   const events = state.events.filter((e) =>
     range.days.some((d) => eventsForDay([e], d).length),
@@ -110,6 +97,7 @@ export default function DayPanel({
   const [title, setTitle] = useState(""),
     [note, setNote] = useState(state.dayNotes[day] || ""),
     [question, setQuestion] = useState(""),
+    [questionOpen, setQuestionOpen] = useState(false),
     [messages, setMessages] = useState<
       { id: string; role: string; content: string }[]
     >([]),
@@ -118,6 +106,7 @@ export default function DayPanel({
     [connect, setConnect] = useState(false),
     [copied, setCopied] = useState(false),
     [noteSaved, setNoteSaved] = useState(false);
+  useEffect(() => setNote(state.dayNotes[day] || ""), [day, state.dayNotes]);
   useEffect(() => {
     api(`/api/day?date=${day}`)
       .then((d) => setMessages(d.messages))
@@ -126,7 +115,7 @@ export default function DayPanel({
   const assessment = period
     ? [
         `${tasks.filter((t) => !t.done).length} offene Aufgaben im Zeitraum.`,
-        `${tasks.reduce((n, t) => n + (t.time ? t.duration || 60 : 0), 0) / 60} Stunden für eigene Aufgaben eingeplant.`,
+        `${tasks.reduce((n, t) => n + (t.time ? totalDuration(t) : 0), 0) / 60} Stunden für eigene Aufgaben eingeplant.`,
         `${range.days.filter((d) => !tasks.some((t) => t.plannedDate === d) && !events.some((e) => eventsForDay([e], d).length)).length} Tage ohne Einträge.`,
       ]
     : dayAssessment(tasks, events, day);
@@ -178,7 +167,8 @@ export default function DayPanel({
       }}
     >
       <section
-        className={`day-panel ${inline ? "inline-period-panel" : ""}`}
+        ref={drop.setNodeRef}
+        className={`day-panel ${inline ? "inline-period-panel" : ""} ${drop.isOver ? "panel-drop-over" : ""}`}
         role={inline ? "region" : "dialog"}
         aria-modal={inline ? undefined : true}
         aria-label={viewLabel}
@@ -210,195 +200,265 @@ export default function DayPanel({
         </header>
         <div className="day-panel-body">
           <div className="day-work">
-            <h3>
-              Aufgaben <span>{tasks.length}</span>
-            </h3>
-            <form
-              className="quick-add"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!title.trim() || busy) return;
-                setBusy(true);
-                try {
-                  await onAdd(title.trim());
-                  setTitle("");
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              <Plus size={14} />
-              <input
-                aria-label={`Aufgabe für diesen ${label}`}
-                placeholder="Aufgabe hinzufügen"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                maxLength={500}
-              />
-              <button disabled={busy || !title.trim()}>↵</button>
-            </form>
-            <div className="day-task-list">
-              {tasks.map((t) => (
-                <PeriodTask
-                  key={t.id}
-                  todo={t}
-                  onOpen={async (id) => {
-                    if (
-                      note !== (state.dayNotes[day] || "") &&
-                      !(await saveNote())
-                    )
-                      return;
-                    onOpen(id);
-                  }}
-                />
-              ))}
-              {(period ? [] : events).map((e) => (
-                <div
-                  className="day-import"
-                  key={e.id}
-                  style={{
-                    borderLeftColor: eventPresentation(
-                      e,
-                      state.connections.find((c) => c.id === e.connectionId)
-                        ?.color,
-                    ).color,
-                  }}
-                >
-                  <strong>{e.title}</strong>
-                  <span>
-                    {e.allDay
-                      ? "Ganztägig"
-                      : new Date(e.start).toLocaleTimeString("de-DE", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <h3>{noteLabel}</h3>
-            <textarea
-              className="day-notepad"
-              onBlur={() => {
-                if (note !== (state.dayNotes[day] || "")) void saveNote();
-              }}
-              aria-label={noteLabel}
-              value={note}
-              onChange={(e) => {
-                setNote(e.target.value);
-                setNoteSaved(false);
-              }}
-              maxLength={10000}
-              placeholder="Notizen, Gedanken, Ziele …"
-            />
-            <button
-              className="secondary-button"
-              onClick={() => void saveNote()}
-            >
-              <Check size={14} />
-              {noteSaved ? "Gespeichert" : "Notiz speichern"}
-            </button>
-          </div>
-          <aside className="period-side">
-            <CalendarOverview
-              period={period ? day : `month:${day.slice(0, 7)}-01`}
-              todos={state.todos}
-              events={state.events}
-              connections={state.connections}
-              onPick={(d) => onDay?.(d)}
-            />
-          </aside>
-          <div className="day-advice">
-            <h3>
-              <Sparkles size={16} />{" "}
-              {range.kind === "week"
-                ? "Wochenblick"
-                : range.kind === "month"
-                  ? "Monatsblick"
-                  : range.kind === "year"
-                    ? "Jahresblick"
-                    : "Tagesblick"}
-            </h3>
-            <p className="assessment-label">Aus deinen Kalenderdaten</p>
-            <ul>
-              {assessment.map((tip, i) => (
-                <li key={i}>{tip}</li>
-              ))}
-            </ul>
-            <h3>KI-Einschätzung</h3>
-            {!state.aiAvailable ? (
-              <div className="ai-unconnected">
-                <span>Nicht verbunden</span>
+            <div className="period-tasks-column">
+              <h3>
+                Aufgaben <span>{tasks.length}</span>
+              </h3>
+              <form
+                className="quick-add"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!title.trim() || busy) return;
+                  setBusy(true);
+                  try {
+                    await onAdd(title.trim());
+                    setTitle("");
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
                 <button
-                  className="text-button"
-                  onClick={() => setConnect(!connect)}
+                  type="button"
+                  aria-label="Aufgabe eingeben"
+                  onClick={() => taskInputRef.current?.focus()}
                 >
-                  API-Verbindung einrichten
+                  <Plus size={14} />
                 </button>
-                {connect && <AiConnection onConnected={onConnected} />}
+                <input
+                  ref={taskInputRef}
+                  aria-label={`Aufgabe für ${label}`}
+                  placeholder="Aufgabe hinzufügen"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={500}
+                />
+                <button disabled={busy || !title.trim()}>↵</button>
+              </form>
+              <div className="day-task-list">
+                {[...tasks]
+                  .sort(
+                    (a, b) =>
+                      ({ high: 0, medium: 1, low: 2, none: 2 })[a.priority] -
+                        { high: 0, medium: 1, low: 2, none: 2 }[b.priority] ||
+                      a.position - b.position,
+                  )
+                  .map((t) => (
+                    <PeriodTask
+                      key={t.id}
+                      todo={t}
+                      onExtend={onExtend}
+                      onOpen={async (id) => {
+                        if (
+                          note !== (state.dayNotes[day] || "") &&
+                          !(await saveNote())
+                        )
+                          return;
+                        onOpen(id);
+                      }}
+                    />
+                  ))}
+                {(period ? [] : events).map((e) => (
+                  <div
+                    className="day-import"
+                    key={e.id}
+                    style={{
+                      borderLeftColor: eventPresentation(
+                        e,
+                        state.connections.find((c) => c.id === e.connectionId)
+                          ?.color,
+                      ).color,
+                    }}
+                  >
+                    <strong>{e.title}</strong>
+                    <span>
+                      {e.allDay
+                        ? "Ganztägig"
+                        : new Date(e.start).toLocaleTimeString("de-DE", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ) : (
+            </div>
+            <div className="period-notes-column">
+              <h3>{noteLabel}</h3>
+              <textarea
+                className="day-notepad"
+                onBlur={() => {
+                  if (note !== (state.dayNotes[day] || "")) void saveNote();
+                }}
+                aria-label={noteLabel}
+                value={note}
+                onChange={(e) => {
+                  setNote(e.target.value);
+                  setNoteSaved(false);
+                }}
+                maxLength={10000}
+                placeholder="Notizen, Gedanken, Ziele …"
+              />
               <button
                 className="secondary-button"
-                disabled={busy}
-                onClick={() =>
-                  void ask(
-                    `Schätze diesen ${label} kurz ein: bis zu drei konkrete Tipps oder Gedanken.`,
-                  )
-                }
+                onClick={() => void saveNote()}
               >
-                {label} einschätzen
+                <Check size={14} />
+                {noteSaved ? "Gespeichert" : "Notiz speichern"}
               </button>
-            )}
-            {messages.map((m) => (
-              <div className={`planning-message ${m.role}`} key={m.id}>
-                <small>{m.role === "user" ? "Du" : "KI"}</small>
-                <p>{m.content}</p>
-              </div>
-            ))}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void ask(question);
-              }}
-            >
-              <textarea
-                aria-label={`Frage zu ${label}`}
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder={`Was könnte ich in diesem Zeitraum anders planen?`}
-                maxLength={8000}
+            </div>
+          </div>
+          {!inline && (
+            <aside className="period-side">
+              <CalendarOverview
+                period={period ? day : `month:${day.slice(0, 7)}-01`}
+                todos={state.todos}
+                events={state.events}
+                connections={state.connections}
+                onPick={(d) => onDay?.(d)}
+                onExtend={onExtend}
               />
-              <button
-                className="primary-button"
-                disabled={!state.aiAvailable || busy || !question.trim()}
-              >
-                {busy ? "Denkt nach …" : "Fragen"}
-              </button>
-            </form>
-            {!state.aiAvailable && (
-              <div className="chatgpt-handoff">
+            </aside>
+          )}
+          <div className="day-advice">
+            <details className="compact-advice" open>
+              <summary>
+                <Sparkles size={14} /> KI & Überblick
+              </summary>
+              {!inline && (
+                <h3>
+                  <Sparkles size={16} />{" "}
+                  {range.kind === "week"
+                    ? "Wochenblick"
+                    : range.kind === "month"
+                      ? "Monatsblick"
+                      : range.kind === "year"
+                        ? "Jahresblick"
+                        : "Tagesblick"}
+                </h3>
+              )}
+              <p className="assessment-label">Aus deinen Kalenderdaten</p>
+              <ul>
+                {assessment.map((tip, i) => (
+                  <li key={i}>{tip}</li>
+                ))}
+              </ul>
+              <div className="advice-prompts">
+                {[
+                  "Wo fehlen mir Pausen?",
+                  "Plane mein wichtigstes Ziel",
+                  "Was kann ich verschieben?",
+                ].map((q) => (
+                  <button key={q} onClick={() => setQuestion(q)}>
+                    {q}
+                  </button>
+                ))}
+              </div>
+              {!state.aiAvailable ? (
+                <div className="ai-unconnected">
+                  <span>Nicht verbunden</span>
+                  <button
+                    className="text-button"
+                    onClick={() => setConnect(!connect)}
+                  >
+                    API-Verbindung einrichten
+                  </button>
+                  {connect && (
+                    <AiConnection
+                      onClose={() => setConnect(false)}
+                      onConnected={onConnected}
+                    />
+                  )}
+                </div>
+              ) : (
                 <button
                   className="secondary-button"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(prompt());
-                      setCopied(true);
-                    } catch {
-                      setError("Kopieren wurde vom Browser blockiert.");
-                    }
+                  disabled={busy}
+                  onClick={() =>
+                    void ask(
+                      `Schätze diesen ${label} kurz ein: bis zu drei konkrete Tipps oder Gedanken.`,
+                    )
+                  }
+                >
+                  {label} einschätzen
+                </button>
+              )}
+              {messages.map((m) => (
+                <div className={`planning-message ${m.role}`} key={m.id}>
+                  <small>{m.role === "user" ? "Du" : "KI"}</small>
+                  <p>{m.content}</p>
+                </div>
+              ))}
+              {inline && !questionOpen && !question && (
+                <button
+                  className="text-button"
+                  onClick={() => setQuestionOpen(true)}
+                >
+                  Frage stellen
+                </button>
+              )}
+              {(!inline || questionOpen || question) && (
+                <form
+                  data-escape-layer={inline ? "" : undefined}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void ask(question);
                   }}
                 >
-                  <Copy size={14} />
-                  {copied ? "Für ChatGPT kopiert" : "Für ChatGPT kopieren"}
-                </button>
-                <a href="https://chatgpt.com/" target="_blank" rel="noreferrer">
-                  ChatGPT öffnen ↗
-                </a>
-              </div>
-            )}
+                  <button
+                    hidden
+                    data-close
+                    type="button"
+                    onClick={() => {
+                      setQuestionOpen(false);
+                      setQuestion("");
+                    }}
+                  >
+                    Schließen
+                  </button>
+                  <textarea
+                    aria-label={`Frage zu ${label}`}
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    placeholder={`Was könnte ich in diesem Zeitraum anders planen?`}
+                    maxLength={8000}
+                  />
+                  <button
+                    className="primary-button"
+                    disabled={!state.aiAvailable || busy || !question.trim()}
+                  >
+                    {busy ? "Denkt nach …" : "Fragen"}
+                  </button>
+                </form>
+              )}
+              {!state.aiAvailable && (
+                <div className="chatgpt-handoff">
+                  <button
+                    className="secondary-button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(prompt());
+                        setCopied(true);
+                      } catch {
+                        setError("Kopieren wurde vom Browser blockiert.");
+                      }
+                    }}
+                  >
+                    <Copy size={14} />
+                    {copied ? "Für ChatGPT kopiert" : "Für ChatGPT kopieren"}
+                  </button>
+                  <a
+                    href="https://chatgpt.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    ChatGPT öffnen ↗
+                  </a>
+                </div>
+              )}
+            </details>
           </div>
         </div>
         {error && (

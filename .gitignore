@@ -4,3 +4,10 @@ data/
 .env*
 !.env.example
 *.tsbuildinfo
+
+.next-*/
+.DS_Store
+*.log
+*.sqlite*
+*.db
+coverage/

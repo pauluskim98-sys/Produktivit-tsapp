@@ -54,3 +54,14 @@ export function eventPresentation(event: CalendarEvent, fallback = "#708078") {
   }
   return { label: "", color: fallback };
 }
+
+export function eventBlockTitle(title: string) {
+  return title
+    .replace(/\s*[,–-]?\s*\b(Standardgruppe|Gruppe)\b.*$/i, "")
+    .replace(/für Studierende der Medizin und der Neurowissenschaften/i, "")
+    .replace(/Kleingruppenunterricht/i, "Kleingruppe")
+    .replace(/\s+(VO|SE|PR|KS|AG)\b/g, "")
+    .replace(/\s*[-–]\s*/g, " · ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

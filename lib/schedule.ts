@@ -33,11 +33,18 @@ export function scheduleAt(minutes: number, duration = 60) {
     duration: length,
   };
 }
+export function totalDuration(todo: Todo) {
+  return (
+    (todo.duration || 60) + (todo.travelBefore || 0) + (todo.travelAfter || 0)
+  );
+}
 export function taskSegment(todo: Todo, day: string) {
   if (!todo.plannedDate || !todo.time) return null;
   const offset = dayDistance(todo.plannedDate, day) * 1440;
-  const start = toMinutes(todo.time) - offset,
-    end = start + (todo.duration || 60);
+  const mainStart = toMinutes(todo.time) - offset,
+    mainEnd = mainStart + (todo.duration || 60);
+  const start = mainStart - (todo.travelBefore || 0),
+    end = mainEnd + (todo.travelAfter || 0);
   if (end <= 0 || start >= 1440) return null;
   return {
     start: Math.max(0, start),

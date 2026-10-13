@@ -1,311 +1,280 @@
 "use client";
-import { useId } from "react";
-import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { useId, useState } from "react";
+import { createPortal } from "react-dom";
+import { useDroppable } from "@dnd-kit/core";
 import type { CalendarEvent, Todo } from "@/lib/types";
 import { eventsForDay } from "@/lib/day-assessment";
-import { eventPresentation } from "@/lib/subjects";
+import { eventBlockTitle, eventPresentation } from "@/lib/subjects";
 import { dateKey, parseDate } from "@/lib/dates";
 import { periodRange } from "@/lib/calendar-interactions";
+import PeriodTask from "./period-task";
+import { TASK_COLOR_HEX } from "@/lib/task-colors";
+import { calendarTitle } from "@/lib/calendar-title";
 const dow = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-export function CalendarOverview({
-  period,
-  todos,
-  events,
-  connections,
-  onPick,
-  large = false,
-}: {
+type Props = {
   period: string;
   todos: Todo[];
   events: CalendarEvent[];
   connections: { id: string; color: string }[];
   onPick: (day: string) => void;
+  onNavigatePeriod?: (period: {
+    view: "month" | "year" | null;
+    anchor: string;
+  }) => void;
   large?: boolean;
-}) {
-  const range = periodRange(period);
+  onOpen?: (id: string) => void;
+  onExtend?: (todo: Todo, days: string[]) => Promise<void>;
+  onCreate?: (day: string) => void;
+};
+export function CalendarOverview(props: Props) {
+  const range = periodRange(props.period);
   if (!range) return null;
-  const year = range.kind === "year";
-  const monthly = range.kind === "month";
-  const months = year
+  const annual = range.kind === "year";
+  const months = annual
     ? Array.from(
         { length: 12 },
         (_, i) => new Date(Number(range.start.slice(0, 4)), i, 1),
       )
-    : monthly
-      ? [parseDate(range.start)]
-      : [];
+    : [parseDate(range.start)];
   return (
     <div
-      className={`calendar-overview ${large ? "calendar-overview-large" : ""} ${year ? "annual-overview" : ""}`}
+      className={`calendar-overview ${props.large ? "calendar-overview-large" : ""} ${annual ? "annual-overview" : ""}`}
     >
-      {year ? (
-        months.map((month) => (
-          <MonthGrid
-            key={dateKey(month)}
-            month={month}
-            yearMode
-            showTasks={false}
-            onPick={onPick}
-            todos={todos}
-            events={events}
-            connections={connections}
-          />
-        ))
-      ) : monthly ? (
-        <MonthGrid
-          showTasks={large}
-          month={months[0]}
-          onPick={onPick}
-          todos={todos}
-          events={events}
-          connections={connections}
-        />
+      {range.kind === "week" ? (
+        <section className="mini-month">
+          <div className="mini-weekdays">
+            {range.days.map((d) => (
+              <span key={d}>
+                {parseDate(d).toLocaleDateString("de-DE", { weekday: "short" })}
+              </span>
+            ))}
+          </div>
+          <div className="mini-week-grid">
+            {range.days.map((d) => (
+              <DateCell key={d} day={d} {...props} compact={false} />
+            ))}
+          </div>
+        </section>
       ) : (
-        <WeekGrid
-          showTasks={large}
-          days={range.days}
-          onPick={onPick}
-          todos={todos}
-          events={events}
-          connections={connections}
-        />
+        months.map((month) => (
+          <section
+            key={dateKey(month)}
+            className={`mini-month ${annual ? "year-month" : ""}`}
+          >
+            <h3>
+              <button
+                className="overview-month-link"
+                aria-label={`${month.toLocaleDateString("de-DE", { month: "long" })} öffnen`}
+                onClick={() =>
+                  props.onNavigatePeriod?.({
+                    view: "month",
+                    anchor: dateKey(month),
+                  })
+                }
+              >
+                {month.toLocaleDateString("de-DE", { month: "long" })}
+              </button>
+            </h3>
+            <div className="mini-month-grid">
+              {dow.map((d) => (
+                <span className="overview-weekday" key={d}>
+                  {d}
+                </span>
+              ))}
+              {Array.from({ length: (month.getDay() + 6) % 7 }, (_, i) => (
+                <span key={`blank${i}`} />
+              ))}
+              {Array.from(
+                {
+                  length: new Date(
+                    month.getFullYear(),
+                    month.getMonth() + 1,
+                    0,
+                  ).getDate(),
+                },
+                (_, i) => (
+                  <DateCell
+                    key={i}
+                    day={dateKey(
+                      new Date(month.getFullYear(), month.getMonth(), i + 1),
+                    )}
+                    {...props}
+                    compact={annual}
+                  />
+                ),
+              )}
+            </div>
+          </section>
+        ))
       )}
     </div>
   );
 }
-function MonthGrid({
-  month,
-  yearMode = false,
-  showTasks,
-  onPick,
-  todos,
-  events,
-  connections,
-}: {
-  month: Date;
-  yearMode?: boolean;
-  showTasks: boolean;
-  onPick: (d: string) => void;
-  todos: Todo[];
-  events: CalendarEvent[];
-  connections: { id: string; color: string }[];
-}) {
-  const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  return (
-    <section className={`mini-month ${yearMode ? "year-month" : ""}`}>
-      <h3>
-        {month.toLocaleDateString("de-DE", {
-          month: "long",
-          ...(yearMode ? { year: "numeric" } : {}),
-        })}
-      </h3>
-      {!yearMode && (
-        <div className="mini-weekdays">
-          {dow.map((d) => (
-            <span key={d}>{d}</span>
-          ))}
-        </div>
-      )}
-      <div className="mini-month-grid">
-        {dow.map((d) => (
-          <span className="mini-year-weekday" key={d}>
-            {d}
-          </span>
-        ))}
-        {Array.from({ length: (month.getDay() + 6) % 7 }, (_, i) => (
-          <span key={"blank" + i} />
-        ))}
-        {Array.from({ length: days }, (_, i) => {
-          const day = dateKey(
-            new Date(month.getFullYear(), month.getMonth(), i + 1),
-          );
-          return (
-            <DateCell
-              key={day}
-              day={day}
-              todos={todos}
-              events={events}
-              connections={connections}
-              onPick={onPick}
-              compact={yearMode}
-              showTasks={showTasks}
-            />
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-function WeekGrid({
-  showTasks,
-  days,
-  onPick,
-  todos,
-  events,
-  connections,
-}: {
-  days: string[];
-  showTasks: boolean;
-  onPick: (d: string) => void;
-  todos: Todo[];
-  events: CalendarEvent[];
-  connections: { id: string; color: string }[];
-}) {
-  return (
-    <section className="mini-month">
-      <div className="mini-weekdays">
-        {days.map((d) => (
-          <span key={d}>
-            {new Date(d + "T12:00:00").toLocaleDateString("de-DE", {
-              weekday: "short",
-              day: "numeric",
-            })}
-          </span>
-        ))}
-      </div>
-      <div className="mini-week-grid">
-        {days.map((day) => (
-          <DateCell
-            key={day}
-            day={day}
-            todos={todos}
-            events={events}
-            connections={connections}
-            onPick={onPick}
-            compact={false}
-            showTasks={showTasks}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
 function DateCell({
   day,
-  todos,
-  events,
-  connections,
-  onPick,
   compact,
-  showTasks,
-}: {
-  day: string;
-  todos: Todo[];
-  events: CalendarEvent[];
-  connections: { id: string; color: string }[];
-  onPick: (d: string) => void;
-  compact: boolean;
-  showTasks?: boolean;
-}) {
+  ...props
+}: Props & { day: string; compact: boolean }) {
   const scope = useId();
   const { setNodeRef, isOver } = useDroppable({
     id: `period-day:${scope}:${day}`,
     data: { kind: "periodday", day },
   });
-  const own = todos.filter((t) => t.plannedDate === day),
-    imported = eventsForDay(events, day),
-    all = own
-      .map((t) => ({
-        name: t.title,
-        color:
-          t.color === "blue"
-            ? "#5391c9"
-            : t.color === "purple"
-              ? "#9772c8"
-              : t.color === "orange"
-                ? "#d59e42"
-                : t.color === "pink"
-                  ? "#d86e83"
-                  : "#54a478",
-        high: t.priority === "high",
-      }))
-      .concat(
-        imported.map((e) => {
-          const p = eventPresentation(
-            e,
-            connections.find((c) => c.id === e.connectionId)?.color,
-          );
-          return { name: e.title, color: p.color, high: false };
-        }),
-      );
-  const titles = all.map((x) => x.name).join(" · ");
-  const hasHigh = all.some((x) => x.high);
-  const single = compact;
+  const [tip, setTip] = useState<{ x: number; y: number } | null>(null);
+  const own = props.todos.filter((t) => t.plannedDate === day);
+  const all = [
+    ...own.map((t) => ({
+      id: t.id,
+      title: t.title,
+      time: t.time,
+      color: TASK_COLOR_HEX[t.color || "green"],
+      detail: `${t.title}${t.time ? `\n${t.time} · ${t.duration || 60} Min.` : ""}${t.description ? `\n${t.description}` : ""}`,
+      todo: t,
+    })),
+    ...eventsForDay(props.events, day).map((e) => ({
+      id: e.id,
+      title: e.title,
+      detail: `${e.title}\n${e.allDay ? "Ganztägig" : `${new Date(e.start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}–${new Date(e.end).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`}${e.location ? `\n${e.location}` : ""}`,
+      time: e.allDay
+        ? ""
+        : new Date(e.start).toLocaleTimeString("de-DE", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+      color: eventPresentation(
+        e,
+        props.connections.find((c) => c.id === e.connectionId)?.color,
+      ).color,
+      todo: undefined as Todo | undefined,
+    })),
+  ].sort(
+    (a, b) =>
+      (a.time || "00:00").localeCompare(b.time || "00:00") ||
+      a.title.localeCompare(b.title),
+  );
+  const high = own.some((t) => t.priority === "high" && !t.done);
+  const monthEntries = Array.from(
+    all.reduce((entries, entry) => {
+      const key = eventBlockTitle(entry.title).toLocaleLowerCase("de-DE");
+      const existing = entries.get(key);
+      if (existing) {
+        existing.detail += `\n\n${entry.detail}`;
+      } else {
+        entries.set(key, { ...entry });
+      }
+      return entries;
+    }, new Map<string, (typeof all)[number]>()),
+    ([, entry]) => entry,
+  );
   return (
     <div
       ref={setNodeRef}
-      className={`mini-date ${day === dateKey(new Date()) ? "is-today" : ""} ${isOver ? "mini-date-over" : ""} ${hasHigh ? "has-high" : ""}`}
-      onClick={() => onPick(day)}
       data-calendar-date={day}
+      className={`mini-date ${isOver ? "mini-date-over" : ""} ${high ? "has-high" : ""} ${day === dateKey(new Date()) ? "is-today" : ""}`}
+      onClick={(e) => {
+        if (!(e.target as HTMLElement).closest("button")) props.onPick(day);
+      }}
+      onMouseEnter={(e) => {
+        if (!compact || !all.length) return;
+        const r = e.currentTarget.getBoundingClientRect();
+        setTip({
+          x: Math.max(8, Math.min(window.innerWidth - 292, r.left)),
+          y: Math.min(window.innerHeight - 210, r.bottom + 5),
+        });
+      }}
+      onMouseLeave={() => setTip(null)}
     >
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onPick(day);
+        className="calendar-date-button"
+        onClick={() => props.onPick(day)}
+        aria-label={`${day}${all.length ? `: ${all.map((e) => e.title).join(" · ")}` : ""}`}
+        onFocus={(e) => {
+          if (compact && all.length) {
+            const r = e.currentTarget.getBoundingClientRect();
+            setTip({
+              x: Math.max(8, Math.min(window.innerWidth - 292, r.left)),
+              y: Math.min(window.innerHeight - 210, r.bottom + 5),
+            });
+          }
         }}
-        aria-label={`${day}${all.length ? `: ${titles}` : ""}`}
+        onBlur={() => setTip(null)}
       >
         <span>{Number(day.slice(-2))}</span>
-        {all.length > 0 && (
-          <i className="mini-dots">
-            {single ? (
-              <i
-                className="mini-dot"
-                style={{ background: hasHigh ? "#df5b50" : all[0].color }}
-              />
-            ) : (
-              all.map((x, i) => (
-                <i
-                  key={i}
-                  className="mini-dot"
-                  style={{ background: x.color }}
-                />
-              ))
-            )}
-          </i>
+        {(!props.large || compact) && all.length > 0 && (
+          <span className="mini-dots">
+            {(compact ? all.slice(0, 1) : all).map((e, i) => (
+              <i key={i} className="mini-dot" style={{ background: e.color }} />
+            ))}
+          </span>
         )}
       </button>
-      {compact && all.length > 0 && (
-        <div className="calendar-day-tooltip" role="tooltip">
-          {all.map((item, i) => (
-            <div key={i}>
-              <i style={{ background: item.color }} />
-              {item.name}
-            </div>
-          ))}
-        </div>
+      {props.large && !compact && props.onCreate && (
+        <button
+          type="button"
+          className="month-date-add"
+          aria-label={`${day}: Termin erstellen`}
+          title="Termin an diesem Tag erstellen"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            props.onCreate?.(day);
+          }}
+        >
+          +
+        </button>
       )}
-      {showTasks && own.length > 0 && (
-        <div className="overview-day-tasks">
-          {own.slice(0, compact ? 1 : 5).map((task) => (
-            <OverviewTask key={task.id} todo={task} />
-          ))}
-          {own.length > (compact ? 1 : 5) && (
-            <small>+{own.length - (compact ? 1 : 5)}</small>
+      {props.large && !compact && (
+        <div className="month-entries">
+          {monthEntries.map((e) =>
+            e.todo ? (
+              <PeriodTask
+                key={e.id}
+                compact
+                abbreviated
+                detail={e.detail}
+                todo={e.todo}
+                onOpen={props.onOpen || (() => {})}
+                onExtend={props.onExtend}
+              />
+            ) : (
+              <div
+                data-calendar-event={e.id}
+                className="month-event"
+                key={e.id}
+                title={e.detail}
+              >
+                <i style={{ background: e.color }} />
+
+                <span>{calendarTitle(e.title)}</span>
+              </div>
+            ),
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function OverviewTask({ todo }: { todo: Todo }) {
-  const scope = useId();
-  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
-    id: `overview:${scope}:${todo.id}`,
-    data: { todoId: todo.id },
-  });
-  return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={`overview-task color-${todo.color || "green"}`}
-      style={{ opacity: isDragging ? 0.35 : 1, touchAction: "none" }}
-      onClick={(e) => e.stopPropagation()}
-      title={todo.title}
-    >
-      {todo.title}
+      {tip &&
+        createPortal(
+          <div
+            className="year-hover-card"
+            role="tooltip"
+            style={{ left: tip.x, top: tip.y }}
+          >
+            <strong>
+              {parseDate(day).toLocaleDateString("de-DE", {
+                weekday: "short",
+                day: "numeric",
+                month: "long",
+              })}
+            </strong>
+            {all.map((e) => (
+              <div key={e.id}>
+                <i style={{ background: e.color }} />
+                <time>{e.time}</time>
+                <span>{calendarTitle(e.title)}</span>
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

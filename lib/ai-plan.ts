@@ -1,3 +1,4 @@
+import { TASK_COLOR_VALUES } from "./task-colors.ts";
 import type { Todo } from "./types";
 import { validTodo } from "./validation.ts";
 export interface PlanItem {
@@ -60,7 +61,7 @@ export const planSchema = {
           duration: { type: ["integer", "null"] },
           color: {
             type: "string",
-            enum: ["green", "blue", "purple", "orange", "pink"],
+            enum: TASK_COLOR_VALUES,
           },
           description: { type: "string" },
         },

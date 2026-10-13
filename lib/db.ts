@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS DayMessage (id TEXT PRIMARY KEY,date TEXT NOT NULL,ro
 CREATE TABLE IF NOT EXISTS PlannerMessage (id TEXT PRIMARY KEY, role TEXT NOT NULL, content TEXT NOT NULL, createdAt TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS PlannerProposal (id TEXT PRIMARY KEY, items TEXT NOT NULL, accepted INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS DayNote (date TEXT PRIMARY KEY, userId TEXT NOT NULL REFERENCES User(id), content TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS CalendarTitleAlias (userId TEXT NOT NULL, originalTitle TEXT NOT NULL, title TEXT NOT NULL, PRIMARY KEY(userId,originalTitle));
 CREATE INDEX IF NOT EXISTS todo_day ON Todo(userId, plannedDate, position);
 CREATE INDEX IF NOT EXISTS calendar_start ON CalendarEvent(start);
 `);
@@ -57,6 +58,22 @@ if (
   )
 )
   db.exec("ALTER TABLE Todo ADD COLUMN color TEXT NOT NULL DEFAULT 'green'");
+if (
+  !(db.prepare("PRAGMA table_info(Todo)").all() as { name: string }[]).some(
+    (c) => c.name === "reminder",
+  )
+)
+  db.exec("ALTER TABLE Todo ADD COLUMN reminder INTEGER NOT NULL DEFAULT 0");
+if (
+  !(db.prepare("PRAGMA table_info(Todo)").all() as { name: string }[]).some(
+    (c) => c.name === "seriesId",
+  )
+) {
+  db.exec("ALTER TABLE Todo ADD COLUMN seriesId TEXT NOT NULL DEFAULT ''");
+  db.exec(
+    "UPDATE Todo SET seriesId=COALESCE((SELECT sourceId FROM RepeatInstance WHERE todoId=Todo.id LIMIT 1), CASE WHEN EXISTS(SELECT 1 FROM RepeatInstance WHERE sourceId=Todo.id) THEN Todo.id ELSE '' END)",
+  );
+}
 export const USER = "local-user";
 db.prepare("INSERT OR IGNORE INTO User (id,name,createdAt) VALUES (?,?,?)").run(
   USER,
@@ -74,6 +91,19 @@ export function transaction<T>(fn: () => T): T {
     throw error;
   }
 }
+for (const [name, definition] of [
+  ["location", "TEXT NOT NULL DEFAULT ''"],
+  ["travelMode", "TEXT NOT NULL DEFAULT ''"],
+  ["travelBefore", "INTEGER NOT NULL DEFAULT 0"],
+  ["travelAfter", "INTEGER NOT NULL DEFAULT 0"],
+]) {
+  if (
+    !(db.prepare("PRAGMA table_info(Todo)").all() as { name: string }[]).some(
+      (column) => column.name === name,
+    )
+  )
+    db.exec(`ALTER TABLE Todo ADD COLUMN ${name} ${definition}`);
+}
 export function getTodos(): Todo[] {
   return (
     db
@@ -84,6 +114,7 @@ export function getTodos(): Todo[] {
   ).map((t) => ({
     ...t,
     done: Boolean(t.done),
+    reminder: Boolean(t.reminder),
     tags: (
       db
         .prepare(
@@ -102,8 +133,8 @@ export function getTodos(): Todo[] {
 }
 export function putTodo(t: Todo) {
   db.prepare(
-    `INSERT INTO Todo (id,userId,title,description,notes,done,priority,plannedDate,time,deadline,duration,position,createdAt,color) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET title=excluded.title,description=excluded.description,notes=excluded.notes,done=excluded.done,priority=excluded.priority,plannedDate=excluded.plannedDate,time=excluded.time,deadline=excluded.deadline,duration=excluded.duration,position=excluded.position,color=excluded.color`,
+    `INSERT INTO Todo (id,userId,title,description,notes,done,priority,plannedDate,time,deadline,duration,position,createdAt,color,reminder,seriesId,location,travelBefore,travelAfter,travelMode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET title=excluded.title,description=excluded.description,notes=excluded.notes,done=excluded.done,priority=excluded.priority,plannedDate=excluded.plannedDate,time=excluded.time,deadline=excluded.deadline,duration=excluded.duration,position=excluded.position,color=excluded.color,reminder=excluded.reminder,seriesId=excluded.seriesId,location=excluded.location,travelBefore=excluded.travelBefore,travelAfter=excluded.travelAfter,travelMode=excluded.travelMode`,
   ).run(
     t.id,
     USER,
@@ -119,6 +150,12 @@ export function putTodo(t: Todo) {
     t.position,
     t.createdAt,
     t.color || "green",
+    Number(Boolean(t.reminder)),
+    t.seriesId || "",
+    t.location || "",
+    t.travelBefore || 0,
+    t.travelAfter || 0,
+    t.travelMode || "",
   );
   db.prepare("DELETE FROM Subtask WHERE todoId = ?").run(t.id);
   t.subtasks.forEach((s, i) =>
@@ -154,8 +191,10 @@ export function getConnections(): CalendarConnection[] {
 export function getEvents(): CalendarEvent[] {
   return (
     db
-      .prepare("SELECT * FROM CalendarEvent ORDER BY start")
-      .all() as unknown as CalendarEvent[]
+      .prepare(
+        "SELECT e.*, e.title AS originalTitle, COALESCE(a.title,e.title) AS title FROM CalendarEvent e LEFT JOIN CalendarTitleAlias a ON a.originalTitle=e.title AND a.userId=? ORDER BY e.start",
+      )
+      .all(USER) as unknown as CalendarEvent[]
   ).map((e) => ({ ...e, allDay: Boolean(e.allDay) }));
 }
 export function getMessages(todoId: string): ChatMessage[] {

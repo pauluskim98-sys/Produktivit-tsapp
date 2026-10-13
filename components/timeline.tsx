@@ -6,15 +6,16 @@ import {
   useDndContext,
   useDndMonitor,
 } from "@dnd-kit/core";
+import FitTitle from "./fit-title";
 import { Check, GripVertical } from "lucide-react";
 import type { Todo, CalendarEvent } from "@/lib/types";
-import { eventPresentation } from "@/lib/subjects";
+import { eventPresentation, eventBlockTitle } from "@/lib/subjects";
 import { dateKey, addDays } from "@/lib/dates";
 import {
-  creationRange,
+  creationRange as rawCreationRange,
   MINUTE_HEIGHT,
-  gridMinute,
-  clockMinute,
+  gridMinute as rawGridMinute,
+  clockMinute as rawClockMinute,
   splitAtSix,
   toMinutes,
   toTime,
@@ -23,6 +24,18 @@ import {
   resizeSchedule,
   scheduleAt,
 } from "@/lib/schedule";
+function gridMinute(minute: number) {
+  return minute < 360 ? 1080 : rawGridMinute(minute);
+}
+function clockMinute(position: number) {
+  return position >= 1080 ? 0 : rawClockMinute(position);
+}
+function creationRange(anchor: number, current: number) {
+  const expand = (p: number) => (p >= 1080 ? 1080 + (p - 1080) * 6 : p);
+  const compact = (p: number) => (p >= 1080 ? 1080 + (p - 1080) / 6 : p);
+  const r = rawCreationRange(expand(anchor), expand(current));
+  return { ...r, start: compact(r.start), end: compact(r.end) };
+}
 const DAYS = [
   "Montag",
   "Dienstag",
@@ -57,6 +70,7 @@ interface Props {
     time: string,
     duration?: number,
     days?: string[],
+    drawn?: boolean,
   ) => void;
   onSelectSlot: (day: string, time: string) => void;
   onDayOpen: (day: string) => void;
@@ -82,7 +96,12 @@ export function dragStartMinute(
     active.data.current?.timed && active.rect.current.translated
       ? active.rect.current.translated.top - gridTop
       : y;
-  return clockMinute(relative / scale);
+  return clockMinute(
+    relative / scale +
+      (active.data.current?.timed
+        ? Number(active.data.current.travelBefore || 0)
+        : 0),
+  );
 }
 function TimedTask({
   todo,
@@ -115,7 +134,11 @@ function TimedTask({
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `scheduled:${todo.id}:${day}:${start < 360 ? "early" : "day"}`,
-    data: { todoId: todo.id, timed: true },
+    data: {
+      todoId: todo.id,
+      timed: true,
+      travelBefore: todo.travelBefore || 0,
+    },
     disabled: offset !== 0,
   });
   const [preview, setPreview] = useState<TimeChange | null>(null),
@@ -210,6 +233,15 @@ function TimedTask({
   const early = start < 360;
   const displayedStart = Math.max(early ? 0 : 360, segment?.start ?? start),
     displayedEnd = Math.min(early ? 360 : 1440, segment?.end ?? end);
+  const mainStart = toMinutes(shown.time) - segment.offset,
+    mainEnd = mainStart + (shown.duration || 60);
+  const length = Math.max(1, displayedEnd - displayedStart);
+  const before =
+    (Math.max(0, Math.min(displayedEnd, mainStart) - displayedStart) / length) *
+    100;
+  const after =
+    (Math.max(0, displayedEnd - Math.max(displayedStart, mainEnd)) / length) *
+    100;
   const originalStart = toMinutes(todo.time),
     originalEnd = originalStart + (todo.duration || 60);
   const endText =
@@ -273,6 +305,9 @@ function TimedTask({
     return (
       <button
         type="button"
+        style={
+          edge === "start" ? { top: `${before}%` } : { bottom: `${after}%` }
+        }
         className={`resize-handle resize-${edge}`}
         aria-label={`${edge === "start" ? "Beginn" : "Ende"} von ${todo.title} ändern`}
         title="Ziehen oder Pfeiltasten: 15-Minuten-Schritte"
@@ -324,33 +359,52 @@ function TimedTask({
         opacity: isDragging ? 0.25 : 1,
       }}
       data-task-id={todo.id}
-      title={`${todo.title}\n${todo.time}–${endText}\n${todo.duration || 60} Minuten`}
+      title={`${todo.title}\n${todo.time}–${endText}\n${todo.duration || 60} Minuten · Wegzeit ${(todo.travelBefore || 0) + (todo.travelAfter || 0)} Min. · Gesamt ${(todo.duration || 60) + (todo.travelBefore || 0) + (todo.travelAfter || 0)} Min.`}
     >
+      {before > 0 && (
+        <button
+          className="travel-part travel-before"
+          style={{ height: `${before}%` }}
+          onClick={() => onOpen(todo.id)}
+          title={`Hinweg · ${todo.travelBefore} Min.`}
+        >
+          Hinweg
+        </button>
+      )}
+      {after > 0 && (
+        <button
+          className="travel-part travel-after"
+          style={{ height: `${after}%` }}
+          onClick={() => onOpen(todo.id)}
+          title={`Rückweg · ${todo.travelAfter} Min.`}
+        >
+          Rückweg
+        </button>
+      )}
       {!segment?.continuesBefore &&
         displayedStart === (segment?.start ?? start) &&
         handle("start")}
       <button
         className="timed-check"
+        style={{ top: `calc(${before}% + 5px)` }}
         aria-label={`${todo.title} ${todo.done ? "wieder öffnen" : "erledigen"}`}
         onClick={() => onToggle(todo)}
       >
         {todo.done ? <Check size={10} /> : null}
       </button>
       <button
+        data-calendar-task={todo.id}
         className="timed-main"
+        style={{ top: `${before}%`, bottom: `${after}%` }}
         {...attributes}
         {...listeners}
         onClick={() => onOpen(todo.id)}
         aria-label={`${todo.title}, ${shown.time}, ${shown.duration || 60} Minuten`}
       >
-        <strong>
+        <FitTitle>
           {segment?.continuesBefore ? "↳ " : ""}
           {todo.title}
-        </strong>
-        <span>
-          {toTime(displayedStart)}–{toTime(displayedEnd)}
-          {segment?.continuesAfter ? " ↳" : ""}
-        </span>
+        </FitTitle>
       </button>
       {!segment?.continuesAfter &&
         displayedEnd === (segment?.end ?? end) &&
@@ -408,7 +462,9 @@ function TimeColumn({
   for (const todo of todos) {
     const seg = taskSegment(todo, day);
     if (seg)
-      for (const part of splitAtSix(seg.start, seg.end))
+      for (const part of splitAtSix(seg.start, seg.end).filter(
+        (p) => p.start >= 360,
+      ))
         items.push({ id: `${todo.id}:${part.start}`, ...seg, ...part, todo });
   }
   const midnight = new Date(`${day}T00:00:00`),
@@ -429,11 +485,13 @@ function TimeColumn({
   const layout = layoutIntervals(
     items.flatMap((item) =>
       item.event
-        ? splitAtSix(item.start, item.end).map((part) => ({
-            ...item,
-            ...part,
-            id: `${item.id}:${part.start}`,
-          }))
+        ? splitAtSix(item.start, item.end)
+            .filter((p) => p.start >= 360)
+            .map((part) => ({
+              ...item,
+              ...part,
+              id: `${item.id}:${part.start}`,
+            }))
         : [item],
     ),
   );
@@ -460,7 +518,7 @@ function TimeColumn({
         grid.current = el;
         setNodeRef(el);
       }}
-      style={{ height: 1440 * scale }}
+      style={{ height: 1140 * scale }}
       onDoubleClick={(e) => {
         if ((e.target as HTMLElement).closest("button,article")) return;
         const minutes =
@@ -468,7 +526,7 @@ function TimeColumn({
         onCreate(day, scheduleAt(clockMinute(minutes)).time);
       }}
     >
-      {Array.from({ length: 24 }, (_, i) => {
+      {Array.from({ length: 18 }, (_, i) => {
         const hour = (i + 6) % 24;
         return (
           <button
@@ -494,6 +552,50 @@ function TimeColumn({
           />
         );
       })}
+      <div
+        className="night-strip"
+        style={{ top: 1080 * scale, height: 60 * scale }}
+      >
+        <button
+          className="night-create"
+          aria-label={`Aufgabe am ${day} in der Nacht erstellen`}
+          onClick={() => onCreate(day, "00:00", 360)}
+        />
+        {todos
+          .filter((t) => {
+            const seg = taskSegment(t, day);
+            return seg && seg.start < 360;
+          })
+          .map((t) => (
+            <button
+              key={t.id}
+              data-calendar-task={t.id}
+              className={`night-task color-${t.color || "green"} ${t.priority === "high" ? "priority-high" : ""}`}
+              onClick={() => onOpen(t.id)}
+              title={`${t.time} · ${t.title}`}
+            >
+              {t.title}
+            </button>
+          ))}
+        {events
+          .filter(
+            (e) =>
+              !e.allDay &&
+              new Date(e.start) < new Date(`${day}T06:00:00`) &&
+              new Date(e.end) > midnight,
+          )
+          .map((e) => (
+            <button
+              className="night-task"
+              key={e.id}
+              data-calendar-event={e.id}
+              onClick={() => onEvent(e)}
+              title={`${e.title}\n${new Date(e.start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}–${new Date(e.end).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}\n${e.location}`}
+            >
+              {e.title}
+            </button>
+          ))}
+      </div>
       {layout.map((item) =>
         item.todo ? (
           <TimedTask
@@ -517,6 +619,7 @@ function TimeColumn({
         ) : (
           <button
             key={item.id}
+            data-calendar-event={item.event!.id}
             className="timed-event"
             style={{
               top: gridMinute(item.start) * scale,
@@ -530,13 +633,9 @@ function TimeColumn({
               backgroundColor: `color-mix(in srgb, ${eventPresentation(item.event!, colors[item.event!.connectionId]).color} 16%, var(--surface))`,
             }}
             onClick={() => onEvent(item.event!)}
-            title={`${item.event!.title}\n${item.event!.location}\nImportierter Kalendertermin (schreibgeschützt)`}
+            title={`${item.event!.title}\n${new Date(item.event!.start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}–${new Date(item.event!.end).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}\n${item.event!.location}`}
           >
-            <strong>{item.event!.title}</strong>
-            <span>
-              {toTime(item.start)}–{toTime(item.end)}
-            </span>
-            {item.event!.location && <small>{item.event!.location}</small>}
+            <FitTitle>{eventBlockTitle(item.event!.title)}</FitTitle>
           </button>
         ),
       )}
@@ -632,7 +731,7 @@ export default function Timeline(props: Props) {
       endDay: column.dataset.dayGrid!,
       current: Math.max(
         0,
-        Math.min(1440, (y - column.getBoundingClientRect().top) / scale),
+        Math.min(1140, (y - column.getBoundingClientRect().top) / scale),
       ),
       moved,
     };
@@ -647,7 +746,7 @@ export default function Timeline(props: Props) {
       const head =
         el.querySelector(".timeline-head")?.getBoundingClientRect().height ||
         90;
-      setScale(Math.max(0.25, (el.clientHeight - head - 14) / 1080));
+      setScale(Math.max(0.25, (el.clientHeight - head - 14) / 1140));
     };
     const observer = new ResizeObserver(resize);
     observer.observe(el);
@@ -756,7 +855,7 @@ export default function Timeline(props: Props) {
                 day >= [final.day, final.endDay].sort()[0] &&
                 day <= [final.day, final.endDay].sort()[1],
             );
-          props.onCreate(days[0], range.time, range.duration, days);
+          props.onCreate(days[0], range.time, range.duration, days, true);
         } else {
           // Pointer capture targets the container on release, so handle taps here.
           suppressClick.current = true;
@@ -787,7 +886,7 @@ export default function Timeline(props: Props) {
       )}
       <div className="timeline-head">
         <div className="timeline-gutter-head">
-          <span>Ohne Zeit</span>
+          <span aria-hidden="true" />
         </div>
         {props.days.map((date, i) => {
           const day = dateKey(date);
@@ -814,12 +913,12 @@ export default function Timeline(props: Props) {
         })}
       </div>
       <div className="timeline-body">
-        <div className="time-axis" style={{ height: 1440 * scale }}>
-          {Array.from({ length: 25 }, (_, i) => {
+        <div className="time-axis" style={{ height: 1140 * scale }}>
+          {Array.from({ length: 19 }, (_, i) => {
             const h = (i + 6) % 24;
             return (
               <span key={i} style={{ top: i * 60 * scale }}>
-                {toTime(h * 60)}
+                {i === 18 ? "Nacht" : toTime(h * 60)}
               </span>
             );
           })}

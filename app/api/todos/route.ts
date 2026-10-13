@@ -1,3 +1,7 @@
+import { getLife, saveLife } from "@/lib/life";
+import { trackMeals } from "@/lib/meal-tracking";
+import { applyHistoryDelta } from "@/lib/history-delta";
+import { dateKey } from "@/lib/dates";
 import { isDeepStrictEqual } from "node:util";
 import { repeatDates } from "@/lib/repeat";
 import {
@@ -11,7 +15,7 @@ import {
 } from "@/lib/db";
 import { validTodo, sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     sameOrigin(request);
     const body = await request.json();
@@ -48,7 +52,15 @@ export async function POST(request: Request) {
           id: c.id,
           messages: getMessages(c.id),
         }));
+      const life = body.lifeChange
+        ? applyHistoryDelta(
+            getLife(),
+            body.lifeChange.after,
+            body.lifeChange.before,
+          )
+        : null;
       transaction(() => {
+        if (life) saveLife(life);
         for (const c of changes) {
           if (c.before) {
             putTodo(c.before);
@@ -73,9 +85,9 @@ export async function POST(request: Request) {
       if (
         !Array.isArray(body.todos) ||
         body.todos.length < 1 ||
-        body.todos.length > 7
+        body.todos.length > 366
       )
-        throw new Error("Bitte einen Bereich innerhalb einer Woche wählen.");
+        throw new Error("Bitte höchstens 366 Tage wählen.");
       const todos = body.todos.map(validTodo);
       const existing = new Set(getTodos().map((t) => t.id));
       const ids = new Set(todos.map((t: ReturnType<typeof validTodo>) => t.id));
@@ -84,26 +96,45 @@ export async function POST(request: Request) {
         todos.some((t: ReturnType<typeof validTodo>) => existing.has(t.id))
       )
         throw new Error("Diese Termine existieren bereits.");
+      const source = body.source ? validTodo(body.source) : null;
+      if (
+        source &&
+        (!existing.has(source.id) ||
+          !source.seriesId ||
+          todos.some(
+            (t: ReturnType<typeof validTodo>) => t.seriesId !== source.seriesId,
+          ))
+      )
+        throw new Error("Ungültige Termingruppe.");
       transaction(() => {
+        if (source) putTodo(source);
         for (const todo of todos) putTodo(todo);
       });
     } else if (body.action === "save") {
       const todo = validTodo(body.todo);
       transaction(() => putTodo(todo));
     } else if (body.action === "repeat") {
-      const todo = getTodos().find((t) => t.id === body.id);
+      const existing = getTodos().find((t) => t.id === body.id);
+      const todo = body.todo ? validTodo(body.todo) : existing;
+      if (body.todo && (!existing || todo?.id !== existing.id))
+        throw new Error("Aufgabe nicht gefunden.");
       if (!todo?.plannedDate)
         throw new Error("Zuerst einen Tag für die Aufgabe wählen.");
       const dates = repeatDates(todo.plannedDate, body.weekdays, body.weeks);
       let created = 0;
       transaction(() => {
+        todo.seriesId = todo.seriesId || todo.id;
+        putTodo(todo);
         for (const date of dates) {
           if (
             db
               .prepare(
                 "SELECT 1 FROM RepeatInstance WHERE sourceId=? AND date=?",
               )
-              .get(todo.id, date)
+              .get(todo.seriesId, date) ||
+            getTodos().some(
+              (t) => t.seriesId === todo.seriesId && t.plannedDate === date,
+            )
           )
             continue;
           const id = crypto.randomUUID();
@@ -121,7 +152,7 @@ export async function POST(request: Request) {
           });
           db.prepare(
             "INSERT INTO RepeatInstance(sourceId,date,todoId) VALUES (?,?,?)",
-          ).run(todo.id, date, id);
+          ).run(todo.seriesId, date, id);
           created++;
         }
       });
@@ -136,6 +167,29 @@ export async function POST(request: Request) {
         duration: body.duration,
       });
       transaction(() => putTodo(updated));
+    } else if (body.action === "deleteSeries") {
+      const todos = getTodos(),
+        source = todos.find((t) => t.id === body.id);
+      if (!source?.seriesId || !["all", "following"].includes(body.scope))
+        throw new Error("Termingruppe nicht gefunden.");
+      const affected = todos.filter(
+        (t) =>
+          t.seriesId === source.seriesId &&
+          (body.scope === "all" ||
+            (t.plannedDate || "") >= (source.plannedDate || "")),
+      );
+      const deletedMany = affected.map((t) => ({
+        id: t.id,
+        messages: getMessages(t.id),
+      }));
+      transaction(() => {
+        for (const t of affected)
+          db.prepare("DELETE FROM Todo WHERE id=? AND userId=?").run(
+            t.id,
+            USER,
+          );
+      });
+      return Response.json({ todos: getTodos(), deletedMany });
     } else if (body.action === "delete") {
       const todo = getTodos().find((t) => t.id === body.id);
       if (!todo)
@@ -190,5 +244,33 @@ export async function POST(request: Request) {
     return Response.json({ todos: getTodos() });
   } catch (error) {
     return errorResponse(error);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    sameOrigin(request);
+    const action = (await request.clone().json()).action;
+    const before = getTodos(),
+      lifeBefore = getLife();
+    const response = await handlePost(request);
+    if (!response.ok || action === "undo") return response;
+    const data = await response.json();
+    const lifeAfter = trackMeals(
+      lifeBefore,
+      before,
+      data.todos,
+      dateKey(new Date()),
+    );
+    if (!isDeepStrictEqual(lifeBefore, lifeAfter)) {
+      saveLife(lifeAfter);
+      return Response.json({
+        ...data,
+        lifeChange: { before: lifeBefore, after: lifeAfter },
+      });
+    }
+    return Response.json(data);
+  } catch (e) {
+    return errorResponse(e);
   }
 }

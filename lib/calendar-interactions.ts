@@ -6,7 +6,8 @@ export function periodRange(key: unknown) {
   const parts = key.split(":");
   const kind = parts.length === 1 ? "day" : parts[0];
   const date = parts.at(-1)!;
-  if (!["day", "week", "month", "year"].includes(kind) || !isDateKey(date)) return null;
+  if (!["day", "week", "month", "year"].includes(kind) || !isDateKey(date))
+    return null;
   const d = parseDate(date);
   const start =
     kind === "week"
@@ -15,7 +16,7 @@ export function periodRange(key: unknown) {
         ? new Date(d.getFullYear(), d.getMonth(), 1)
         : kind === "year"
           ? new Date(d.getFullYear(), 0, 1)
-        : d;
+          : d;
   const end =
     kind === "week"
       ? addDays(start, 6)
@@ -23,7 +24,7 @@ export function periodRange(key: unknown) {
         ? new Date(d.getFullYear(), d.getMonth() + 1, 0)
         : kind === "year"
           ? new Date(d.getFullYear(), 11, 31)
-        : d;
+          : d;
   const days: string[] = [];
   for (let d = start; d <= end; d = addDays(d, 1)) days.push(dateKey(d));
   return { kind, start: dateKey(start), end: dateKey(end), days };
@@ -89,6 +90,28 @@ export function shiftTasks(
             })),
           }
         : {}),
+    };
+  });
+}
+
+export function moveTaskGroup(
+  todos: Todo[],
+  source: Todo,
+  day: string,
+  time?: string,
+) {
+  const base = source.plannedDate || day;
+  const delta = Math.round((Date.parse(day) - Date.parse(base)) / 86400000);
+  return todos.map((t) => {
+    if (source.plannedDate && source.time && t.plannedDate && t.time && time)
+      return shiftTasks([t], source, day, time)[0];
+    return {
+      ...t,
+      plannedDate: t.plannedDate
+        ? dateKey(addDays(parseDate(t.plannedDate), delta))
+        : day,
+      time: time || t.time,
+      duration: time ? t.duration || 60 : t.duration,
     };
   });
 }

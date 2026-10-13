@@ -1,3 +1,8 @@
+import {
+  calendarSnapshot,
+  rememberCalendar,
+  replayCalendar,
+} from "@/lib/calendar-history";
 import { db, transaction, USER } from "@/lib/db";
 import { calendarProviders } from "@/lib/calendar/ics";
 import type { CalendarSource } from "@/lib/calendar/provider";
@@ -5,7 +10,7 @@ import { sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
 import { syncConnection, replaceEvents } from "@/lib/calendar/sync";
 const colors = ["#97a9c4", "#bcaa82", "#8eac98", "#ae9dbd"];
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     sameOrigin(request);
     const body = await request.json();
@@ -71,6 +76,26 @@ export async function POST(request: Request) {
       message: `${events.length} Termine importiert.`,
       count: events.length,
     });
+  } catch (e) {
+    return errorResponse(e);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    sameOrigin(request);
+    const body = await request.clone().json();
+    if (body.action === "history") {
+      if (typeof body.id !== "string" || typeof body.redo !== "boolean")
+        throw new Error("Ungültige Änderung.");
+      replayCalendar(body.id, body.redo);
+      return Response.json({ ok: true });
+    }
+    const before = calendarSnapshot(),
+      response = await handlePost(request);
+    if (!response.ok) return response;
+    const data = await response.json();
+    return Response.json({ ...data, historyToken: rememberCalendar(before) });
   } catch (e) {
     return errorResponse(e);
   }

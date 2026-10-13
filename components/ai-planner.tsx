@@ -9,6 +9,7 @@ import {
   Loader2,
   Check,
 } from "lucide-react";
+import { dateKey, addDays, parseDate } from "@/lib/dates";
 import type { Todo } from "@/lib/types";
 interface Message {
   id: string;
@@ -35,13 +36,20 @@ async function request(url: string, body?: unknown) {
   if (!r.ok) throw new Error(d.error || "Anfrage fehlgeschlagen.");
   return d;
 }
-export function AiConnection({ onConnected }: { onConnected: () => void }) {
+export function AiConnection({
+  onConnected,
+  onClose,
+}: {
+  onConnected: () => void;
+  onClose?: () => void;
+}) {
   const [key, setKey] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   return (
     <form
       className="ai-connection"
+      data-escape-layer={onClose ? "" : undefined}
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
@@ -57,6 +65,11 @@ export function AiConnection({ onConnected }: { onConnected: () => void }) {
         }
       }}
     >
+      {onClose && (
+        <button hidden data-close type="button" onClick={onClose}>
+          Schließen
+        </button>
+      )}
       <strong>OpenAI verbinden</strong>
       <p>
         Diese App benötigt einen OpenAI-API-Schlüssel. Deine ChatGPT-Anmeldung
@@ -108,6 +121,7 @@ type Recognition = {
 };
 export default function AiPlanner({
   start,
+  period = "week",
   available,
   onConnected,
   onAccepted,
@@ -115,6 +129,7 @@ export default function AiPlanner({
   initialMessage = "",
 }: {
   start: string;
+  period?: "week" | "month" | "year";
   available: boolean;
   onConnected: () => void;
   onAccepted: (todos: Todo[]) => void;
@@ -124,12 +139,25 @@ export default function AiPlanner({
   const [message, setMessage] = useState(initialMessage),
     [messages, setMessages] = useState<Message[]>([]),
     [proposals, setProposals] = useState<Proposal[]>([]),
-    [weeks, setWeeks] = useState(4),
+    [weeks, setWeeks] = useState(
+      period === "year" ? 53 : period === "month" ? 5 : 1,
+    ),
+    [customPeriod, setCustomPeriod] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [listening, setListening] = useState(false),
     [speechSupported, setSpeechSupported] = useState(false),
     [connect, setConnect] = useState(false);
+  const periodLabel =
+    period === "year" ? "Jahr" : period === "month" ? "Monat" : "Woche";
+  const planningEnd =
+    !customPeriod && period === "year"
+      ? start.slice(0, 4) + "-12-31"
+      : !customPeriod && period === "month"
+        ? dateKey(
+            new Date(Number(start.slice(0, 4)), Number(start.slice(5, 7)), 0),
+          )
+        : dateKey(addDays(parseDate(start), weeks * 7 - 1));
   const speech = useRef<Recognition | null>(null);
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -199,6 +227,7 @@ export default function AiPlanner({
         message,
         start,
         weeks,
+        end: planningEnd,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       setMessages(d.messages);
@@ -221,11 +250,11 @@ export default function AiPlanner({
         className="detail-panel ai-planner"
         role="dialog"
         aria-modal="true"
-        aria-label="KI-Wochenplanung"
+        aria-label={`KI-${periodLabel}planung`}
       >
         <div className="detail-top">
           <strong>
-            <Sparkles size={16} /> Woche & Ziele planen
+            <Sparkles size={16} /> {periodLabel} & Ziele planen
           </strong>
           <button
             className="icon-button"
@@ -238,6 +267,7 @@ export default function AiPlanner({
         <div className="ai-planner-content" ref={list}>
           {connect ? (
             <AiConnection
+              onClose={() => setConnect(false)}
               onConnected={() => {
                 onConnected();
                 setConnect(false);
@@ -335,11 +365,10 @@ export default function AiPlanner({
               onClick={async () => {
                 try {
                   const data = await request("/api/state");
-                  const end = new Date(start + "T12:00:00");
-                  end.setDate(end.getDate() + weeks * 7);
-                  const endKey = end.toISOString().slice(0, 10);
+                  const endKey = dateKey(addDays(parseDate(planningEnd), 1));
                   const context = {
                     start,
+                    end: planningEnd,
                     weeks,
                     tasks: data.todos
                       .filter(
@@ -360,7 +389,7 @@ export default function AiPlanner({
                     ),
                   };
                   await navigator.clipboard.writeText(
-                    `Berate mich zu meiner Wochenplanung und meinen Zielen. ${message}\n${JSON.stringify(context)}`,
+                    `Berate mich zu meiner ${periodLabel}planung und meinen Zielen. ${message}\n${JSON.stringify(context)}`,
                   );
                   setError("Frage und Kalenderkontext für ChatGPT kopiert.");
                 } catch {
@@ -388,17 +417,22 @@ export default function AiPlanner({
             <select
               aria-label="Planungszeitraum"
               value={weeks}
-              onChange={(e) => setWeeks(Number(e.target.value))}
+              onChange={(e) => {
+                setWeeks(Number(e.target.value));
+                setCustomPeriod(true);
+              }}
             >
-              {[1, 2, 4, 8, 12, 26].map((n) => (
+              {[1, 2, 4, 5, 8, 12, 26, 53].map((n) => (
                 <option key={n} value={n}>
-                  {n} {n === 1 ? "Woche" : "Wochen"}
+                  {!customPeriod && n === weeks
+                    ? `${periodLabel} bis ${parseDate(planningEnd).toLocaleDateString("de-DE")}`
+                    : `${n} ${n === 1 ? "Woche" : "Wochen"}`}
                 </option>
               ))}
             </select>
           </label>
           <textarea
-            aria-label="Nachricht an den Wochenassistenten"
+            aria-label={`Nachricht an den ${periodLabel}assistenten`}
             placeholder="Zum Beispiel: Ich möchte in 8 Wochen die Biochemie wiederholen. Plane vier Lernblöcke pro Woche …"
             value={message}
             maxLength={8000}

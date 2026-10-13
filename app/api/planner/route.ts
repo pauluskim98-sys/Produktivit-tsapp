@@ -61,11 +61,18 @@ export async function POST(request: Request) {
       !isDateKey(body.start) ||
       !Number.isInteger(body.weeks) ||
       body.weeks < 1 ||
-      body.weeks > 26
+      body.weeks > 53
     )
       throw new Error(
-        "Bitte eine Nachricht und einen Zeitraum von 1 bis 26 Wochen angeben.",
+        "Bitte eine Nachricht und einen Zeitraum von 1 bis 53 Wochen angeben.",
       );
+    if (
+      body.end !== undefined &&
+      (!isDateKey(body.end) ||
+        body.end < body.start ||
+        body.end > dateKey(addDays(parseDate(body.start), 370)))
+    )
+      throw new Error("Bitte einen gültigen Planungszeitraum angeben.");
     if (pending)
       return Response.json(
         { error: "Die Planung läuft bereits." },
@@ -73,7 +80,8 @@ export async function POST(request: Request) {
       );
     pending = true;
     locked = true;
-    const end = dateKey(addDays(parseDate(body.start), body.weeks * 7 - 1));
+    const end =
+      body.end || dateKey(addDays(parseDate(body.start), body.weeks * 7 - 1));
     const tasks = getTodos()
       .filter(
         (t) =>
