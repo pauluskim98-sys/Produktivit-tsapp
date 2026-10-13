@@ -3046,13 +3046,6 @@ function Detail({
     const next = {
       ...draft,
       title,
-      description: [
-        ...new Set(
-          [draft.description, first.description]
-            .filter(Boolean)
-            .flatMap((value) => value.split(/\n+/)),
-        ),
-      ].join("\n"),
       plannedDate: first.plannedDate || draft.plannedDate,
       time: first.time || draft.time,
       duration:
@@ -3060,14 +3053,7 @@ function Detail({
       location: first.location || draft.location || "",
     };
     const fields = (
-      [
-        "title",
-        "description",
-        "plannedDate",
-        "time",
-        "duration",
-        "location",
-      ] as const
+      ["title", "plannedDate", "time", "duration", "location"] as const
     ).filter((field) => next[field] !== draft[field]);
     rememberDraft();
     setDraft(next);

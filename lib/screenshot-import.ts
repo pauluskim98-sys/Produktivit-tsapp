@@ -5,7 +5,6 @@ import type { Todo } from "./types.ts";
 
 export type ScreenshotEvent = {
   title: string;
-  description: string;
   plannedDate?: string;
   time?: string;
   duration?: number;
@@ -168,17 +167,6 @@ export function parseScreenshotImport(
     lines
       .map((line) => meaningful(line, base))
       .find((line) => line && !noteLine.test(line)) || "";
-  const notes = lines
-    .filter((line) => noteLine.test(line) && !metadata.test(line))
-    .map((line) =>
-      line.replace(/^(?:Notiz|Hinweis|Beschreibung|Info)\s*:\s*/i, ""),
-    )
-    .slice(0, 5);
-  const globalDescription = [
-    ...new Set([allParsed.description, ...notes].filter(Boolean)),
-  ]
-    .join("\n")
-    .slice(0, 1500);
   const segments: string[] = [];
   const events: ScreenshotEvent[] = anchors.map((anchor, i) => {
     const nextLine =
@@ -221,7 +209,6 @@ export function parseScreenshotImport(
       : undefined;
     return {
       title: title || fallbackTitle || "",
-      description: globalDescription,
       plannedDate: anchor.plannedDate,
       time: labeled?.time || ownParsed.time || parsed.time || allParsed.time,
       duration:
@@ -238,7 +225,6 @@ export function parseScreenshotImport(
     const inferredDate = allParsed.plannedDate || (rhythm ? base : undefined);
     events.push({
       title: globalTitle || fallbackTitle || "",
-      description: globalDescription,
       plannedDate: inferredDate,
       time: allParsed.time,
       duration: allParsed.duration || durationFromText(text),
@@ -246,43 +232,15 @@ export function parseScreenshotImport(
     });
   }
   const titles = new Set(events.map((event) => event.title));
-  const extraNotes = (content: string) =>
-    content
-      .split("\n")
-      .map((line) => meaningful(line, base))
-      .filter(
-        (line) =>
-          line &&
-          !titles.has(line) &&
-          !noteLine.test(line) &&
-          !/^(?:Dauer|Termine|Uhrzeit|Datum|Wiederholung|Kalender|Startseite|Home|Menü|Suche|Teilen|Anmelden|Cookie|Akzeptieren)\b/i.test(
-            line,
-          ),
-      )
-      .slice(0, 5);
-  events.forEach((event, index) => {
-    const source = titles.size > 1 ? segments[index] || text : text;
-    const parsed = parseAppointmentInput(source, base);
-    if (titles.size > 1) event.location = parsed.location;
-    event.description = [
-      ...new Set(
-        [
-          titles.size > 1 ? parsed.description : globalDescription,
-          ...source
-            .split("\n")
-            .filter((line) => noteLine.test(line) && !metadata.test(line))
-            .map((line) =>
-              line.replace(/^(?:Notiz|Hinweis|Beschreibung|Info)\s*:\s*/i, ""),
-            ),
-          ...extraNotes(source),
-        ]
-          .filter(Boolean)
-          .flatMap((value) => value.split(/\n+/)),
-      ),
-    ]
-      .join("\n")
-      .slice(0, 1500);
-  });
+  // For independent appointments use only that appointment's address.
+  // Other screenshot text (notes, phones, descriptions) is never imported.
+  if (titles.size > 1)
+    events.forEach((event, index) => {
+      event.location = parseAppointmentInput(
+        segments[index] || text,
+        base,
+      ).location;
+    });
   const unique = events.filter(
     (event, i) =>
       events.findIndex(
@@ -341,7 +299,6 @@ export function screenshotOccurrences(
   const first = plan.events[0];
   const root: ScreenshotEvent = {
     title: primary.title,
-    description: primary.description,
     location: primary.location,
     plannedDate: primary.plannedDate || undefined,
     time: primary.time || undefined,
@@ -352,10 +309,6 @@ export function screenshotOccurrences(
     ...plan.events.slice(1).map((event) => ({
       ...event,
       title: event.title === first.title ? primary.title : event.title,
-      description:
-        event.description === first.description
-          ? primary.description
-          : event.description,
       time: event.time === first.time ? primary.time || undefined : event.time,
       duration:
         event.duration === first.duration
@@ -432,7 +385,6 @@ export function screenshotTasks(
     ...primary,
     id: existing && i === 0 ? primary.id : id(),
     title: event.title || primary.title,
-    description: event.description,
     location: event.location || "",
     plannedDate: event.plannedDate || primary.plannedDate,
     time: event.time || "",

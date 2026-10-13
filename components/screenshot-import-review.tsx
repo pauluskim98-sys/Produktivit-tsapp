@@ -134,16 +134,6 @@ export default function ScreenshotImportReview({
                   <span>Min.</span>
                 </label>
               </div>
-              {event.description &&
-                event.description !== plan.events[0].description && (
-                  <textarea
-                    aria-label={`Notiz von Termin ${i + 2}`}
-                    value={event.description}
-                    onChange={(e) =>
-                      patchEvent(i + 1, { description: e.target.value })
-                    }
-                  />
-                )}
             </div>
           ))}
         </details>

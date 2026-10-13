@@ -38,7 +38,11 @@ test("two explicit dates become a finite same-title series with shared details",
     ["Yoga", "Yoga"],
   );
   assert.equal(plan.events[0].duration, 60);
-  assert.match(plan.events[0].description, /Yogamatte mitbringen/);
+  assert.ok(
+    plan.events.every(
+      (event) => !("description" in event) && !("notes" in event),
+    ),
+  );
   assert.equal(plan.recurrence, undefined);
   let n = 0;
   const tasks = screenshotTasks(
@@ -165,15 +169,14 @@ test("same-line dates keep their own times and date shorthand without a year", (
     "2026-10-15",
   );
 });
-test("different events retain their own address and short notes", () => {
+test("different events retain only their own address, without notes", () => {
   const plan = parseScreenshotImport(
     "Yoga\n15.10.2026 18:30\nAdresse: Aachener Straße 123, 50931 Köln\nHinweis: Matte mitbringen\nKonzert\n16.10.2026 20:00\nAdresse: Venloer Straße 10, 50672 Köln\nHinweis: Eintritt frei",
     base,
   );
   assert.equal(plan.events[0].location, "Aachener Straße 123, 50931 Köln");
   assert.equal(plan.events[1].location, "Venloer Straße 10, 50672 Köln");
-  assert.ok(!plan.events[0].description.includes("Eintritt frei"));
-  assert.ok(!plan.events[1].description.includes("Matte mitbringen"));
+  assert.ok(plan.events.every((event) => !("description" in event)));
 });
 test("existing primary subtask identities survive an atomic screenshot edit", () => {
   const first = {
@@ -186,13 +189,11 @@ test("existing primary subtask identities survive an atomic screenshot edit", ()
     [
       {
         title: "Yoga",
-        description: "",
         plannedDate: "2026-10-15",
         time: "18:30",
       },
       {
         title: "Yoga",
-        description: "",
         plannedDate: "2026-10-22",
         time: "18:30",
       },
@@ -206,12 +207,57 @@ test("existing primary subtask identities survive an atomic screenshot edit", ()
   assert.equal(tasks[1].subtasks[0].done, false);
 });
 
-test("admission notes retain their own time while labelled start takes precedence", () => {
+test("labelled start takes precedence over admission, which is not copied as a note", () => {
   const plan = parseScreenshotImport(
     "Konzert\n15.10.2026\nEinlass: 17:30\nBeginn: 18:00–20:00\nHinweis: Eintritt frei",
     base,
   );
   assert.equal(plan.events[0].time, "18:00");
   assert.equal(plan.events[0].duration, 120);
-  assert.equal(plan.events[0].description, "Einlass: 17:30\nEintritt frei");
+  assert.ok(!("description" in plan.events[0]));
+});
+
+test("screenshot import only supplies appointment fields and preserves manual notes", () => {
+  const plan = parseScreenshotImport(
+    "Yoga\n15.10.2026 18:30–19:30\n22.10.2026 18:30–19:30\nAdresse: Aachener Straße 123, 50931 Köln\nTelefon: +49 221 123456\nHinweis: Matte mitbringen\nBeschreibung: Langer Werbetext\nAnmeldung erforderlich",
+    base,
+  );
+  for (const event of plan.events) {
+    assert.deepEqual(Object.keys(event).sort(), [
+      "duration",
+      "location",
+      "plannedDate",
+      "time",
+      "title",
+    ]);
+    assert.equal(event.title, "Yoga");
+    assert.equal(event.location, "Aachener Straße 123, 50931 Köln");
+  }
+  const primary = {
+    ...draft(),
+    description: "Meine eigene Beschreibung",
+    notes: "Meine eigene Notiz",
+  };
+  let n = 0;
+  const saved = screenshotTasks(
+    primary,
+    screenshotOccurrences(plan, primary),
+    () => `note-copy-${++n}`,
+  );
+  assert.equal(saved.length, 2);
+  assert.ok(
+    saved.every(
+      (task) =>
+        task.description === primary.description &&
+        task.notes === primary.notes,
+    ),
+  );
+  const empty = draft();
+  assert.ok(
+    screenshotTasks(
+      empty,
+      screenshotOccurrences(plan, empty),
+      () => `empty-copy-${++n}`,
+    ).every((task) => task.description === "" && task.notes === ""),
+  );
 });
