@@ -218,6 +218,7 @@ function InboxTab({
     <span
       ref={drag.setNodeRef}
       className={`inbox-tab ${selected ? "selected" : ""}`}
+      data-tab={id}
       style={{
         transform: CSS.Transform.toString(drag.transform),
         transition: drag.transition,

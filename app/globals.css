@@ -7019,3 +7019,61 @@ button[hidden] {
 .wa-import-footer { border-top: 1px solid var(--line); padding-top: 15px; margin-top: 15px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .wa-import-footer small, .wa-sync-notice { color: var(--secondary); font-size: 11px; }
 .timed-main:has(.person-avatar) { flex-direction: row; }
+
+/* A little more colour, while writing surfaces remain quiet and legible. */
+:root {
+  --bg: #f2f5f0;
+  --accent-wash: color-mix(in srgb, var(--green) 12%, var(--surface));
+  --panel-surface: color-mix(in srgb, var(--green) 4%, var(--surface));
+  --panel-edge: color-mix(in srgb, var(--green) 16%, var(--line));
+}
+:root[data-theme="dark"] {
+  --bg: #141c22;
+  --accent-wash: color-mix(in srgb, var(--green) 10%, var(--surface));
+  --panel-surface: color-mix(in srgb, var(--green) 5%, var(--surface));
+  --panel-edge: color-mix(in srgb, var(--green) 17%, var(--line));
+}
+.timeline-day-head { background: var(--accent-wash); }
+.timeline-day-head:nth-last-child(-n + 2):not(.is-today) {
+  background: color-mix(in srgb, #c99865 10%, var(--surface));
+}
+.timeline-day-head.is-today {
+  background: color-mix(in srgb, var(--green) 21%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 24%, transparent);
+}
+.timeline-date, .unscheduled-tasks .quick-add > button { color: var(--green); }
+.timeline-date b { background: color-mix(in srgb, var(--surface) 84%, transparent); }
+.app-shell .sidebar .inbox-tab { --tab-accent: var(--green); }
+.app-shell .sidebar .inbox-tab[data-tab="todo"] { --tab-accent: #4787ac; }
+.app-shell .sidebar .inbox-tab[data-tab="food"] { --tab-accent: #b88236; }
+.app-shell .sidebar .inbox-tab[data-tab="events"] { --tab-accent: #9270b8; }
+.app-shell .sidebar .inbox-tab[data-tab="social"] { --tab-accent: #bb6b89; }
+.app-shell .sidebar .inbox-tab[data-tab="sport"] { --tab-accent: #4e947d; }
+.app-shell .sidebar .inbox-tab[data-tab="weather"] { --tab-accent: #5995b7; }
+.app-shell .sidebar .inbox-tab button svg { color: var(--tab-accent); opacity: 1; }
+.app-shell .sidebar .inbox-tab.selected button {
+  background: color-mix(in srgb, var(--tab-accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--tab-accent) 26%, var(--surface));
+}
+.planning-bar { background: color-mix(in srgb, #9170b8 7%, var(--surface)); border-color: color-mix(in srgb, #9170b8 20%, var(--line)); }
+.planning-bar > svg { color: #8c69b4; }
+.calendar-overview-large .mini-date:not(.is-today):not(.mini-date-over) {
+  background: color-mix(in srgb, var(--green) 7%, var(--surface));
+}
+.calendar-overview-large .year-month { background: var(--accent-wash); }
+.calendar-overview-large .year-month .mini-date:not(.is-today):not(.mini-date-over) { background: transparent; }
+.calendar-overview-large .year-month h3 { color: var(--green); }
+.calendar-overview-large .mini-date.is-today { background: color-mix(in srgb, var(--green) 17%, var(--surface)); }
+.app-shell .timed-task, .app-shell .task-card[class*="color-"],
+.app-shell .period-task-row[class*="color-"], .app-shell .night-task[class*="color-"] {
+  background: color-mix(in srgb, var(--task-edge) 14%, var(--task-bg));
+  color: var(--task-ink);
+}
+.inline-period-panel { border-color: color-mix(in srgb, var(--green) 15%, var(--line)); }
+.inline-period-panel .day-notepad { background: color-mix(in srgb, var(--green) 4%, var(--surface)); }
+[data-theme="dark"] .app-shell .sidebar .inbox-tab button svg {
+  color: color-mix(in srgb, var(--tab-accent) 70%, white);
+}
+[data-theme="dark"] .planning-bar > svg { color: #bda1e1; }
+[data-theme="dark"] .timeline-day-head.is-today .timeline-date b,
+[data-theme="dark"] .timeline-date em { color: var(--bg); }
