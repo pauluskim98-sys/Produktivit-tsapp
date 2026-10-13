@@ -7077,3 +7077,16 @@ button[hidden] {
 [data-theme="dark"] .planning-bar > svg { color: #bda1e1; }
 [data-theme="dark"] .timeline-day-head.is-today .timeline-date b,
 [data-theme="dark"] .timeline-date em { color: var(--bg); }
+
+.color-swatch-number {
+  font-size: 10px;
+  font-weight: 550;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  pointer-events: none;
+}
+.color-swatch[aria-pressed="true"] .color-swatch-number {
+  opacity: 1;
+  font-weight: 700;
+}

@@ -1,5 +1,4 @@
 "use client";
-import { Check } from "lucide-react";
 import {
   TASK_COLORS,
   TASK_COLOR_VALUES,
@@ -28,7 +27,9 @@ export default function ColorPicker({
           aria-pressed={(value || "green") === color}
           onClick={() => onChange(color)}
         >
-          {(value || "green") === color && <Check size={15} />}
+          <span className="color-swatch-number" aria-hidden="true">
+            {index === 9 ? 0 : index + 1}
+          </span>
         </button>
       ))}
     </fieldset>
