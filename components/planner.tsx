@@ -23,6 +23,7 @@ import {
 } from "./shortcut-hints";
 import { taskColorForKey } from "@/lib/task-colors";
 import DurationHours from "./duration-hours";
+import TimeInput from "./time-input";
 import {
   addressFromText,
   mapsAddress,
@@ -3389,6 +3390,12 @@ function Detail({
               });
             }}
           />
+          <div className="detail-color-row">
+            <ColorPicker
+              value={draft.color}
+              onChange={(color) => update({ color })}
+            />
+          </div>
           {destination && (
             <a
               className="address-link"
@@ -3488,8 +3495,10 @@ function Detail({
                 : "Inbox"}
             </div>
             {((isNew && showSchedule) || screenshot) && (
-              <fieldset className="schedule-picker">
-                <legend>Datum & Uhrzeit</legend>
+              <fieldset
+                className="schedule-picker"
+                aria-label="Datum und Uhrzeit"
+              >
                 <label>
                   <CalendarDays size={14} aria-hidden="true" />
                   <input
@@ -3504,14 +3513,13 @@ function Detail({
                 </label>
                 <label>
                   <Play size={14} aria-hidden="true" />
-                  <input
-                    type="time"
-                    data-imported={imported("time")}
-                    aria-label="Terminbeginn"
+                  <TimeInput
+                    imported={imported("time")}
+                    label="Terminbeginn"
                     value={draft.time}
-                    onChange={(e) =>
+                    onChange={(time) =>
                       update({
-                        time: e.target.value,
+                        time,
                         plannedDate: draft.plannedDate || dateKey(new Date()),
                         duration: draft.duration || 60,
                       })
@@ -3536,21 +3544,11 @@ function Detail({
                 </legend>
                 <label>
                   <Play size={14} aria-hidden="true" />
-                  <input
-                    type="time"
-                    aria-label="Gemeinsame Uhrzeit"
-                    onInput={(e) =>
-                      update({
-                        time: e.currentTarget.value,
-                        duration: draft.duration || 60,
-                      })
-                    }
+                  <TimeInput
+                    label="Gemeinsame Uhrzeit"
                     value={draft.time}
-                    onChange={(e) =>
-                      update({
-                        time: e.target.value,
-                        duration: draft.duration || 60,
-                      })
+                    onChange={(time) =>
+                      update({ time, duration: draft.duration || 60 })
                     }
                   />
                 </label>
@@ -3741,21 +3739,11 @@ function Detail({
                 <fieldset className="repeat-picker">
                   <label>
                     Uhrzeit{" "}
-                    <input
-                      type="time"
-                      aria-label="Uhrzeit der Wiederholungen"
+                    <TimeInput
+                      label="Uhrzeit der Wiederholungen"
                       value={draft.time}
-                      onInput={(e) =>
-                        update({
-                          time: e.currentTarget.value,
-                          duration: draft.duration || 60,
-                        })
-                      }
-                      onChange={(e) =>
-                        update({
-                          time: e.target.value,
-                          duration: draft.duration || 60,
-                        })
+                      onChange={(time) =>
+                        update({ time, duration: draft.duration || 60 })
                       }
                     />
                   </label>
@@ -3841,13 +3829,10 @@ function Detail({
                 </button>
               ))}
             </fieldset>
-            <ColorPicker
-              value={draft.color}
-              onChange={(color) => update({ color })}
-            />
-            <label>
-              <Layers2 size={15} />
-              Tags
+            <label className="detail-tags">
+              <span>
+                <Layers2 size={15} /> Tags
+              </span>
               <input
                 aria-label="Tags, mit Komma getrennt"
                 placeholder="Studium, Privat …"

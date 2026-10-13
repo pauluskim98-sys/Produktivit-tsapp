@@ -7033,12 +7033,11 @@ button[hidden] {
   --panel-surface: color-mix(in srgb, var(--green) 5%, var(--surface));
   --panel-edge: color-mix(in srgb, var(--green) 17%, var(--line));
 }
-.timeline-day-head { background: var(--accent-wash); }
-.timeline-day-head:nth-last-child(-n + 2):not(.is-today) {
-  background: color-mix(in srgb, #c99865 10%, var(--surface));
+.timeline-day-head {
+  background: color-mix(in srgb, var(--green) 9%, var(--surface));
 }
 .timeline-day-head.is-today {
-  background: color-mix(in srgb, var(--green) 21%, var(--surface));
+  background: color-mix(in srgb, var(--green) 16%, var(--surface));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 24%, transparent);
 }
 .timeline-date, .unscheduled-tasks .quick-add > button { color: var(--green); }
@@ -7089,4 +7088,25 @@ button[hidden] {
 .color-swatch[aria-pressed="true"] .color-swatch-number {
   opacity: 1;
   font-weight: 700;
+}
+
+/* Keep classification compact and give the colour palette its own quiet row. */
+.compact-detail .detail-color-row { margin: 2px 0 10px; }
+.compact-detail .detail-color-row .color-picker { flex-wrap: wrap; gap: 9px; }
+.compact-detail .detail-color-row .color-swatch { width: 27px; height: 27px; }
+.compact-detail .detail-fields > .detail-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 0;
+}
+.detail-tags > span { display: flex; align-items: center; gap: 5px; color: var(--secondary); }
+.compact-detail .detail-fields > .detail-tags input {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
 }
