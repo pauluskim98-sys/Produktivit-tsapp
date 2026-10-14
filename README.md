@@ -223,3 +223,9 @@ In Kalender & Einstellungen → Todoist ein persönliches API-Token aus den [Tod
 Die Zahl am Inboxsymbol zählt offene Aufgaben der sichtbaren Woche samt der Wochenablage; erledigte Aufgaben, andere Wochen sowie Monats-/Jahresablage werden nicht mitgezählt.
 
 Screenshot-Vorschläge erkennen `11h` als 11:00 Uhr. Bei Formulierungen wie „Termin vom 19.10 auf Mittwoch 21.10 um 11h“ wird nur das neue Datum übernommen. Fehlende Uhrzeiten werden leer vorgeschlagen statt vom angeklickten Kalenderfeld oder einem anderen Termin übernommen.
+
+### Rechte Ablage und Wochenfläche
+
+Am rechten Bildschirmrand oder über das Ablagesymbol öffnet sich eine lokale Ablage für Ordner, Dateien und Medien. Beim Verlassen schließt sie sich wieder. Dateien können über „Hinzufügen“ oder per Drag-and-drop hochgeladen, in Ordner verschoben, umbenannt und entfernt werden. Uploads sind auf 20 Dateien mit zusammen 25 MB begrenzt. Bilder erscheinen als Vorschau, Audio und Video mit Wiedergabe. Entfernen ist reversibel über die Rückgängig-Funktion. Die Inhalte liegen in der lokalen SQLite-Datenbank und werden nicht nach GitHub übertragen.
+
+Die Inbox besitzt einen eigenen Notizkasten, der beim Verlassen gespeichert wird. Die Leertaste hebt die Aufgaben-/Notizfläche bis zur 18-Uhr-Linie über den Wochenkalender; erneutes Drücken gibt den Kalender frei. Beim Ziehen einer Aufgabe auf den Kalender blenden sich die Ablagen vorübergehend aus und erscheinen nach dem Ablegen wieder. Am linken Rand bleibt das Zurücklegen in die Inbox möglich. Notizspalten sind breiter als Aufgabenspalten.

@@ -8,6 +8,8 @@ type Options = {
   setInbox: (open: boolean) => void;
   navigate: (direction: number) => void;
   openDetail: () => void;
+  storageOpen?: boolean;
+  setStorage?: (open: boolean) => void;
 };
 
 /** Normal gestures turn the calendar; deliberate gestures share keyboard history. */
@@ -25,7 +27,7 @@ export function usePanelSwipe(options: Options) {
     const isPanel = (node: Element) =>
       Boolean(
         node.closest(
-          '.sidebar,.detail-backdrop,.modal-backdrop,.compact-detail,[role="dialog"],[role="menu"]',
+          '.sidebar,.resource-drawer,.detail-backdrop,.modal-backdrop,.compact-detail,[role="dialog"],[role="menu"]',
         ),
       );
     const finish = (offset: number, final = false) => {
@@ -143,6 +145,8 @@ export function usePanelSwipe(options: Options) {
       if (modal) return;
       if (next === "left" && !current.current.inboxOpen)
         current.current.setInbox(true);
+      if (next === "right" && !current.current.storageOpen)
+        current.current.setStorage?.(true);
     };
     const cancel = () => {
       origin = null;

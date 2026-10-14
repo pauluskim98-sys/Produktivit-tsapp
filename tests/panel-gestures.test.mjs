@@ -11,7 +11,7 @@ const source = ts.transpileModule(
   ),
   { compilerOptions: { module: ts.ModuleKind.CommonJS } },
 ).outputText;
-function setup() {
+function setup(storage = false) {
   const handlers = {},
     timers = new Map(),
     actions = [];
@@ -66,6 +66,12 @@ function setup() {
   vm.runInNewContext(source, context);
   context.exports.usePanelSwipe({
     inboxOpen: false,
+    ...(storage
+      ? {
+          storageOpen: false,
+          setStorage: (open) => actions.push(["storage", open]),
+        }
+      : {}),
     detailOpen: false,
     blocked: false,
     setInbox: (open) => actions.push(["inbox", open]),
@@ -132,4 +138,10 @@ test("only the outer screen edges open panels, never a drag or touch pointer", (
   pointer(100);
   pointer(1199);
   assert.deepEqual(s.actions, [["inbox", true]]);
+});
+
+test("right edge opens the resource drawer without opening task details", () => {
+  const s = setup(true);
+  s.handlers.pointermove({ clientX: 1199, buttons: 0, pointerType: "mouse" });
+  assert.deepEqual(s.actions, [["storage", true]]);
 });

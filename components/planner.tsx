@@ -14,6 +14,8 @@ import {
 import ReminderSetup from "./reminder-setup";
 import LifeInbox from "./life-inbox";
 import InboxReturnDrop from "./inbox-return-drop";
+import ResourceDrawer from "./resource-drawer";
+import InboxNotes from "./inbox-notes";
 import ColorPicker from "./task-color-picker";
 import { useActionHints } from "./use-action-hints";
 import {
@@ -518,6 +520,15 @@ export default function Planner() {
     [settings, setSettings] = useState(false),
     [newOpen, setNewOpen] = useState(false),
     [dark, setDark] = useState(false);
+  const [storageOpen, setStorageOpen] = useState(false);
+  const [trayRaised, setTrayRaised] = useState(false);
+  const [dragReveal, setDragReveal] = useState(false);
+  const [trayPosition, setTrayPosition] = useState({
+    top: 0,
+    left: 0,
+    width: 0,
+    placeholder: 0,
+  });
   const floatingInbox = Boolean(
     (dayPanel || selected || planning || settings || newOpen) &&
     (inboxOpen || mobileInbox),
@@ -542,6 +553,8 @@ export default function Planner() {
       newOpen,
       inboxOpen,
       mobileInbox,
+      storageOpen,
+      trayRaised,
     },
     (view) => {
       setAnchor(view.anchor);
@@ -558,6 +571,8 @@ export default function Planner() {
       setNewOpen(view.newOpen);
       setInboxOpen(view.inboxOpen);
       setMobileInbox(view.mobileInbox);
+      setStorageOpen(view.storageOpen);
+      setTrayRaised(view.trayRaised);
       setPicked(null);
       setSelectedIds([]);
       setSelectionMode(false);
@@ -592,6 +607,12 @@ export default function Planner() {
       } else if (query) {
         setQuery("");
         event.preventDefault();
+      } else if (storageOpen) {
+        setStorageOpen(false);
+        event.preventDefault();
+      } else if (trayRaised) {
+        setTrayRaised(false);
+        event.preventDefault();
       } else if (inboxOpen || mobileInbox) {
         setInboxOpen(false);
         setMobileInbox(false);
@@ -608,15 +629,9 @@ export default function Planner() {
     query,
     inboxOpen,
     mobileInbox,
+    storageOpen,
+    trayRaised,
   ]);
-  const spaceJump = useRef<{
-    index: number;
-    target: number | null;
-    at: number;
-  }>({ index: 0, target: null, at: 0 });
-  useEffect(() => {
-    spaceJump.current = { index: 0, target: null, at: 0 };
-  }, [anchor, overview]);
   const navigationAnchor = useRef(anchor);
   navigationAnchor.current = anchor;
   const [newSlot, setNewSlot] = useState<{
@@ -639,6 +654,40 @@ export default function Planner() {
       dayPanel ||
       (planning ? "planning" : newOpen ? "new" : settings ? "settings" : ""),
   );
+  useEffect(() => {
+    if (!trayRaised || !mainRef.current) return;
+    const main = mainRef.current;
+    const axis = main.querySelector<HTMLElement>(".time-axis");
+    const measure = () => {
+      const r = main.getBoundingClientRect(),
+        a = axis?.getBoundingClientRect();
+      const hour18 = main.querySelector<HTMLElement>(
+        '[aria-label$="um 18:00 erstellen"]',
+      );
+      const top = hour18
+        ? hour18.getBoundingClientRect().top
+        : a
+          ? a.top + (a.height * 12) / 19
+          : window.innerHeight * 0.64;
+      setTrayPosition((p) => ({
+        ...p,
+        top: Math.max(110, Math.min(window.innerHeight - 160, top)),
+        left: r.left + 10,
+        width: r.width - 20,
+      }));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(main);
+    if (axis) observer.observe(axis);
+    window.addEventListener("resize", measure);
+    main.addEventListener("scroll", measure, { passive: true });
+    measure();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      main.removeEventListener("scroll", measure);
+    };
+  }, [trayRaised, anchor, overview]);
   const searchRef = useRef<HTMLInputElement>(null);
   const lock = useRef(false);
   const taskWriteVersion = useRef(0);
@@ -769,39 +818,18 @@ export default function Planner() {
         return;
       }
       if (neutral && (e.code === "Space" || e.key === " ")) {
+        e.preventDefault();
+        if (e.repeat) return;
         const main = mainRef.current;
-        const footer = main?.querySelector<HTMLElement>(".period-overview");
-        if (main && footer) {
-          e.preventDefault();
-          const offset = (section: HTMLElement) =>
-            Math.min(
-              main.scrollHeight - main.clientHeight,
-              Math.max(
-                0,
-                section.getBoundingClientRect().top -
-                  main.getBoundingClientRect().top +
-                  main.scrollTop -
-                  64,
-              ),
-            );
-          const targets = [0, offset(footer)];
-          const previous = spaceJump.current;
-          const continuing =
-            previous.target !== null &&
-            (Date.now() - previous.at < 800 ||
-              Math.abs(main.scrollTop - previous.target) < 32);
-          const current = continuing
-            ? previous.index
-            : main.scrollTop >= targets[1] - 32
-              ? 1
-              : 0;
-          const next = (current + 1) % 2;
-          spaceJump.current = {
-            index: next,
-            target: targets[next],
-            at: Date.now(),
-          };
-          main.scrollTo({ top: targets[next], behavior: "smooth" });
+        if (main) {
+          if (!trayRaised) {
+            const placeholder =
+              main.querySelector<HTMLElement>(".period-tray")?.offsetHeight ||
+              260;
+            setTrayPosition((p) => ({ ...p, placeholder }));
+          }
+          main.scrollTo({ top: 0, behavior: "instant" });
+          setTrayRaised((v) => !v);
         }
         return;
       }
@@ -1025,6 +1053,7 @@ export default function Planner() {
     selectedIds,
     selectionMode,
     anchor,
+    trayRaised,
   ]);
   useEffect(() => {
     const forward = (e: Event) => {
@@ -1674,6 +1703,8 @@ export default function Planner() {
         setNewOpen(true);
       }
     },
+    storageOpen,
+    setStorage: setStorageOpen,
     inboxOpen: inboxOpen || mobileInbox,
     detailOpen: Boolean(selected || newOpen),
     blocked: Boolean(dragged || selectionMode),
@@ -1686,7 +1717,7 @@ export default function Planner() {
 
   return (
     <div
-      className={`app-shell ${selectionMode ? "area-selection-mode" : ""} ${floatingInbox ? "floating-inbox-open" : ""}`}
+      className={`app-shell ${selectionMode ? "area-selection-mode" : ""} ${floatingInbox ? "floating-inbox-open" : ""} ${dragReveal ? "task-drag-reveal" : ""}`}
       {...areaSelection.bind}
       onClickCapture={(event) => {
         const node = (event.target as Element).closest<HTMLElement>(
@@ -1735,6 +1766,11 @@ export default function Planner() {
         if (item) setRenameBlock({ old: item.title, title: item.title });
       }}
     >
+      <ResourceDrawer
+        open={storageOpen}
+        onOpen={() => setStorageOpen(true)}
+        onClose={() => setStorageOpen(false)}
+      />
       {shortcutHints.firstUse && (
         <ShortcutWelcome onChoose={shortcutHints.configure} />
       )}
@@ -1769,7 +1805,11 @@ export default function Planner() {
                         : ".sidebar",
                     ),
                   )
-                : args.droppableContainers,
+                : args.droppableContainers.filter(
+                    (c) =>
+                      !dragReveal ||
+                      !c.node.current?.closest(".sidebar,.period-tray"),
+                  ),
           };
           const hits = pointerWithin(scoped);
           const inboxReturn = hits.find((hit) => hit.id === "inbox-return");
@@ -1814,17 +1854,36 @@ export default function Planner() {
                 : null),
           )
         }
-        onDragMove={({ activatorEvent, delta }) => {
+        onDragMove={({ activatorEvent, delta, active }) => {
           if (
-            "clientX" in activatorEvent &&
-            Number(activatorEvent.clientX) + delta.x <= 26
-          ) {
+            active.data.current?.kind === "life-tab" ||
+            !("clientX" in activatorEvent)
+          )
+            return;
+          const x = Number(activatorEvent.clientX) + delta.x,
+            y = Number((activatorEvent as MouseEvent).clientY) + delta.y;
+          if (x <= 26) {
             setInboxOpen(true);
             setMobileInbox(true);
+            setDragReveal(false);
+            return;
           }
+          const calendar = mainRef.current?.querySelector<HTMLElement>(
+            ".timeline-scroll,.calendar-overview-large",
+          );
+          const r = calendar?.getBoundingClientRect();
+          setDragReveal(
+            Boolean(
+              r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom,
+            ),
+          );
         }}
-        onDragCancel={() => setDragged(null)}
+        onDragCancel={() => {
+          setDragged(null);
+          setDragReveal(false);
+        }}
         onDragEnd={(event) => {
+          setDragReveal(false);
           if (event.active.data.current?.kind === "life-tab") {
             if (event.over?.data.current?.kind === "life-tab")
               window.dispatchEvent(
@@ -1917,6 +1976,24 @@ export default function Planner() {
               </IconButton>
             </div>
             <InboxReturnDrop todos={state.todos} />
+            <InboxNotes
+              value={state.dayNotes.inbox || ""}
+              onSave={async (content) => {
+                const before = state.dayNotes.inbox || "";
+                const apply = async (value: string) => {
+                  await api("/api/notes", { date: "inbox", content: value });
+                  setState((s) => ({
+                    ...s,
+                    dayNotes: { ...s.dayNotes, inbox: value },
+                  }));
+                };
+                await apply(content);
+                record({
+                  undo: () => apply(before),
+                  redo: () => apply(content),
+                });
+              }}
+            />
             <LifeInbox
               events={state.events}
               todos={state.todos}
@@ -2403,44 +2480,66 @@ export default function Planner() {
                 )}
               />
             )}
-            <DayPanel
-              inline
-              key={`bottom:${overview}:${anchor}`}
-              day={`${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`}
-              state={state}
-              onClose={() => {}}
-              onOpen={(id) => {
-                setSelected(id);
-                setPicked(id);
-              }}
-              onAdd={async (title) => {
-                const task = {
-                  ...newTodo(title, null, state.todos.length + 1),
-                  tags: [`h:${overview || "week"}`],
-                };
-                await save(task);
-              }}
-              onNote={async (content) => {
-                const date = `${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`;
-                await api("/api/notes", { date, content });
-                setState((s) => ({
-                  ...s,
-                  dayNotes: { ...s.dayNotes, [date]: content },
-                }));
-              }}
-              onConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
-              onDay={(day) => {
-                setAnchor(day);
-                setMobileDay(day);
-                setOverview(null);
-              }}
-              onExtend={extendAcross}
-            />
-            <Statistics
-              state={state}
-              anchor={anchor}
-              kind={overview || "week"}
-            />
+            <div
+              className="period-tray-anchor"
+              style={
+                trayRaised ? { minHeight: trayPosition.placeholder } : undefined
+              }
+            >
+              <div
+                className={`period-tray ${trayRaised ? "is-raised" : ""}`}
+                style={
+                  trayRaised
+                    ? {
+                        top: trayPosition.top,
+                        left: trayPosition.left,
+                        width: trayPosition.width,
+                      }
+                    : undefined
+                }
+              >
+                <DayPanel
+                  inline
+                  key={`bottom:${overview}:${anchor}`}
+                  day={`${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`}
+                  state={state}
+                  onClose={() => {}}
+                  onOpen={(id) => {
+                    setSelected(id);
+                    setPicked(id);
+                  }}
+                  onAdd={async (title) => {
+                    const task = {
+                      ...newTodo(title, null, state.todos.length + 1),
+                      tags: [`h:${overview || "week"}`],
+                    };
+                    await save(task);
+                  }}
+                  onNote={async (content) => {
+                    const date = `${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`;
+                    await api("/api/notes", { date, content });
+                    setState((s) => ({
+                      ...s,
+                      dayNotes: { ...s.dayNotes, [date]: content },
+                    }));
+                  }}
+                  onConnected={() =>
+                    setState((s) => ({ ...s, aiAvailable: true }))
+                  }
+                  onDay={(day) => {
+                    setAnchor(day);
+                    setMobileDay(day);
+                    setOverview(null);
+                  }}
+                  onExtend={extendAcross}
+                />
+                <Statistics
+                  state={state}
+                  anchor={anchor}
+                  kind={overview || "week"}
+                />
+              </div>
+            </div>
             {query && (
               <div className="search-outside">
                 {state.todos

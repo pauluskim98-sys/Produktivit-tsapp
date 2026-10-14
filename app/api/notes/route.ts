@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     sameOrigin(request);
     const { date, content } = await request.json();
     if (
-      !periodRange(date) ||
+      (date !== "inbox" && !periodRange(date)) ||
       typeof content !== "string" ||
       content.length > 10000
     )

@@ -7155,3 +7155,42 @@ button[hidden] {
 .todoist-settings form label { flex: 1; min-width: 160px; }
 .todoist-settings form a { font-size: 11px; color: var(--green); width: 100%; }
 .todoist-settings small { display: block; margin-top: 9px; color: var(--secondary); font-size: 11px; }
+
+.resource-toggle { position: fixed; right: 15px; top: 9px; z-index: 39; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+.planner-toolbar { padding-right: 38px; }
+.resource-drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(390px, 90vw); z-index: 125; display: flex; flex-direction: column; padding: 20px; gap: 15px; background: var(--panel-surface); border-left: 1px solid var(--panel-edge); box-shadow: -14px 0 45px color-mix(in srgb, var(--ink) 10%, transparent); transform: translateX(100%); visibility: hidden; transition: transform 260ms cubic-bezier(.2,.8,.25,1), visibility 260ms; }
+.resource-drawer.is-open { transform: translateX(0); visibility: visible; }
+.resource-drawer header, .resource-drawer h2, .resource-actions, .resource-breadcrumb { display: flex; align-items: center; gap: 9px; }
+.resource-drawer header { justify-content: space-between; }
+.resource-drawer h2 { font-size: 16px; margin: 0; }
+.resource-actions button, .resource-drawer form button { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.resource-breadcrumb button { padding: 4px; border: 0; background: none; }
+.resource-breadcrumb strong { font-size: 12px; }
+.resource-list { overflow: auto; flex: 1; min-height: 0; padding-bottom: 15px; }
+.resource-item { display: flex; align-items: center; gap: 9px; margin: 0 0 9px; padding: 11px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.resource-item > svg { flex-shrink: 0; color: var(--green); }
+.resource-item > img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; }
+.resource-item > div { flex: 1; min-width: 0; }
+.resource-name { display: block; color: var(--ink); font-size: 12px; text-align: left; overflow-wrap: anywhere; border: 0; background: none; padding: 0; cursor: pointer; }
+.resource-item small { color: var(--muted); font-size: 10px; display: block; margin-top: 4px; }
+.resource-item audio,.resource-item video { width: 100%; max-height: 140px; margin-top: 8px; }
+.resource-item .icon-button { width: 23px; height: 25px; flex-shrink: 0; }
+.resource-drawer form { display: flex; gap: 5px; }
+.resource-drawer form input { width: 100%; min-width: 0; background: var(--surface); }
+.resource-empty { color: var(--muted); text-align: center; padding: 40px 10px; font-size: 12px; }
+.inbox-notes { padding: 0 0 12px; }
+.inbox-notes h3 { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--secondary); font-weight: 500; margin: 0 0 7px; }
+.inbox-notes textarea { width: 100%; min-height: 80px; resize: vertical; font-size: 12px; padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.day-panel .day-work, .inline-period-panel .day-work { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.6fr); gap: 18px; }
+.period-tray { position: relative; }
+.period-tray.is-raised { position: fixed; bottom: 10px; z-index: 44; overflow: auto; border-radius: 18px; background: var(--surface); box-shadow: 0 -8px 32px color-mix(in srgb,var(--ink) 12%,transparent); animation: tray-lift 220ms cubic-bezier(.2,.8,.25,1); }
+.period-tray.is-raised .period-overview { margin: 0; padding: 0; }
+.period-tray.is-raised .inline-period-panel { border-radius: 18px 18px 0 0; }
+@keyframes tray-lift { from { transform: translateY(70px); opacity: .4; } to { transform: translateY(0); opacity: 1; } }
+.task-drag-reveal .period-tray { opacity: 0; pointer-events: none; }
+.task-drag-reveal .workspace { grid-template-columns: 0px minmax(0,1fr); transition: none; }
+.app-shell.task-drag-reveal .workspace .sidebar { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }
+@media(max-width:650px) { .day-panel .day-work, .inline-period-panel .day-work { grid-template-columns: minmax(0, .85fr) minmax(0,1.25fr); gap: 10px; } .period-tray.is-raised .day-panel-body { padding: 12px; } }
+@media(prefers-reduced-motion:reduce) { .resource-drawer { transition: none; } .period-tray.is-raised { animation: none; } }
+
+.task-drag-reveal .resource-drawer { opacity: 0; pointer-events: none; }
