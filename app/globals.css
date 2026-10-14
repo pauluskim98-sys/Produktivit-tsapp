@@ -7204,3 +7204,69 @@ button[hidden] {
 .header-date-preview .mini-date > .mini-dots { display: flex !important; height: 12px; bottom: 0; }
 .header-date-preview .mini-date { min-height: 34px; }
 .header-date-preview .year-month .mini-date { height: 30px; min-height: 30px; }
+
+/* One compact editor for description, checklist and classification. */
+.compact-detail .detail-title textarea {
+  min-height: 48px; height: 48px; padding: 10px 12px; font-size: 16px; line-height: 22px;
+}
+.compact-detail .detail-title .task-check { margin-top: 13px; }
+.task-description-box {
+  margin: 4px 0 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); overflow: hidden;
+}
+.task-description-box:focus-within { border-color: var(--green); }
+.description-entry { position: relative; }
+.compact-detail .task-description-box .description-input {
+  display: block; width: 100%; min-height: 105px; height: 105px; margin: 0;
+  border: 0; border-radius: 0; padding: 12px; resize: vertical;
+  font-size: 12px; line-height: 20px; outline: none; box-shadow: none;
+}
+.compact-detail .offers-subtask .description-input { padding-left: 34px; }
+.description-add-task {
+  position: absolute; top: 12px; left: 9px; display: grid; place-items: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px;
+  background: var(--green-soft); color: var(--green); cursor: pointer;
+}
+.description-subtasks { padding: 8px 12px 0; }
+.description-subtasks .subtask { min-height: 28px; font-size: 12px; }
+.description-subtasks .subtask .icon-button { width: 22px; height: 22px; }
+.compact-detail .detail-reminder-colors {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+}
+.compact-detail .detail-reminder-colors .reminder-toggle {
+  display: flex; align-items: center; gap: 9px; flex: 1; padding: 10px;
+  min-width: 0; min-height: 62px; font-size: 12px; text-align: left; border-radius: 10px;
+}
+.reminder-toggle > svg { flex-shrink: 0; }
+.reminder-toggle small { display: block; margin-top: 3px; font-size: 10px; color: var(--secondary); }
+.compact-detail .detail-reminder-colors .detail-color-row { margin: 0; flex: 0 0 auto; }
+.compact-detail .detail-reminder-colors .color-picker {
+  display: grid; grid-template-columns: repeat(5, 27px); gap: 6px 7px; padding: 2px;
+}
+.compact-detail .detail-reminder-colors .color-picker legend {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+.compact-detail .detail-classification {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; min-width: 0; margin-top: 4px;
+}
+.compact-detail .detail-classification .priority-picker {
+  display: flex; align-items: center; flex: 0 0 auto; gap: 4px; padding: 0; margin: 0; border: 0;
+}
+.compact-detail .detail-classification .priority-flag { width: 32px; height: 34px; padding: 6px; }
+.compact-detail .detail-classification .detail-tags {
+  display: flex; flex-direction: row; align-items: center; gap: 7px; flex: 1; min-width: 0; padding: 0;
+}
+.compact-detail .detail-classification .detail-tags input {
+  width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); font-size: 12px;
+}
+@media (max-width: 360px) {
+  .compact-detail .detail-reminder-colors { gap: 8px; }
+  .compact-detail .detail-reminder-colors .color-picker { grid-template-columns: repeat(5, 24px); gap: 5px; }
+  .compact-detail .detail-reminder-colors .color-swatch { width: 24px; height: 24px; }
+}
+.compact-detail .visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}

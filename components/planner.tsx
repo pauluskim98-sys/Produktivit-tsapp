@@ -17,6 +17,7 @@ import InboxReturnDrop from "./inbox-return-drop";
 import ResourceDrawer from "./resource-drawer";
 import InboxNotes from "./inbox-notes";
 import ColorPicker from "./task-color-picker";
+import TaskDescription from "./task-description";
 import { useActionHints } from "./use-action-hints";
 import {
   useShortcutPreferences,
@@ -83,6 +84,7 @@ import {
   Check,
   ChevronDown,
   Circle,
+  Bell,
   Clock3,
   Flag,
   GripVertical,
@@ -2106,8 +2108,7 @@ export default function Planner() {
                 <h2
                   className="overview-nav date-navigation"
                   onMouseLeave={() => {
-                    if (!selectionMode && !dragged)
-                      setDatePreview(null);
+                    if (!selectionMode && !dragged) setDatePreview(null);
                   }}
                 >
                   <button
@@ -3077,7 +3078,6 @@ function Detail({
       notes: "",
     }),
     [saving, setSaving] = useState(false),
-    [subtask, setSubtask] = useState(""),
     [chat, setChat] = useState(false),
     [saved, setSaved] = useState(false);
   const [repeatDays, setRepeatDays] = useState<number[]>([]),
@@ -3490,19 +3490,22 @@ function Detail({
               Screenshot wird gelesen …
             </p>
           )}
-          <textarea
-            className="description-input"
-            aria-label="Beschreibung"
-            data-imported={imported("description")}
-            placeholder="Worum geht es? Ergänze eine Beschreibung …"
+          <TaskDescription
             value={draft.description}
-            onChange={(e) => {
+            subtasks={draft.subtasks}
+            imported={imported("description")}
+            onChange={(patch) => {
+              if (patch.description === undefined) {
+                update(patch);
+                return;
+              }
               const location =
-                addressFromText(e.target.value) || addressFromText(draft.title);
+                addressFromText(patch.description) ||
+                addressFromText(draft.title);
               const changed = location !== (draft.location || "");
               if (changed) setTravelOptions([]);
               update({
-                description: e.target.value,
+                ...patch,
                 location,
                 ...(changed
                   ? { travelBefore: 0, travelAfter: 0, travelMode: "" as const }
@@ -3539,18 +3542,20 @@ function Detail({
             />
           )}
           <div className="detail-fields">
-            <div
-              className="schedule-summary"
-              data-imported={
-                imported("plannedDate") ||
-                imported("time") ||
-                imported("duration")
-              }
-            >
-              {draft.plannedDate
-                ? `${parseDate(draft.plannedDate).toLocaleDateString("de-DE")}${draft.time ? ` · ${draft.time} · ${draft.duration || 60} Min.` : " · Ohne Zeit"}`
-                : "Inbox"}
-            </div>
+            {!((isNew && showSchedule) || screenshot || editSchedule) && (
+              <div
+                className="schedule-summary"
+                data-imported={
+                  imported("plannedDate") ||
+                  imported("time") ||
+                  imported("duration")
+                }
+              >
+                {draft.plannedDate
+                  ? `${parseDate(draft.plannedDate).toLocaleDateString("de-DE")}${draft.time ? ` · ${draft.time} · ${draft.duration || 60} Min.` : " · Ohne Zeit"}`
+                  : "Inbox"}
+              </div>
+            )}
             {((isNew && showSchedule) || screenshot) && (
               <ScheduleFields
                 date={draft.plannedDate || ""}
@@ -3762,14 +3767,6 @@ function Detail({
                 ) : null}
               </div>
             </details>
-            <button
-              type="button"
-              className="reminder-toggle"
-              aria-pressed={Boolean(draft.reminder)}
-              onClick={() => update({ reminder: !draft.reminder })}
-            >
-              {draft.reminder ? "●" : "○"} Erinnerung · 1 Tag vorher
-            </button>
             {!screenshot && (
               <details className="repeat-details">
                 <summary>Wiederholen</summary>
@@ -3839,128 +3836,79 @@ function Detail({
                 </fieldset>
               </details>
             )}
-            <div className="detail-color-row">
-              <ColorPicker
-                value={draft.color}
-                onChange={(color) => update({ color })}
-              />
-            </div>
-            <fieldset className="priority-picker">
-              <legend>Priorität</legend>
-              {(
-                [
-                  ["high", "Hoch", "#df5b50"],
-                  ["medium", "Mittel", "#d3a63a"],
-                  ["low", "Niedrig", "#5b9c72"],
-                ] as const
-              ).map(([value, label, color]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-label={`${value === "high" ? "Hohe" : value === "medium" ? "Mittlere" : "Niedrige"} Priorität`}
-                  aria-pressed={draft.priority === value}
-                  className="priority-flag"
-                  style={{ "--flag-color": color } as React.CSSProperties}
-                  onClick={() =>
-                    update({
-                      priority: draft.priority === value ? "none" : value,
-                    })
-                  }
-                >
-                  <Flag size={16} fill="currentColor" />
-                  <span>{label}</span>
-                </button>
-              ))}
-            </fieldset>
-            <label className="detail-tags">
-              <span>
-                <Layers2 size={15} /> Tags
-              </span>
-              <input
-                aria-label="Tags, mit Komma getrennt"
-                placeholder="Studium, Privat …"
-                value={draft.tags
-                  .filter((x) => !/^(k|r|h):/.test(x))
-                  .join(", ")}
-                onChange={(e) =>
-                  update({
-                    tags: [
-                      ...draft.tags.filter((x) => /^(k|r|h):/.test(x)),
-                      ...e.target.value.split(",").map((t) => t.trimStart()),
-                    ],
-                  })
-                }
-                onBlur={() =>
-                  update({
-                    tags: draft.tags.map((t) => t.trim()).filter(Boolean),
-                  })
-                }
-              />
-            </label>
-          </div>
-          <div className="detail-section">
-            <h3>
-              Unteraufgaben
-              <span>
-                {draft.subtasks.filter((s) => s.done).length}/
-                {draft.subtasks.length}
-              </span>
-            </h3>
-            {draft.subtasks.map((s) => (
-              <div key={s.id} className="subtask">
-                <button
-                  aria-label={`${s.title} abhaken`}
-                  className={`task-check ${s.done ? "checked" : ""}`}
-                  onClick={() =>
-                    update({
-                      subtasks: draft.subtasks.map((x) =>
-                        x.id === s.id ? { ...x, done: !x.done } : x,
-                      ),
-                    })
-                  }
-                >
-                  {s.done && <Check size={11} />}
-                </button>
-                <span className={s.done ? "struck" : ""}>{s.title}</span>
-                <IconButton
-                  title="Unteraufgabe entfernen"
-                  onClick={() =>
-                    update({
-                      subtasks: draft.subtasks.filter((x) => x.id !== s.id),
-                    })
-                  }
-                >
-                  <X size={12} />
-                </IconButton>
+            <div className="detail-reminder-colors">
+              <button
+                type="button"
+                className="reminder-toggle"
+                aria-pressed={Boolean(draft.reminder)}
+                onClick={() => update({ reminder: !draft.reminder })}
+              >
+                <Bell size={16} />
+                <span>
+                  Erinnerung<small>1 Tag vorher</small>
+                </span>
+              </button>
+              <div className="detail-color-row">
+                <ColorPicker
+                  value={draft.color}
+                  onChange={(color) => update({ color })}
+                />
               </div>
-            ))}
-            <form
-              className="quick-add"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!subtask.trim()) return;
-                update({
-                  subtasks: [
-                    ...draft.subtasks,
-                    {
-                      id: crypto.randomUUID(),
-                      title: subtask.trim(),
-                      done: false,
-                    },
-                  ],
-                });
-                setSubtask("");
-              }}
-            >
-              <Plus size={14} />
-              <input
-                aria-label="Neue Unteraufgabe"
-                placeholder="Kleinen Schritt hinzufügen"
-                value={subtask}
-                maxLength={500}
-                onChange={(e) => setSubtask(e.target.value)}
-              />
-            </form>
+            </div>
+            <div className="detail-classification">
+              <fieldset className="priority-picker">
+                <legend className="visually-hidden">Priorität</legend>
+                {(
+                  [
+                    ["high", "Hoch", "#df5b50"],
+                    ["medium", "Mittel", "#d3a63a"],
+                    ["low", "Niedrig", "#5b9c72"],
+                  ] as const
+                ).map(([value, label, color]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-label={`${value === "high" ? "Hohe" : value === "medium" ? "Mittlere" : "Niedrige"} Priorität`}
+                    aria-pressed={draft.priority === value}
+                    className="priority-flag"
+                    style={{ "--flag-color": color } as React.CSSProperties}
+                    onClick={() =>
+                      update({
+                        priority: draft.priority === value ? "none" : value,
+                      })
+                    }
+                  >
+                    <Flag size={16} fill="currentColor" />
+                    <span className="visually-hidden">{label}</span>
+                  </button>
+                ))}
+              </fieldset>
+              <label className="detail-tags">
+                <span>
+                  <Layers2 size={15} aria-hidden="true" />
+                </span>
+                <input
+                  aria-label="Tags, mit Komma getrennt"
+                  placeholder="Studium, Privat …"
+                  value={draft.tags
+                    .filter((x) => !/^(k|r|h):/.test(x))
+                    .join(", ")}
+                  onChange={(e) =>
+                    update({
+                      tags: [
+                        ...draft.tags.filter((x) => /^(k|r|h):/.test(x)),
+                        ...e.target.value.split(",").map((t) => t.trimStart()),
+                      ],
+                    })
+                  }
+                  onBlur={() =>
+                    update({
+                      tags: draft.tags.map((t) => t.trim()).filter(Boolean),
+                    })
+                  }
+                />
+              </label>
+            </div>
           </div>
           <p className="created-at">
             Erstellt am {new Date(todo.createdAt).toLocaleDateString("de-DE")}

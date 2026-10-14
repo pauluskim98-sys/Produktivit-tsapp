@@ -233,3 +233,7 @@ Die Inbox besitzt einen eigenen Notizkasten, der beim Verlassen gespeichert wird
 ### Auswahl von Kalenderpunkten
 
 „A“ aktiviert die Rechteckauswahl auch in kleinen Kalendern sowie Monats- und Jahresübersichten. Ein Jahrespunkt steht für alle eigenen Aufgaben dieses Tages; zusammengefasste gleichnamige Monatseinträge ebenfalls für alle enthaltenen Aufgaben. Die Auswahl kann über Delete/Backspace gelöscht, per ⌘C kopiert und gemeinsam auf einen anderen Kalendertag gezogen werden. Zahlentasten ändern die Farbe aller ausgewählten Aufgaben. Die Auswahl selbst navigiert nicht in eine andere Ansicht. Verknüpfte schreibgeschützte Kalendertermine bleiben außerhalb der Aufgabenbearbeitung.
+
+### Kompaktes Aufgabenfenster
+
+Beschreibung und Unteraufgaben stehen in einem gemeinsamen Kasten direkt unter dem Titel. Beim Schreiben erscheint ein Plus für die aktuelle Zeile: Klick oder Enter übernimmt sie als Unteraufgabe. Delete/Backspace entfernt zunächst das Plus, ohne Text zu löschen; danach bleibt die Zeile normaler Beschreibungstext. Vorhandene Unteraufgaben lassen sich dort abhaken und entfernen. Zeitangaben erscheinen bei sichtbaren Eingabefeldern nicht zusätzlich als Zusammenfassung. Die zehn nummerierten Farben stehen in zwei Fünferreihen neben der Erinnerung, Prioritätsflaggen und Tags in einer gemeinsamen Zeile.
