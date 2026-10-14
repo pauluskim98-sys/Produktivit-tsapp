@@ -4,9 +4,11 @@ import { hoursToMinutes } from "../lib/duration-hours.ts";
 export default function DurationHours({
   minutes,
   onChange,
+  label = "Dauer in Stunden",
 }: {
   minutes: number;
   onChange: (minutes: number) => void;
+  label?: string;
 }) {
   const display = () =>
     Number((minutes / 60).toFixed(3)).toLocaleString("de-DE");
@@ -18,7 +20,7 @@ export default function DurationHours({
   return (
     <span className="hours-input">
       <input
-        aria-label="Dauer in Stunden"
+        aria-label={label}
         type="text"
         inputMode="decimal"
         value={text}

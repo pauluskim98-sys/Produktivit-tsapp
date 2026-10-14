@@ -2,6 +2,7 @@ import { addDays, dateKey, isDateKey, parseDate } from "./dates.ts";
 import { parseAppointmentInput } from "./appointment-input.ts";
 import { cleanScreenshotText } from "./ocr-text.ts";
 import type { Todo } from "./types.ts";
+import { normalizeClockNotation } from "./clock-notation.ts";
 
 export type ScreenshotEvent = {
   title: string;
@@ -95,7 +96,9 @@ export function parseScreenshotImport(
   raw: string,
   base = dateKey(new Date()),
 ): ScreenshotImport {
-  const text = expandShorthand(cleanScreenshotText(raw));
+  const text = expandShorthand(
+    normalizeClockNotation(cleanScreenshotText(raw)),
+  );
   const lines = text
     .split(/\n/)
     .map((line) => line.trim())
@@ -202,7 +205,7 @@ export function parseScreenshotImport(
     segments.push(segment);
     const parsed = parseAppointmentInput(segment, base);
     const labeledText = segment.match(
-      /(?:Beginn|Start|Uhrzeit)\s*:\s*([^\n]+)/i,
+      /(?:Beginn|Start|Uhrzeit)\s*:?\s*([^\n]+)/i,
     )?.[1];
     const labeled = labeledText
       ? parseAppointmentInput(labeledText, base)
@@ -212,9 +215,9 @@ export function parseScreenshotImport(
       plannedDate: anchor.plannedDate,
       time: labeled?.time || ownParsed.time || parsed.time || allParsed.time,
       duration:
+        parsed.duration ||
         labeled?.duration ||
         ownParsed.duration ||
-        parsed.duration ||
         durationFromText(segment) ||
         allParsed.duration ||
         durationFromText(text),

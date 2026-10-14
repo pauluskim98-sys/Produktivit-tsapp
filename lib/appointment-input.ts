@@ -1,11 +1,13 @@
 import { addressFromText, phonesFromText } from "./addresses.ts";
 import { addDays, dateKey, isDateKey, parseDate } from "./dates.ts";
+import { normalizeClockNotation } from "./clock-notation.ts";
 
 /** Extract explicit German dates/times; keep unrecognised details as text. */
 export function parseAppointmentInput(
   text: string,
   base = dateKey(new Date()),
 ) {
+  text = normalizeClockNotation(text);
   const location = addressFromText(text);
   let cleaned = location
     ? text
@@ -85,13 +87,12 @@ export function parseAppointmentInput(
     }
   }
   // Explicit colon times or an hour accompanied by “Uhr”; bare numbers stay titles.
-  const clock = "(?:[01]?\\d|2[0-3])(?::[0-5]\\d)";
-  match = cleaned.match(
-    new RegExp(
-      `\\b(${clock})(?:\\s*Uhr)?(?:\\s*(?:–|—|-|bis)\\s*(${clock}|(?:[01]?\\d|2[0-3])\\s*Uhr))?(?:\\s*Uhr)?`,
-      "i",
-    ),
-  );
+  const clock = "(?:[01]?\\d|2[0-3])(?::[0-5]\\d)(?![\\d:])";
+  const expression = `\\b(${clock})(?:\\s*Uhr)?(?:\\s*(?:–|—|-|bis)\\s*(${clock}|(?:[01]?\\d|2[0-3])(?:\\s*Uhr)?(?![\\d:./])))?(?:\\s*Uhr)?`;
+  match =
+    cleaned.match(
+      new RegExp(`(?:Beginn|Start|Uhrzeit)\\s*:?\\s*${expression}`, "i"),
+    ) || cleaned.match(new RegExp(expression, "i"));
   if (!match) match = cleaned.match(/\b((?:[01]?\d|2[0-3]))\s*Uhr\b/i);
   if (match) {
     const toTime = (s: string) => {
@@ -108,10 +109,25 @@ export function parseAppointmentInput(
         (minutes(match[2]) - minutes(match[1]) + 1440) % 1440 || undefined;
     }
     cleaned = cleaned.replace(match[0], " ");
+    const end = cleaned.match(
+      new RegExp(
+        `\\b(?:Ende|Endzeit|Schluss)\\s*:?\\s*(${clock}|(?:[01]?\\d|2[0-3])\\s*Uhr)`,
+        "i",
+      ),
+    );
+    if (end) {
+      if (!duration) {
+        const [h, m] = toTime(end[1]).split(":").map(Number);
+        const [startH, startM] = time.split(":").map(Number);
+        duration =
+          (h * 60 + m - startH * 60 - startM + 1440) % 1440 || undefined;
+      }
+      cleaned = cleaned.replace(end[0], " ");
+    }
   }
   // Drop date/time labels and the weekday accompanying a concrete date.
   cleaned = cleaned.replace(
-    /(?:Datum|Date|Uhrzeit|Beginn|Zeit)\s*:\s*(?=\n|$)/gi,
+    /(?:Datum|Date|Uhrzeit|Beginn|Start|Ende|Endzeit|Schluss|Zeit)\s*:?\s*(?=\n|$)/gi,
     "",
   );
   if (plannedDate)

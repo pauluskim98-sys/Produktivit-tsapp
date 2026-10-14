@@ -261,3 +261,22 @@ test("screenshot import only supplies appointment fields and preserves manual no
     ).every((task) => task.description === "" && task.notes === ""),
   );
 });
+
+test("screenshot labels without colons and separate end times remain editable event fields", () => {
+  const plan = parseScreenshotImport(
+    "Yoga\n16.10.2026\nBeginn 09.05 Uhr\nEnde 10.30 Uhr\n23.10.2026\nBeginn 14–16 Uhr",
+    base,
+  );
+  assert.deepEqual(
+    plan.events.map((e) => e.time),
+    ["09:05", "14:00"],
+  );
+  assert.deepEqual(
+    plan.events.map((e) => e.duration),
+    [85, 120],
+  );
+  assert.deepEqual(
+    plan.events.map((e) => e.plannedDate),
+    ["2026-10-16", "2026-10-23"],
+  );
+});

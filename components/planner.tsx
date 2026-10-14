@@ -22,7 +22,7 @@ import {
   ShortcutSettings,
 } from "./shortcut-hints";
 import { taskColorForKey } from "@/lib/task-colors";
-import DurationHours from "./duration-hours";
+import ScheduleFields from "./schedule-fields";
 import TimeInput from "./time-input";
 import {
   addressFromText,
@@ -3390,12 +3390,6 @@ function Detail({
               });
             }}
           />
-          <div className="detail-color-row">
-            <ColorPicker
-              value={draft.color}
-              onChange={(color) => update({ color })}
-            />
-          </div>
           {destination && (
             <a
               className="address-link"
@@ -3424,63 +3418,6 @@ function Detail({
               onChange={changeScreenshot}
             />
           )}
-          <div
-            className="assistant-section"
-            data-escape-layer={chat ? "" : undefined}
-          >
-            {chat && (
-              <button
-                hidden
-                data-close
-                type="button"
-                onClick={() => setChat(false)}
-              >
-                Schließen
-              </button>
-            )}
-            <button
-              className="assistant-heading"
-              disabled={Boolean(screenshot)}
-              onClick={async () => {
-                if (!isNew && !chat && dirty && !(await persist())) return;
-                setChat(!chat);
-              }}
-            >
-              <span>
-                <Sparkles size={18} />
-                <span>ChatGPT fragen</span>
-              </span>
-              <ChevronDown
-                size={16}
-                style={{ transform: chat ? "rotate(180deg)" : "" }}
-              />
-            </button>
-            {chat && isNew && (
-              <p className="assessment-label">
-                Nach dem Anlegen kannst du die KI zu dieser Aufgabe fragen.
-              </p>
-            )}
-            {chat && !isNew && (
-              <TodoChat
-                todo={draft}
-                available={aiAvailable}
-                onConnected={onAiConnected}
-                onBeforeSend={async () => !dirty || (await persist())}
-                onApply={(steps) =>
-                  update({
-                    subtasks: [
-                      ...draft.subtasks,
-                      ...steps.map((title) => ({
-                        id: crypto.randomUUID(),
-                        title,
-                        done: false,
-                      })),
-                    ],
-                  })
-                }
-              />
-            )}
-          </div>
           <div className="detail-fields">
             <div
               className="schedule-summary"
@@ -3495,71 +3432,51 @@ function Detail({
                 : "Inbox"}
             </div>
             {((isNew && showSchedule) || screenshot) && (
-              <fieldset
-                className="schedule-picker"
-                aria-label="Datum und Uhrzeit"
-              >
-                <label>
-                  <CalendarDays size={14} aria-hidden="true" />
-                  <input
-                    type="date"
-                    data-imported={imported("plannedDate")}
-                    aria-label="Termindatum"
-                    value={draft.plannedDate || ""}
-                    onChange={(e) =>
-                      update({ plannedDate: e.target.value || null })
-                    }
-                  />
-                </label>
-                <label>
-                  <Play size={14} aria-hidden="true" />
-                  <TimeInput
-                    imported={imported("time")}
-                    label="Terminbeginn"
-                    value={draft.time}
-                    onChange={(time) =>
-                      update({
-                        time,
-                        plannedDate: draft.plannedDate || dateKey(new Date()),
-                        duration: draft.duration || 60,
-                      })
-                    }
-                  />
-                </label>
-                <label data-imported={imported("duration")}>
-                  <Clock3 size={14} aria-hidden="true" />
-                  <DurationHours
-                    minutes={draft.duration || 60}
-                    onChange={(duration) => update({ duration })}
-                  />
-                </label>
-              </fieldset>
+              <ScheduleFields
+                date={draft.plannedDate || ""}
+                time={draft.time}
+                duration={draft.duration || 60}
+                imported={{
+                  date: imported("plannedDate"),
+                  time: imported("time"),
+                  duration: imported("duration"),
+                }}
+                onChange={(patch) =>
+                  update({
+                    ...patch,
+                    ...(patch.plannedDate !== undefined
+                      ? { plannedDate: patch.plannedDate || null }
+                      : {}),
+                    ...(patch.time !== undefined
+                      ? {
+                          plannedDate: draft.plannedDate || dateKey(new Date()),
+                          duration: draft.duration || 60,
+                        }
+                      : {}),
+                  })
+                }
+              />
             )}
             {editSchedule && !isNew && (
-              <fieldset className="schedule-picker">
-                <legend>
-                  {groupCount > 1
-                    ? `Uhrzeit für ${groupCount} Tage`
-                    : "Uhrzeit"}
-                </legend>
-                <label>
-                  <Play size={14} aria-hidden="true" />
-                  <TimeInput
-                    label="Gemeinsame Uhrzeit"
-                    value={draft.time}
-                    onChange={(time) =>
-                      update({ time, duration: draft.duration || 60 })
-                    }
-                  />
-                </label>
-                <label>
-                  <Clock3 size={14} aria-hidden="true" />
-                  <DurationHours
-                    minutes={draft.duration || 60}
-                    onChange={(duration) => update({ duration })}
-                  />
-                </label>
-              </fieldset>
+              <ScheduleFields
+                showDate={false}
+                time={draft.time}
+                duration={draft.duration || 60}
+                groupLabel={
+                  groupCount > 1 ? `Uhrzeit für ${groupCount} Tage` : "Uhrzeit"
+                }
+                labels={[
+                  "Termindatum",
+                  "Gemeinsame Uhrzeit",
+                  "Dauer in Stunden",
+                ]}
+                onChange={(patch) =>
+                  update({
+                    ...patch,
+                    duration: patch.duration || draft.duration || 60,
+                  })
+                }
+              />
             )}
             <details className="travel-settings">
               <summary>
@@ -3802,6 +3719,12 @@ function Detail({
                 </fieldset>
               </details>
             )}
+            <div className="detail-color-row">
+              <ColorPicker
+                value={draft.color}
+                onChange={(color) => update({ color })}
+              />
+            </div>
             <fieldset className="priority-picker">
               <legend>Priorität</legend>
               {(
@@ -3922,6 +3845,63 @@ function Detail({
           <p className="created-at">
             Erstellt am {new Date(todo.createdAt).toLocaleDateString("de-DE")}
           </p>
+          <div
+            className="assistant-section"
+            data-escape-layer={chat ? "" : undefined}
+          >
+            {chat && (
+              <button
+                hidden
+                data-close
+                type="button"
+                onClick={() => setChat(false)}
+              >
+                Schließen
+              </button>
+            )}
+            <button
+              className="assistant-heading"
+              disabled={Boolean(screenshot)}
+              onClick={async () => {
+                if (!isNew && !chat && dirty && !(await persist())) return;
+                setChat(!chat);
+              }}
+            >
+              <span>
+                <Sparkles size={18} />
+                <span>ChatGPT fragen</span>
+              </span>
+              <ChevronDown
+                size={16}
+                style={{ transform: chat ? "rotate(180deg)" : "" }}
+              />
+            </button>
+            {chat && isNew && (
+              <p className="assessment-label">
+                Nach dem Anlegen kannst du die KI zu dieser Aufgabe fragen.
+              </p>
+            )}
+            {chat && !isNew && (
+              <TodoChat
+                todo={draft}
+                available={aiAvailable}
+                onConnected={onAiConnected}
+                onBeforeSend={async () => !dirty || (await persist())}
+                onApply={(steps) =>
+                  update({
+                    subtasks: [
+                      ...draft.subtasks,
+                      ...steps.map((title) => ({
+                        id: crypto.randomUUID(),
+                        title,
+                        done: false,
+                      })),
+                    ],
+                  })
+                }
+              />
+            )}
+          </div>
         </div>
         <div className="detail-bottom">
           <IconButton

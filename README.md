@@ -196,6 +196,8 @@ Reiter werden direkt per Doppelklick umbenannt und durch Ziehen umgeordnet; die 
 
 ### Screenshot-Termine prüfen und übernehmen
 
+Datum, Beginn und Dauer lassen sich direkt in Textfelder tippen; die gleichen Felder mit Kalender-, Play- und Sanduhrsymbol erscheinen in Screenshot-Vorschlägen. Datum etwa `16.10.2026`, Uhrzeit etwa `14:30`, Dauer etwa `1,5` Stunden. Die Erkennung unterstützt außerdem `14.00 Uhr`, `14–16 Uhr` und getrennt beschriftete Beginn-/Endzeiten. Mehrdeutige Punktangaben wie `09.05` ohne Zeitkontext bleiben Datumsangaben.
+
 Beim Einfügen eines Screenshots in den Aufgabentitel liest Lifemap den Text lokal aus. Mehrere explizite Termine werden als Vorschau angezeigt, einschließlich abweichender Titel und Uhrzeiten. Gleichnamige Termine erhalten beim gemeinsamen Speichern eine Serienzuordnung. Aus dem Screenshot werden ausschließlich Titel, Datum, Uhrzeiten und Adresse übernommen. Notizen, Beschreibungen und Telefonnummern werden nicht importiert. Bereits selbst eingegebene Notizen bleiben erhalten. Die Adresse wird als eigener Ort gespeichert und ist in den Details als Google-Maps-Link verfügbar.
 
 Erkennbar angegebene tägliche, wöchentliche oder monatliche Wiederholungen erscheinen als änderbarer Vorschlag. Ohne Enddatum wird zunächst ein sichtbarer Zeitraum von acht Wochen verwendet. Zusätzliche Termine, Rhythmus, Enddatum und Anzahl sind vor der Übernahme bearbeitbar. Die aus dem Screenshot geänderten Felder bleiben bis zum erfolgreichen Speichern markiert. Ein Import wird gemeinsam gespeichert und lässt sich mit einer einzigen Rückgängig-Aktion zurücknehmen. Die lokale Erkennung nutzt ausdrückliche Datums- und Zeitangaben; mehrdeutige Screenshots sollten in der Vorschau geprüft werden.

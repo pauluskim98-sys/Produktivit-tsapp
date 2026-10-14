@@ -7110,3 +7110,40 @@ button[hidden] {
   border-radius: 7px;
   background: var(--surface);
 }
+
+/* Shared inline schedule fields for typed appointments and screenshot proposals. */
+.compact-detail .detail-color-row { grid-column: 1 / -1; margin: 2px 0 4px; }
+.compact-detail .schedule-fields-common {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px;
+  padding: 7px;
+  min-width: 0;
+}
+.compact-detail .schedule-fields-common.schedule-time-only { grid-template-columns: 1fr 1fr; }
+.compact-detail .schedule-fields-common .schedule-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 7px;
+  background: var(--surface);
+}
+.compact-detail .schedule-fields-common .schedule-field > svg { flex-shrink: 0; margin: 0; }
+.compact-detail .schedule-fields-common input {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  min-width: 0;
+  width: 100%;
+  padding: 7px 0;
+  font-variant-numeric: tabular-nums;
+  cursor: text;
+}
+.compact-detail .schedule-fields-common .schedule-field:focus-within {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
+}
+.compact-detail .schedule-fields-common .hours-input { flex: 1; }
+.compact-detail .screenshot-event-draft .schedule-fields-common { margin-top: 7px; }

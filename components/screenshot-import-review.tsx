@@ -1,5 +1,7 @@
 "use client";
-import { CalendarDays, Clock3, Repeat2, ScanText, X } from "lucide-react";
+import { Repeat2, ScanText, X } from "lucide-react";
+import ScheduleFields from "./schedule-fields";
+import DateInput from "./date-input";
 import type { Todo } from "@/lib/types";
 import { addDays, dateKey, parseDate } from "@/lib/dates";
 import {
@@ -85,55 +87,26 @@ export default function ScreenshotImportReview({
                   <X size={13} />
                 </button>
               </div>
-              <div className="screenshot-event-schedule">
-                <label>
-                  <CalendarDays size={13} />
-                  <input
-                    type="date"
-                    aria-label={`Datum von Termin ${i + 2}`}
-                    value={event.plannedDate || ""}
-                    onChange={(e) =>
-                      patchEvent(i + 1, { plannedDate: e.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  <Clock3 size={13} />
-                  <input
-                    type="time"
-                    aria-label={`Uhrzeit von Termin ${i + 2}`}
-                    value={
-                      event.time === plan.events[0].time
-                        ? draft.time
-                        : event.time || ""
-                    }
-                    onChange={(e) =>
-                      patchEvent(i + 1, { time: e.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10080"
-                    aria-label={`Dauer von Termin ${i + 2} in Minuten`}
-                    value={
-                      event.duration === plan.events[0].duration
-                        ? draft.duration || ""
-                        : event.duration || ""
-                    }
-                    onChange={(e) =>
-                      patchEvent(i + 1, {
-                        duration: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      })
-                    }
-                  />
-                  <span>Min.</span>
-                </label>
-              </div>
+              <ScheduleFields
+                date={event.plannedDate || ""}
+                time={
+                  event.time === plan.events[0].time
+                    ? draft.time
+                    : event.time || ""
+                }
+                duration={
+                  (event.duration === plan.events[0].duration
+                    ? draft.duration
+                    : event.duration) || 60
+                }
+                labels={[
+                  `Datum von Termin ${i + 2}`,
+                  `Uhrzeit von Termin ${i + 2}`,
+                  `Dauer von Termin ${i + 2} in Stunden`,
+                ]}
+                groupLabel={`Zeit von Termin ${i + 2}`}
+                onChange={(patch) => patchEvent(i + 1, patch)}
+              />
             </div>
           ))}
         </details>
@@ -234,22 +207,16 @@ export default function ScreenshotImportReview({
           <div className="screenshot-repeat-controls">
             <label>
               Bis{" "}
-              <input
-                type="date"
-                aria-label="Enddatum der erkannten Wiederholung"
-                min={draft.plannedDate || undefined}
+              <DateInput
+                label="Enddatum der erkannten Wiederholung"
                 value={rule.until}
-                onChange={(e) =>
+                onChange={(until) =>
                   onChange({
                     ...plan,
                     warnings: plan.warnings.filter(
                       (w) => !w.startsWith("Kein Enddatum"),
                     ),
-                    recurrence: {
-                      ...rule,
-                      until: e.target.value,
-                      inferredEnd: false,
-                    },
+                    recurrence: { ...rule, until, inferredEnd: false },
                   })
                 }
               />
