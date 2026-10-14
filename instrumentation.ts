@@ -5,5 +5,7 @@ export async function register() {
   ) {
     const { startCalendarScheduler } = await import("./lib/calendar/scheduler");
     startCalendarScheduler();
+    const { startTodoistScheduler } = await import("./lib/todoist-sync");
+    startTodoistScheduler();
   }
 }

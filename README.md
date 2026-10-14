@@ -215,3 +215,11 @@ Der kleine Aktualisieren-Button übernimmt die letzten Kontaktzeitpunkte aus den
 ## Neue Vorschläge finden
 
 Der Aktualisieren-Button im Vorschlagsbereich fragt die Quellen neu ab, überspringt den normalen Zwischenspeicher und filtert bereits gezeigte Vorschläge heraus. Bei Essen werden weitere Rezeptgruppen durchsucht; bei Sport und eigenen Online-Themen weitere Suchergebnisse. Veranstaltungen und Ortsideen nutzen auch die weiteren verfügbaren Einträge der jeweiligen Quelle. Wenn gerade keine neuen Treffer vorhanden sind oder eine Quelle ausfällt, bleiben die letzten Vorschläge erhalten und ein Hinweis erscheint. Ein normaler Reiterwechsel verwendet weiterhin den Zwischenspeicher.
+
+### Todoist und offene Wochenaufgaben
+
+In Kalender & Einstellungen → Todoist ein persönliches API-Token aus den [Todoist-Einstellungen](https://app.todoist.com/app/settings/integrations/developer) verbinden. Das Token liegt ausschließlich in einer privaten Datei unter `data/`; die Status-API und Exporte geben es nicht zurück. Die [Todoist API](https://developer.todoist.com/api/v1/) wird alle fünf Minuten gelesen, solange der lokale Server läuft. Der Abgleich läuft von Todoist nach Lifemap. Aufgaben mit Tagesdatum stehen als kompakte Aufgaben neben dem Pluszeichen; ohne festen Tag beziehungsweise mit „diese Woche“ stehen sie in Todo → Woche. Die Todoist-Fälligkeit bleibt als Hinweis erhalten. Lokales Einplanen, Titeländerungen und Farben werden beim Aktualisieren bewahrt.
+
+Die Zahl am Inboxsymbol zählt offene Aufgaben der sichtbaren Woche samt der Wochenablage; erledigte Aufgaben, andere Wochen sowie Monats-/Jahresablage werden nicht mitgezählt.
+
+Screenshot-Vorschläge erkennen `11h` als 11:00 Uhr. Bei Formulierungen wie „Termin vom 19.10 auf Mittwoch 21.10 um 11h“ wird nur das neue Datum übernommen. Fehlende Uhrzeiten werden leer vorgeschlagen statt vom angeklickten Kalenderfeld oder einem anderen Termin übernommen.

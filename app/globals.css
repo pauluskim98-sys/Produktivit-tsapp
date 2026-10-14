@@ -7147,3 +7147,11 @@ button[hidden] {
 }
 .compact-detail .schedule-fields-common .hours-input { flex: 1; }
 .compact-detail .screenshot-event-draft .schedule-fields-common { margin-top: 7px; }
+
+.inbox-week-button { position: relative; margin-right: 6px; }
+.inbox-week-count { position: absolute; right: -6px; top: -3px; min-width: 16px; height: 16px; padding: 0 3px; display: grid; place-items: center; border-radius: 9px; background: var(--green); color: var(--surface); font-size: 9px; font-weight: 600; border: 2px solid var(--bg); }
+.todoist-settings h3, .todoist-connected { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.todoist-settings form { display: flex; gap: 9px; flex-wrap: wrap; align-items: flex-end; }
+.todoist-settings form label { flex: 1; min-width: 160px; }
+.todoist-settings form a { font-size: 11px; color: var(--green); width: 100%; }
+.todoist-settings small { display: block; margin-top: 9px; color: var(--secondary); font-size: 11px; }

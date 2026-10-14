@@ -5,6 +5,10 @@ export function normalizeClockNotation(text: string): string {
   return (
     text
       .replace(/[：∶]/g, ":")
+      .replace(
+        /\b([01]?\d|2[0-3])\s*h(?:\s*([0-5]\d))?\b/gi,
+        (_, h: string, m: string | undefined) => `${h}:${m || "00"}`,
+      )
       // OCR sometimes confuses zero and O, but only repair them beside a colon.
       .replace(
         /\b([0-2]?[\dOo])\s*:\s*([\dOo]{2})(?!\d)/g,

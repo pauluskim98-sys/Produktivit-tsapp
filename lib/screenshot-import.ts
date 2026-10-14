@@ -156,8 +156,24 @@ export function parseScreenshotImport(
   const until = rhythm
     ? matches.find((item) => item.until)?.plannedDate
     : undefined;
+  // In prose such as “den Termin vom 19.10 auf Mittwoch 21.10” the
+  // first date is the superseded appointment, not another occurrence.
+  const superseded = new Set<number>();
+  for (let i = 0; i < matches.length - 1; i++) {
+    const source = matches[i],
+      target = matches[i + 1];
+    const between = text.slice(source.index + source.raw.length, target.index);
+    const prefix = text.slice(Math.max(0, source.index - 100), source.index);
+    if (
+      /^\s*(?:auf|stattdessen(?:\s+am)?|jetzt(?:\s+am)?|nun(?:\s+am)?)\s*(?:(?:Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag),?\s*)?$/i.test(
+        between,
+      ) &&
+      /(?:vom|von|Termin|verschieb|verleg)\b[^\n]*$/i.test(prefix)
+    )
+      superseded.add(source.index);
+  }
   const anchors = matches
-    .filter((item) => !rhythm || !item.until)
+    .filter((item) => !superseded.has(item.index) && (!rhythm || !item.until))
     .slice(0, 366);
   const firstLine = anchors[0]?.line ?? lines.length;
   const globalTitle =
@@ -201,7 +217,10 @@ export function parseScreenshotImport(
         : preceding && !noteLine.test(preceding)
           ? preceding
           : globalTitle;
-    const segment = lines.slice(anchor.line, nextLine).join("\n");
+    const segment =
+      nextAnchor?.line === anchor.line
+        ? text.slice(anchor.index, nextAnchor.index)
+        : lines.slice(anchor.line, nextLine).join("\n");
     segments.push(segment);
     const parsed = parseAppointmentInput(segment, base);
     const labeledText = segment.match(
@@ -210,17 +229,39 @@ export function parseScreenshotImport(
     const labeled = labeledText
       ? parseAppointmentInput(labeledText, base)
       : undefined;
+    const candidateTitle = title || fallbackTitle || "";
+    const eventTitle =
+      superseded.size &&
+      /^(?:Das ist|Sollen|Vorschlag|Und den|Den vom|Termin vom|Hallo|Guten Tag)/i.test(
+        candidateTitle,
+      )
+        ? "Termin"
+        : candidateTitle;
+    // A time shared by multiple dates is valid only when there is one common
+    // schedule. Never borrow the first event's time for another event.
+    const clocks = [...text.matchAll(/\b(?:[01]?\d|2[0-3]):[0-5]\d\b/g)];
+    const globalSchedule =
+      /(?:Beginn|Start|Uhrzeit|Uhr|\d\s*h\b)/i.test(
+        raw.slice(0, raw.search(/\d{1,2}[./]\d{1,2}|\d{4}-\d{2}-\d{2}/)),
+      ) &&
+      clocks.length > 0 &&
+      clocks.every((c) => c.index! < anchors[0].index);
     return {
-      title: title || fallbackTitle || "",
+      title: eventTitle,
       plannedDate: anchor.plannedDate,
-      time: labeled?.time || ownParsed.time || parsed.time || allParsed.time,
+      time:
+        labeled?.time ||
+        ownParsed.time ||
+        parsed.time ||
+        (globalSchedule ? allParsed.time : undefined),
       duration:
-        parsed.duration ||
+        (labeled?.time ? parsed.duration : ownParsed.duration) ||
         labeled?.duration ||
-        ownParsed.duration ||
+        parsed.duration ||
         durationFromText(segment) ||
-        allParsed.duration ||
-        durationFromText(text),
+        (globalSchedule
+          ? allParsed.duration || durationFromText(text)
+          : undefined),
       location: parsed.location || allParsed.location,
     };
   });
@@ -255,6 +296,10 @@ export function parseScreenshotImport(
   );
   let recurrence: ScreenshotRecurrence | undefined;
   const warnings: string[] = [];
+  if (superseded.size)
+    warnings.push(
+      "Terminverschiebung erkannt – nur die neuen Daten werden übernommen. Titel bitte prüfen.",
+    );
   if (rhythm && unique[0].plannedDate) {
     const start = unique[0].plannedDate;
     const countText = text.match(

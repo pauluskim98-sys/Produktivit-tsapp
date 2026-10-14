@@ -280,3 +280,35 @@ test("screenshot labels without colons and separate end times remain editable ev
     ["2026-10-16", "2026-10-23"],
   );
 });
+
+test("email rescheduling imports only replacement dates at 11h, never the old appointments", () => {
+  const text =
+    "Die beiden Termine werden verlegt.\nVorschlag der Termin vom 18.10 auf Donnerstag 22.10 um 11h?\nUnd den vom 1.11 auf Donnerstag 5.11 um 11h?";
+  const plan = parseScreenshotImport(text, base);
+  assert.deepEqual(
+    plan.events.map((e) => e.plannedDate),
+    ["2026-10-22", "2026-11-05"],
+  );
+  assert.deepEqual(
+    plan.events.map((e) => e.time),
+    ["11:00", "11:00"],
+  );
+  assert.ok(plan.warnings.some((w) => w.includes("Terminverschiebung")));
+});
+test("independent same-line appointments retain their own duration", () => {
+  const plan = parseScreenshotImport(
+    "Yoga\n15.10.2026 18:30–19:30 / 22.10.2026 20:00–22:00",
+    base,
+  );
+  assert.deepEqual(
+    plan.events.map((e) => e.duration),
+    [60, 120],
+  );
+});
+test("an appointment without time does not inherit a different appointment time", () => {
+  const plan = parseScreenshotImport(
+    "Yoga\n15.10.2026 18:30\nKonzert\n22.10.2026",
+    base,
+  );
+  assert.equal(plan.events[1].time, undefined);
+});

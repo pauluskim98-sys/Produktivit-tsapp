@@ -24,6 +24,8 @@ import {
 import { taskColorForKey } from "@/lib/task-colors";
 import ScheduleFields from "./schedule-fields";
 import TimeInput from "./time-input";
+import TodoistSettings from "./todoist-settings";
+import { openWeekCount } from "@/lib/week-tasks";
 import {
   addressFromText,
   mapsAddress,
@@ -639,6 +641,7 @@ export default function Planner() {
   );
   const searchRef = useRef<HTMLInputElement>(null);
   const lock = useRef(false);
+  const taskWriteVersion = useRef(0);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, {
@@ -671,17 +674,25 @@ export default function Planner() {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
   }, [load]);
   useEffect(() => {
-    // Only refresh calendar data; never overwrite a task draft or in-flight task mutation.
+    // Refresh imported data while keeping editors and in-flight local mutations intact.
     let active = true;
     const refresh = async () => {
       if (document.visibilityState !== "visible") return;
       try {
+        const version = taskWriteVersion.current;
         const data = await api("/api/state");
         if (active)
           setState((prev) => ({
             ...prev,
             events: data.events,
             connections: data.connections,
+            ...(!busy &&
+            !selected &&
+            !newOpen &&
+            !lock.current &&
+            version === taskWriteVersion.current
+              ? { todos: data.todos }
+              : {}),
           }));
       } catch {}
     };
@@ -694,7 +705,7 @@ export default function Planner() {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, []);
+  }, [busy, selected, newOpen]);
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     localStorage.setItem("raum-theme", dark ? "dark" : "light");
@@ -1138,6 +1149,7 @@ export default function Planner() {
         "Eine Änderung wird gerade gespeichert. Bitte kurz warten.",
       );
     lock.current = true;
+    taskWriteVersion.current++;
     setBusy(true);
     try {
       const before = (await api("/api/state")).todos as Todo[];
@@ -1620,6 +1632,7 @@ export default function Planner() {
     (t) => t.plannedDate && weekKeys.includes(t.plannedDate),
   );
   const done = weekTodos.filter((t) => t.done).length;
+  const weeklyOpen = openWeekCount(state.todos, weekKeys);
   const tags = [
     ...new Set(
       state.todos.flatMap((t) => t.tags.filter((x) => !/^(k|r|h):/.test(x))),
@@ -1891,10 +1904,7 @@ export default function Planner() {
             <div className="sidebar-heading">
               <span>
                 <Inbox size={18} />
-                Inbox{" "}
-                <small>
-                  {state.todos.filter((t) => !t.plannedDate && !t.done).length}
-                </small>
+                Inbox <small>{weeklyOpen}</small>
               </span>
               <IconButton
                 title="Inbox einklappen"
@@ -2001,12 +2011,16 @@ export default function Planner() {
                 {!inboxOpen && (
                   <IconButton
                     title="Inbox öffnen"
+                    className="inbox-week-button"
                     onClick={() => {
                       setInboxOpen(true);
                       setMobileInbox(true);
                     }}
                   >
                     <PanelLeft size={17} />
+                    <span className="inbox-week-count" aria-hidden="true">
+                      {weeklyOpen}
+                    </span>
                   </IconButton>
                 )}
                 <h2
@@ -3048,9 +3062,8 @@ function Detail({
       ...draft,
       title,
       plannedDate: first.plannedDate || draft.plannedDate,
-      time: first.time || draft.time,
-      duration:
-        first.duration || (first.time ? draft.duration || 60 : draft.duration),
+      time: first.time || "",
+      duration: first.time ? first.duration || 60 : null,
       location: first.location || draft.location || "",
     };
     const fields = (
@@ -4198,6 +4211,7 @@ function Settings({
             </div>
           ))}
         </div>
+        <TodoistSettings onRefresh={onRefresh} />
         <ShortcutSettings
           preference={shortcutHints.preference}
           enabled={shortcutHints.enabled}
