@@ -1,10 +1,12 @@
 "use client";
+import { representedTaskIds } from "@/lib/task-selection";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 export function useAreaSelection(
   enabled: boolean,
   ids: string[],
   onSelection: (ids: string[]) => void,
 ) {
+  const suppressClick = useRef(false);
   const start = useRef<{
     x: number;
     y: number;
@@ -20,16 +22,23 @@ export function useAreaSelection(
   useEffect(() => {
     const paint = () =>
       document
-        .querySelectorAll<HTMLElement>("[data-task-id]")
+        .querySelectorAll<HTMLElement>("[data-task-id],[data-task-ids]")
         .forEach((el) =>
           el.classList.toggle(
             "group-selected",
-            ids.includes(el.dataset.taskId!),
+            representedTaskIds(el.dataset.taskId, el.dataset.taskIds).some(
+              (id) => ids.includes(id),
+            ),
           ),
         );
     paint();
     const observer = new MutationObserver(paint);
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-task-id", "data-task-ids"],
+    });
     return () => {
       observer.disconnect();
     };
@@ -54,16 +63,21 @@ export function useAreaSelection(
         if (
           !enabled ||
           e.button !== 0 ||
-          target.closest("input,textarea,select,[contenteditable]")
+          (target.closest(".planner-toolbar") &&
+            !target.closest(".header-date-preview")) ||
+          target.closest(
+            "input,textarea,select,[contenteditable],.selection-toolbar,.life-tabs",
+          )
         )
           return;
         const scope =
           target.closest<HTMLElement>(
             '.timeline-scroll,[role="dialog"],.sidebar,.period-overview,.calendar-overview',
           ) || e.currentTarget;
-        if (!scope.querySelector("[data-task-id]")) return;
+        if (!scope.querySelector("[data-task-id],[data-task-ids]")) return;
         e.preventDefault();
         e.stopPropagation();
+        suppressClick.current = true;
         start.current = {
           x: e.clientX,
           y: e.clientY,
@@ -85,7 +99,9 @@ export function useAreaSelection(
         e.stopPropagation();
         const r = bounds(e.clientX, e.clientY);
         const selected = Array.from(
-          start.current.scope.querySelectorAll<HTMLElement>("[data-task-id]"),
+          start.current.scope.querySelectorAll<HTMLElement>(
+            "[data-task-id],[data-task-ids]",
+          ),
         )
           .filter((el) => {
             const b = el.getBoundingClientRect();
@@ -100,14 +116,23 @@ export function useAreaSelection(
               b.top <= r.top + r.height
             );
           })
-          .map((el) => el.dataset.taskId!);
+          .flatMap((el) =>
+            representedTaskIds(el.dataset.taskId, el.dataset.taskIds),
+          );
         start.current = null;
         setRect(null);
         e.currentTarget.releasePointerCapture(e.pointerId);
         onSelection([...new Set(selected)]);
       },
       onClickCapture: (e: React.MouseEvent) => {
-        if (enabled) {
+        if (
+          (e.target as Element).closest(".selection-toolbar,.life-tabs") ||
+          ((e.target as Element).closest(".planner-toolbar") &&
+            !(e.target as Element).closest(".header-date-preview"))
+        )
+          return;
+        if (enabled || suppressClick.current) {
+          suppressClick.current = false;
           e.preventDefault();
           e.stopPropagation();
         }

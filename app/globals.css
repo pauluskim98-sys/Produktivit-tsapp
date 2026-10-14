@@ -7194,3 +7194,13 @@ button[hidden] {
 @media(prefers-reduced-motion:reduce) { .resource-drawer { transition: none; } .period-tray.is-raised { animation: none; } }
 
 .task-drag-reveal .resource-drawer { opacity: 0; pointer-events: none; }
+
+.mini-date > .mini-dots { position: absolute; bottom: 2px; left: 2px; right: 2px; justify-content: center; gap: 0; }
+.calendar-task-dot { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 12px; height: 12px; border: 0; padding: 3px; border-radius: 50%; background: transparent; cursor: grab; }
+.calendar-task-dot .mini-dot { display: block; flex-shrink: 0; }
+.calendar-task-dot:active { cursor: grabbing; }
+.calendar-task-dot.group-selected { outline: 2px solid var(--green); outline-offset: 1px; }
+.area-selection-mode [data-task-ids], .area-selection-mode .calendar-overview { cursor: crosshair; }
+.header-date-preview .mini-date > .mini-dots { display: flex !important; height: 12px; bottom: 0; }
+.header-date-preview .mini-date { min-height: 34px; }
+.header-date-preview .year-month .mini-date { height: 30px; min-height: 30px; }

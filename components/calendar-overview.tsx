@@ -1,7 +1,7 @@
 "use client";
 import { useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { useDroppable } from "@dnd-kit/core";
+import { useDroppable, useDraggable } from "@dnd-kit/core";
 import type { CalendarEvent, Todo } from "@/lib/types";
 import { eventsForDay } from "@/lib/day-assessment";
 import { eventBlockTitle, eventPresentation } from "@/lib/subjects";
@@ -130,6 +130,7 @@ function DateCell({
       color: TASK_COLOR_HEX[t.color || "green"],
       detail: `${t.title}${t.time ? `\n${t.time} · ${t.duration || 60} Min.` : ""}${t.description ? `\n${t.description}` : ""}`,
       todo: t,
+      taskIds: [t.id],
     })),
     ...eventsForDay(props.events, day).map((e) => ({
       id: e.id,
@@ -146,6 +147,7 @@ function DateCell({
         props.connections.find((c) => c.id === e.connectionId)?.color,
       ).color,
       todo: undefined as Todo | undefined,
+      taskIds: [] as string[],
     })),
   ].sort(
     (a, b) =>
@@ -159,6 +161,14 @@ function DateCell({
       const existing = entries.get(key);
       if (existing) {
         existing.detail += `\n\n${entry.detail}`;
+        existing.taskIds = [
+          ...new Set([...existing.taskIds, ...entry.taskIds]),
+        ];
+        if (!existing.todo && entry.todo) {
+          existing.todo = entry.todo;
+          existing.id = entry.id;
+          existing.color = entry.color;
+        }
       } else {
         entries.set(key, { ...entry });
       }
@@ -200,14 +210,41 @@ function DateCell({
         onBlur={() => setTip(null)}
       >
         <span>{Number(day.slice(-2))}</span>
-        {(!props.large || compact) && all.length > 0 && (
-          <span className="mini-dots">
-            {(compact ? all.slice(0, 1) : all).map((e, i) => (
-              <i key={i} className="mini-dot" style={{ background: e.color }} />
-            ))}
-          </span>
-        )}
       </button>
+      {(!props.large || compact) && all.length > 0 && (
+        <span className="mini-dots">
+          {compact ? (
+            own.length ? (
+              <TaskDot
+                tasks={own}
+                day={day}
+                color={all[0].color}
+                onPick={props.onPick}
+              />
+            ) : (
+              <i className="mini-dot" style={{ background: all[0].color }} />
+            )
+          ) : (
+            all.map((e) =>
+              e.todo ? (
+                <TaskDot
+                  key={e.id}
+                  tasks={[e.todo]}
+                  day={day}
+                  color={e.color}
+                  onPick={props.onPick}
+                />
+              ) : (
+                <i
+                  key={e.id}
+                  className="mini-dot"
+                  style={{ background: e.color }}
+                />
+              ),
+            )
+          )}
+        </span>
+      )}
       {props.large && !compact && props.onCreate && (
         <button
           type="button"
@@ -232,6 +269,7 @@ function DateCell({
                 compact
                 abbreviated
                 detail={e.detail}
+                selectionIds={e.taskIds}
                 todo={e.todo}
                 onOpen={props.onOpen || (() => {})}
                 onExtend={props.onExtend}
@@ -276,5 +314,44 @@ function DateCell({
           document.body,
         )}
     </div>
+  );
+}
+
+function TaskDot({
+  tasks,
+  day,
+  color,
+  onPick,
+}: {
+  tasks: Todo[];
+  day: string;
+  color: string;
+  onPick: (day: string) => void;
+}) {
+  const scope = useId();
+  const first = tasks[0];
+  const drag = useDraggable({
+    id: `calendar-dot:${scope}:${first.id}`,
+    data: { todoId: first.id },
+  });
+  return (
+    <button
+      ref={drag.setNodeRef}
+      {...drag.attributes}
+      {...drag.listeners}
+      type="button"
+      className="calendar-task-dot"
+      data-task-id={first.id}
+      data-task-ids={JSON.stringify(tasks.map((t) => t.id))}
+      aria-label={`${day}: ${tasks.map((t) => t.title).join(" · ")}`}
+      title={tasks.map((t) => t.title).join("\n")}
+      style={{ touchAction: "none", opacity: drag.isDragging ? 0.4 : 1 }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPick(day);
+      }}
+    >
+      <i className="mini-dot" style={{ background: color }} />
+    </button>
   );
 }

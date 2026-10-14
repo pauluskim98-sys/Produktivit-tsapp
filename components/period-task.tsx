@@ -12,6 +12,7 @@ export default function PeriodTask({
   compact = false,
   abbreviated = false,
   detail,
+  selectionIds,
 }: {
   todo: Todo;
   onOpen: (id: string) => void;
@@ -19,6 +20,7 @@ export default function PeriodTask({
   compact?: boolean;
   abbreviated?: boolean;
   detail?: string;
+  selectionIds?: string[];
 }) {
   const scope = useId();
   const drag = useDraggable({
@@ -44,6 +46,7 @@ export default function PeriodTask({
   return (
     <div
       data-task-id={todo.id}
+      data-task-ids={selectionIds ? JSON.stringify(selectionIds) : undefined}
       data-priority={todo.priority}
       className={`period-task-row color-${todo.color || "green"} ${compact ? "compact" : ""}`}
       style={{ opacity: drag.isDragging ? 0.3 : 1 }}

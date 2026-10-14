@@ -875,7 +875,6 @@ export default function Planner() {
         !newOpen &&
         !planning &&
         !settings &&
-        !dayPanel &&
         picked &&
         taskColorForKey(e.key) &&
         !e.metaKey &&
@@ -883,12 +882,14 @@ export default function Planner() {
         !e.altKey
       ) {
         e.preventDefault();
-        const t = state.todos.find((t) => t.id === picked);
-        if (t)
-          void save({
-            ...t,
-            color: taskColorForKey(e.key),
-          }).catch(handleError);
+        const color = taskColorForKey(e.key)!;
+        const targets = selectedIds.length
+          ? state.todos.filter((t) => selectedIds.includes(t.id))
+          : state.todos.filter((t) => t.id === picked);
+        if (targets.length)
+          void batchUpdate(targets.map((t) => ({ ...t, color }))).catch(
+            handleError,
+          );
         return;
       }
       if (dayPanel) return;
@@ -1720,6 +1721,8 @@ export default function Planner() {
       className={`app-shell ${selectionMode ? "area-selection-mode" : ""} ${floatingInbox ? "floating-inbox-open" : ""} ${dragReveal ? "task-drag-reveal" : ""}`}
       {...areaSelection.bind}
       onClickCapture={(event) => {
+        areaSelection.bind.onClickCapture(event);
+        if (event.isPropagationStopped()) return;
         const node = (event.target as Element).closest<HTMLElement>(
           "[data-calendar-task],[data-calendar-event]",
         );
@@ -2102,7 +2105,10 @@ export default function Planner() {
                 )}
                 <h2
                   className="overview-nav date-navigation"
-                  onMouseLeave={() => setDatePreview(null)}
+                  onMouseLeave={() => {
+                    if (!selectionMode && !dragged)
+                      setDatePreview(null);
+                  }}
                 >
                   <button
                     aria-label="Wochenübersicht öffnen"
@@ -2161,6 +2167,7 @@ export default function Planner() {
                         events={state.events}
                         connections={state.connections}
                         onPick={(day) => {
+                          setPasteTarget({ day, time: "" });
                           setAnchor(day);
                           setMobileDay(day);
                           setOverview(null);
@@ -2286,14 +2293,14 @@ export default function Planner() {
                 </MobileDay>
               ))}
             </nav>
-            {(selectionMode || selectedIds.length > 1) && (
+            {(selectionMode || selectedIds.length > 0) && (
               <div className="selection-toolbar">
                 <span>
                   {selectionMode
                     ? "Auswahl ziehen"
                     : `${selectedIds.length} Termine ausgewählt`}
                 </span>
-                {selectedIds.length > 1 && (
+                {selectedIds.length > 0 && (
                   <>
                     <button
                       onClick={() => {
@@ -2354,6 +2361,7 @@ export default function Planner() {
                 events={state.events}
                 connections={state.connections}
                 onPick={(day) => {
+                  setPasteTarget({ day, time: "" });
                   setAnchor(day);
                   setMobileDay(day);
                   setOverview(null);
