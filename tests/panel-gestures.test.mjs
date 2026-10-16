@@ -17,7 +17,8 @@ function setup(storage = false) {
     actions = [];
   let now = 1000,
     timerId = 0,
-    cleanup;
+    cleanup,
+    hovered = null;
   class Element {
     constructor(panel = false) {
       this.panel = panel;
@@ -49,7 +50,11 @@ function setup(storage = false) {
     }),
     Element,
     window,
-    document: { querySelectorAll: () => [] },
+    document: {
+      querySelectorAll: () => [],
+      elementFromPoint: () => hovered,
+      activeElement: { tagName: "INPUT" },
+    },
     getComputedStyle: () => ({ visibility: "visible" }),
     performance: { now: () => now },
     CustomEvent: class {
@@ -84,9 +89,14 @@ function setup(storage = false) {
     actions,
     handlers,
     cleanup,
+    hover(panel) {
+      hovered = new Element(panel);
+    },
     wheel(dx, panel = false) {
       handlers.wheel({
         target: new Element(panel),
+        clientX: 600,
+        clientY: 400,
         deltaX: dx,
         deltaY: 0,
         deltaMode: 0,
@@ -171,4 +181,34 @@ test("bottom screen edge opens planning without opening a side panel", () => {
     pointerType: "mouse",
   });
   assert.deepEqual(s.actions, ["plan"]);
+});
+
+test("successive settled swipes need no intervening click or focus change", () => {
+  const s = setup();
+  for (let i = 0; i < 3; i++) {
+    s.wheel(30);
+    s.settle();
+    s.next(85);
+  }
+  assert.deepEqual(s.actions, [
+    ["calendar", 1],
+    ["calendar", 1],
+    ["calendar", 1],
+  ]);
+});
+
+test("pointer over calendar wins over a latched panel target without a click", () => {
+  const s = setup();
+  s.hover(true);
+  s.wheel(40, true);
+  s.hover(false);
+  s.next(15);
+  s.wheel(30, true);
+  assert.deepEqual(s.actions, [["calendar", 1]]);
+  s.settle();
+  s.hover(true);
+  s.next(85);
+  s.wheel(30, false);
+  s.settle();
+  assert.deepEqual(s.actions, [["calendar", 1]]);
 });

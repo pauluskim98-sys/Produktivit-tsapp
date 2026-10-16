@@ -54,7 +54,10 @@ export function usePanelSwipe(options: Options) {
       }
     };
     const wheel = (event: WheelEvent) => {
-      const node = event.target;
+      // Trackpad scrolling can remain latched to a previously used panel. Route
+      // by the pointer's current position, independently of keyboard focus.
+      const node =
+        document.elementFromPoint(event.clientX, event.clientY) || event.target;
       if (
         !(node instanceof Element) ||
         !node.closest(".app-shell") ||
@@ -68,6 +71,7 @@ export function usePanelSwipe(options: Options) {
       const now = performance.now();
       if (
         !lastWheel ||
+        inPanel !== isPanel(node) ||
         now - lastWheel > 120 ||
         (amount && Math.sign(amount) === Math.sign(event.deltaX)) ||
         (committed &&
@@ -92,7 +96,13 @@ export function usePanelSwipe(options: Options) {
         finish(amount);
       }
       clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => finish(amount, true), 80);
+      settleTimer = setTimeout(() => {
+        finish(amount, true);
+        amount = 0;
+        committed = false;
+        lastWheel = 0;
+        lastMagnitude = 0;
+      }, 80);
     };
     const start = (event: TouchEvent) => {
       if (event.touches.length !== 1 || current.current.blocked) return;

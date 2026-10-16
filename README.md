@@ -234,6 +234,8 @@ Die Planungsablage unter dem Kalender enthält oben alle Inbox-Reiter, in Wochen
 
 Die aktuelle Uhrzeit verläuft als eine rote Linie über alle Wochentage; die heutige Spalte ist farblich hervorgehoben. Horizontales Wischen reagiert früher auf bewusste neue Bewegungen, ohne die auslaufende Bewegung mehrfach zu zählen. Die aufklappbare Statistik zeigt freie und belegte Zeit zwischen 06:00 und 24:00 Uhr, einschließlich Kalenderterminen und Wegzeiten; Überschneidungen zählen einmal. Ganztägige Kalendereinträge ohne feste Uhrzeit blockieren dabei keine Stunden.
 
+Trackpad-Wischen richtet sich nach der aktuellen Mausposition, unabhängig vom zuvor angeklickten Element oder einem noch fokussierten Textfeld. Nach einer abgeschlossenen Geste wird die Wischerkennung freigegeben; weitere Kalenderseiten lassen sich ohne Zwischenklick aufrufen. Beim Wechsel zwischen Seitenfenster und Kalender wird die vorige Geste nicht in den neuen Bereich übernommen.
+
 ### Auswahl von Kalenderpunkten
 
 „A“ aktiviert die Rechteckauswahl auch in kleinen Kalendern sowie Monats- und Jahresübersichten. Ein Jahrespunkt steht für alle eigenen Aufgaben dieses Tages; zusammengefasste gleichnamige Monatseinträge ebenfalls für alle enthaltenen Aufgaben. Die Auswahl kann über Delete/Backspace gelöscht, per ⌘C kopiert und gemeinsam auf einen anderen Kalendertag gezogen werden. Zahlentasten ändern die Farbe aller ausgewählten Aufgaben. Die Auswahl selbst navigiert nicht in eine andere Ansicht. Verknüpfte schreibgeschützte Kalendertermine bleiben außerhalb der Aufgabenbearbeitung.
