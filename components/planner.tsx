@@ -18,6 +18,9 @@ import ResourceDrawer from "./resource-drawer";
 import InboxNotes from "./inbox-notes";
 import ColorPicker from "./task-color-picker";
 import TaskDescription from "./task-description";
+import AddressInput from "./address-input";
+import { mapsDirections } from "@/lib/maps-directions";
+import { placeQueries, type PlaceProposal } from "@/lib/place-search";
 import { useActionHints } from "./use-action-hints";
 import {
   useShortcutPreferences,
@@ -3056,6 +3059,10 @@ function Detail({
   const [closing, setClosing] = useState(false);
   const [readingImage, setReadingImage] = useState(false);
   const [travelBusy, setTravelBusy] = useState(false);
+  const [travelOpen, setTravelOpen] = useState(false);
+  const travelRequest = useRef<AbortController | null>(null);
+  const travelTimer = useRef<number | null>(null);
+  useEffect(() => () => travelRequest.current?.abort(), []);
   const [travelOrigin, setTravelOrigin] = useState("");
   const [travelOptions, setTravelOptions] = useState<
     {
@@ -3066,7 +3073,39 @@ function Detail({
       error?: string;
     }[]
   >([]);
-  const [routeLabel, setRouteLabel] = useState("");
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceProposal[]>([]);
+  const [placeSearching, setPlaceSearching] = useState(false);
+  const [placeSearchDone, setPlaceSearchDone] = useState(false);
+  const placeRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => placeRequest.current?.abort(), []);
+  const findPlace = async (title = draft.title, context = "") => {
+    const queries = placeQueries(title, context, "Köln");
+    if (!queries.length) return;
+    placeRequest.current?.abort();
+    const controller = new AbortController();
+    placeRequest.current = controller;
+    setPlaceSearching(true);
+    setPlaceSearchDone(false);
+    setPlaceSuggestions([]);
+    try {
+      const r = await fetch("/api/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queries }),
+        signal: controller.signal,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      if (!controller.signal.aborted) {
+        setPlaceSuggestions(data.proposals || []);
+        setPlaceSearchDone(true);
+      }
+    } catch (e) {
+      if (!controller.signal.aborted) onError(e);
+    } finally {
+      if (!controller.signal.aborted) setPlaceSearching(false);
+    }
+  };
   useEffect(() => {
     setTravelOrigin(localStorage.getItem("lifemap-travel-origin") || "");
   }, []);
@@ -3129,8 +3168,8 @@ function Detail({
       title: parsed.title,
       location:
         parsed.location ||
-        addressFromText(draft.description) ||
         draft.location ||
+        addressFromText(draft.description) ||
         "",
       description: [
         ...new Set(
@@ -3171,7 +3210,9 @@ function Detail({
       plannedDate: first.plannedDate || draft.plannedDate,
       time: first.time || "",
       duration: first.time ? first.duration || 60 : null,
-      location: first.location || draft.location || "",
+      location: addressFromText(first.location || "")
+        ? first.location
+        : draft.location || "",
     };
     const fields = (
       ["title", "plannedDate", "time", "duration", "location"] as const
@@ -3188,16 +3229,23 @@ function Detail({
       ]),
     ]);
     if (next.location !== draft.location) setTravelOptions([]);
+    if (!addressFromText(first.location || "")) void findPlace(title, text);
   };
   const destination =
-    addressFromText(draft.title + "\n" + draft.description) ||
     draft.location ||
+    addressFromText(draft.title + "\n" + draft.description) ||
     "";
   const calculateTravel = async () => {
-    if (!destination || !travelOrigin.trim() || travelBusy) return;
+    if (!destination || !travelOrigin.trim()) return;
+    if (!draft.plannedDate || !draft.time) return;
+    if (travelTimer.current !== null) window.clearTimeout(travelTimer.current);
+    travelRequest.current?.abort();
+    const controller = new AbortController();
+    travelRequest.current = controller;
     setTravelBusy(true);
     try {
       const response = await fetch("/api/travel", {
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3212,15 +3260,43 @@ function Detail({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
+      if (controller.signal.aborted) return;
       setTravelOptions(result.options);
       localStorage.setItem("lifemap-travel-origin", travelOrigin);
-      setRouteLabel(`${result.origin} → ${result.destination}`);
     } catch (error) {
-      onError(error);
+      if (!controller.signal.aborted) onError(error);
     } finally {
-      setTravelBusy(false);
+      if (travelRequest.current === controller) setTravelBusy(false);
     }
   };
+  useEffect(() => {
+    travelRequest.current?.abort();
+    setTravelBusy(false);
+    setTravelOptions([]);
+    if (
+      travelOpen &&
+      travelOrigin.trim() &&
+      destination.trim() &&
+      draft.plannedDate &&
+      /^([01]\d|2[0-3]):[0-5]\d$/.test(draft.time)
+    ) {
+      travelTimer.current = window.setTimeout(
+        () => void calculateTravel(),
+        700,
+      );
+    }
+    return () => {
+      if (travelTimer.current !== null)
+        window.clearTimeout(travelTimer.current);
+    };
+  }, [
+    travelOpen,
+    travelOrigin,
+    destination,
+    draft.plannedDate,
+    draft.time,
+    draft.duration,
+  ]);
   const persist = async () => {
     if (closing || (isNew && saved)) return false;
     if (readingImage || imageRequest.current || travelBusy) return false;
@@ -3541,6 +3617,37 @@ function Detail({
               onChange={changeScreenshot}
             />
           )}
+          {screenshot && (placeSearching || placeSuggestions.length > 0) && (
+            <div className="screenshot-place-suggestions">
+              <small>
+                {placeSearching
+                  ? "Passender Ort wird gesucht …"
+                  : "Adressvorschlag"}
+              </small>
+              {placeSuggestions.map((p) => (
+                <div className="place-proposal" key={p.address}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      update({ location: p.address });
+                      setTravelOptions([]);
+                      setPlaceSuggestions([]);
+                      setImportedFields((f) => [
+                        ...new Set([...f, "location"]),
+                      ]);
+                    }}
+                  >
+                    <strong>{p.name}</strong>
+                    <span>{p.address}</span>
+                    <small>Übernehmen</small>
+                  </button>
+                  <a href={p.url} target="_blank" rel="noopener noreferrer">
+                    {p.source} ↗
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="detail-fields">
             {!((isNew && showSchedule) || screenshot || editSchedule) && (
               <div
@@ -3603,7 +3710,19 @@ function Detail({
                 }
               />
             )}
-            <details className="travel-settings">
+            <details
+              className="travel-settings"
+              onToggle={(e) => {
+                setTravelOpen(e.currentTarget.open);
+                if (
+                  e.currentTarget.open &&
+                  !destination &&
+                  !placeSearching &&
+                  !placeSearchDone
+                )
+                  void findPlace();
+              }}
+            >
               <summary>
                 Wegzeit berechnen
                 {draft.travelBefore || draft.travelAfter
@@ -3611,30 +3730,68 @@ function Detail({
                   : ""}
               </summary>
               <div className="travel-form">
-                <label>
-                  Startadresse
-                  <input
-                    aria-label="Startadresse für Wegzeit"
+                <div className="travel-address-field">
+                  <span>Startadresse</span>
+                  <AddressInput
+                    label="Startadresse für Wegzeit"
                     value={travelOrigin}
-                    onChange={(e) => {
-                      setTravelOrigin(e.target.value);
+                    locate
+                    onError={onError}
+                    onChange={(value) => {
+                      setTravelOrigin(value);
                       setTravelOptions([]);
                     }}
-                    placeholder="Straße, Hausnummer, Stadt"
                   />
-                </label>
-                <label>
-                  Zieladresse
-                  <input
-                    aria-label="Zieladresse für Wegzeit"
+                </div>
+                <div className="travel-address-field">
+                  <span>Zieladresse</span>
+                  <AddressInput
+                    label="Zieladresse für Wegzeit"
                     value={destination}
-                    onChange={(e) => update({ location: e.target.value })}
-                    readOnly={Boolean(
-                      addressFromText(draft.title + "\n" + draft.description),
-                    )}
-                    placeholder="Adresse in den Notizen ergänzen"
+                    onError={onError}
+                    onChange={(location) => {
+                      update({ location });
+                      setTravelOptions([]);
+                    }}
                   />
-                </label>
+                </div>
+                <div className="place-proposals">
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={placeSearching || !draft.title.trim()}
+                    onClick={() => void findPlace()}
+                  >
+                    <Search size={14} />
+                    {placeSearching ? "Ort wird gesucht …" : "Ort vorschlagen"}
+                  </button>
+                  {placeSuggestions.map((p) => (
+                    <div className="place-proposal" key={p.address}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          update({ location: p.address });
+                          setTravelOptions([]);
+                          setPlaceSuggestions([]);
+                        }}
+                      >
+                        <strong>{p.name}</strong>
+                        <span>{p.address}</span>
+                        <small>Als Ziel übernehmen</small>
+                      </button>
+                      <a href={p.url} target="_blank" rel="noopener noreferrer">
+                        {p.source} ↗
+                      </a>
+                    </div>
+                  ))}
+                  {placeSearchDone &&
+                    !placeSuggestions.length &&
+                    !destination && (
+                      <span className="place-empty">
+                        Kein eindeutiger Ort gefunden.
+                      </span>
+                    )}
+                </div>
                 <button
                   type="button"
                   className="secondary-button"
@@ -3662,7 +3819,11 @@ function Detail({
                       <button
                         type="button"
                         aria-pressed={draft.travelMode === option.mode}
-                        disabled={travelBusy || !travelOptions.length}
+                        disabled={
+                          travelBusy ||
+                          option.before === undefined ||
+                          option.after === undefined
+                        }
                         onClick={() =>
                           update({
                             ...extractTitle(),
@@ -3688,22 +3849,40 @@ function Detail({
                         )}
                       </button>
                       {destination && travelOrigin && (
-                        <a
-                          href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(travelOrigin)}&destination=${encodeURIComponent(destination)}&travelmode=${option.mode === "bike" ? "bicycling" : "transit"}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Verbindung in Google Maps ↗
-                        </a>
+                        <div className="maps-trip-links">
+                          <a
+                            href={mapsDirections(
+                              travelOrigin,
+                              destination,
+                              option.mode,
+                              draft.plannedDate,
+                              draft.time,
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Google Maps · Hinweg ↗
+                          </a>
+                          <a
+                            href={mapsDirections(
+                              travelOrigin,
+                              destination,
+                              option.mode,
+                              draft.plannedDate,
+                              draft.time,
+                              true,
+                              draft.duration || 60,
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Rückweg ↗
+                          </a>
+                        </div>
                       )}
-                      {option.label && <small>{option.label}</small>}
                     </div>
                   ))}
                 </div>
-                <small>
-                  Fahrrad: OpenStreetMap · Bahn und Fußwege: Fahrplanauskunft
-                </small>
-                {routeLabel && <small>{routeLabel}</small>}
                 {draft.travelMode || draft.travelBefore || draft.travelAfter ? (
                   <div className="travel-minutes">
                     <label>

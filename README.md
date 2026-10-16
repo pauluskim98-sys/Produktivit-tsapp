@@ -237,3 +237,13 @@ Die Inbox besitzt einen eigenen Notizkasten, der beim Verlassen gespeichert wird
 ### Kompaktes Aufgabenfenster
 
 Beschreibung und Unteraufgaben stehen in einem gemeinsamen Kasten direkt unter dem Titel. Beim Schreiben erscheint ein Plus für die aktuelle Zeile: Klick oder Enter übernimmt sie als Unteraufgabe. Delete/Backspace entfernt zunächst das Plus, ohne Text zu löschen; danach bleibt die Zeile normaler Beschreibungstext. Vorhandene Unteraufgaben lassen sich dort abhaken und entfernen. Zeitangaben erscheinen bei sichtbaren Eingabefeldern nicht zusätzlich als Zusammenfassung. Die zehn nummerierten Farben stehen in zwei Fünferreihen neben der Erinnerung, Prioritätsflaggen und Tags in einer gemeinsamen Zeile.
+
+### Adressbuch und termingerechte Wege
+
+Start und Ziel haben ein Buchsymbol für lokal gespeicherte, benannte Adressen. Die ersten Buchstaben zeigen passende Einträge mit Namenspräfixen zuerst. Hinzufügen und Entfernen lässt sich rückgängig machen; die Daten liegen nur in der privaten lokalen Datenbank. Der Standortbutton am Start verwendet die Browser-Standortfreigabe, alternativ bleibt die Adresse frei eingabbar.
+
+Ohne eindeutige Adresse sucht der Screenshot-Import und das Öffnen der Wegzeitoption nach passenden Orten in Köln. Treffer aus OpenStreetMap und gegebenenfalls öffentlichen Suchergebnissen bleiben Vorschläge mit Quellenlink; erst „Übernehmen“ setzt das Ziel. Es werden nur kurze Orts-/Namenssuchbegriffe recherchiert, kein Screenshotbild und kein vollständiger Mailtext.
+
+Bei ausgefülltem Start, Ziel und Terminzeit werden Wege nach kurzer Eingabepause berechnet. Google-Maps-Links öffnen den Hinweg im Desktop-Browser mit Ankunft bis zur Terminzeit und den Rückweg mit Abfahrt nach dem Terminende. Der Zeitlink verwendet das im Google-Maps-Desktop-UI geprüfte Datenformat; es ist kein offiziell zugesicherter Maps-URL-Parameter und kann auf anderen Geräten abweichen. Fahrradlinks verwenden die offizielle Maps-URL. Die Wegzeitberechnung bleibt bei Fahrplanauskunft bzw. OpenStreetMap; Google-Maps-Verbindungen werden bei Öffnen des Links angezeigt. Die bisherigen grauen Herkunfts- und Langadresszeilen entfallen.
+
+Der Service Worker greift nicht mehr in Seitennavigationen ein. Dadurch bleibt nach einem Serverneustart keine alte Offline-Ersatzseite vor einer wieder erreichbaren Lifemap-Version hängen. Nur alte Shell-Caches werden bereinigt; lokale Kalenderdaten und Einstellungen bleiben erhalten.

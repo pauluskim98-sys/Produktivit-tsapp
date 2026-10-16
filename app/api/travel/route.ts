@@ -1,40 +1,31 @@
 import { sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const cache = new Map<string, { lat: number; lon: number; label: string }>();
-let queue = Promise.resolve();
+import { lookupPlaces } from "@/lib/place-search";
 async function geocode(address: string) {
-  if (cache.has(address)) return cache.get(address)!;
-  const job = queue.then(async () => {
-    const url = new URL("https://nominatim.openstreetmap.org/search");
-    url.search = new URLSearchParams({
-      q: address,
-      format: "jsonv2",
-      limit: "1",
-    }).toString();
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Lifemap personal calendar/1.0",
-        "Accept-Language": "de",
-      },
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!response.ok) throw new Error("Adresssuche momentan nicht erreichbar.");
-    const [place] = await response.json();
-    if (!place) throw new Error(`Adresse nicht gefunden: ${address}`);
-    const result = {
-      lat: Number(place.lat),
-      lon: Number(place.lon),
-      label: String(place.display_name),
+  const coordinates = address.match(/^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/);
+  if (
+    coordinates &&
+    Math.abs(Number(coordinates[1])) <= 90 &&
+    Math.abs(Number(coordinates[2])) <= 180
+  )
+    return {
+      lat: Number(coordinates[1]),
+      lon: Number(coordinates[2]),
+      label: address,
     };
-    cache.set(address, result);
-    return result;
-  });
-  queue = job.then(
-    () => new Promise<void>((resolve) => setTimeout(resolve, 1100)),
-    () => new Promise<void>((resolve) => setTimeout(resolve, 1100)),
-  );
-  return job;
+  const [place] = await lookupPlaces(address);
+  if (
+    !place ||
+    !Number.isFinite(Number(place.lat)) ||
+    !Number.isFinite(Number(place.lon))
+  )
+    throw new Error(`Adresse nicht gefunden: ${address}`);
+  return {
+    lat: Number(place.lat),
+    lon: Number(place.lon),
+    label: String(place.display_name),
+  };
 }
 type Place = { lat: number; lon: number; label: string };
 async function bikeRoute(from: Place, to: Place) {

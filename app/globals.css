@@ -7270,3 +7270,38 @@ button[hidden] {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
+
+/* Compact address lookup, saved places and route links. */
+.travel-address-field { display: grid; gap: 5px; font-size: 12px; min-width: 0; }
+.saved-address-input { position: relative; min-width: 0; }
+.address-input-line { display: flex; align-items: center; gap: 4px; }
+.travel-form .address-input-line input { flex: 1; min-width: 0; width: 0; }
+.address-input-line .icon-button { flex-shrink: 0; width: 28px; height: 30px; }
+.address-autocomplete,.address-book-popover { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 8px; box-shadow: 0 6px 20px #0000000c; margin-top: 6px; }
+.address-autocomplete button,.address-book-list > div > button:first-child { display: grid; gap: 3px; flex: 1; width: 100%; text-align: left; border: 0; background: transparent; padding: 7px; border-radius: 7px; cursor: pointer; color: var(--ink); }
+.address-autocomplete button:hover,.address-book-list > div > button:first-child:hover { background: var(--green-soft); }
+.address-autocomplete strong,.address-book-list strong { font-size: 12px; font-weight: 550; }
+.address-autocomplete small,.address-book-list small { font-size: 10px; color: var(--secondary); }
+.address-book-header { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.address-book-header strong { flex: 1; font-size: 12px; }
+.travel-form .address-book-popover input { width: 100%; min-width: 0; }
+.address-book-add { display: grid; gap: 7px; margin: 8px 0; }
+.address-book-list { max-height: 180px; overflow-y: auto; margin-top: 5px; }
+.address-book-list > div { display: flex; align-items: center; gap: 3px; }
+.address-book-list p { font-size: 11px; color: var(--secondary); padding: 5px; }
+.place-proposals,.screenshot-place-suggestions { display: grid; gap: 6px; }
+.place-proposals .text-button { display: flex; align-items: center; gap: 5px; justify-self: start; padding: 2px 0; font-size: 11px; }
+.place-proposal { border: 1px solid var(--line); border-radius: 9px; padding: 8px; background: var(--surface); }
+.place-proposal > button { display: grid; gap: 4px; width: 100%; border: 0; padding: 0; text-align: left; cursor: pointer; background: transparent; color: var(--ink); }
+.place-proposal strong { font-size: 12px; font-weight: 550; }
+.place-proposal span { font-size: 11px; color: var(--secondary); }
+.place-proposal small,.place-proposal a { font-size: 10px; color: var(--green); }
+.place-proposal a { display: inline-block; margin-top: 6px; }
+.screenshot-place-suggestions { margin: 9px 0; }
+.place-empty { font-size: 11px; color: var(--secondary); }
+.maps-trip-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; padding: 0 7px; }
+.maps-trip-links a { font-size: 10px; }
+.travel-form .address-input-line input {
+  min-height: 34px; padding: 7px 9px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 12px;
+}

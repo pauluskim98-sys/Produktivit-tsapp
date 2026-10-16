@@ -1,5 +1,9 @@
-// Keep API requests network-only. Never cache private task or chat data.
-const CACHE = 'raum-shell-v1';
-self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(['/offline.html','/icon-192.png','/icon-512.png'])));self.skipWaiting();});
-self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
-self.addEventListener('fetch',event=>{if(event.request.mode==='navigate')event.respondWith(fetch(event.request).catch(()=>caches.match('/offline.html')));});
+// Pages and APIs stay network-only. A stale worker must never replace a reachable
+// local Lifemap server with its cached offline page after a server restart.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => {
+  event.waitUntil(Promise.all([
+    caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('raum-shell-')).map(key => caches.delete(key)))),
+    self.clients.claim(),
+  ]));
+});
