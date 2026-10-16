@@ -526,6 +526,35 @@ export default function Planner() {
     [newOpen, setNewOpen] = useState(false),
     [dark, setDark] = useState(false);
   const [storageOpen, setStorageOpen] = useState(false);
+  const [inboxPinned, setInboxPinned] = useState(false);
+  const [storagePinned, setStoragePinned] = useState(false);
+  const closeInbox = () => {
+    setInboxPinned(false);
+    setInboxOpen(false);
+    setMobileInbox(false);
+  };
+  const closeTransientInbox = () => {
+    if (!inboxPinned) closeInbox();
+  };
+  const toggleInbox = () => {
+    if ((inboxOpen || mobileInbox) && inboxPinned) closeInbox();
+    else {
+      setInboxPinned(true);
+      setInboxOpen(true);
+      setMobileInbox(true);
+    }
+  };
+  const closeStorage = () => {
+    setStoragePinned(false);
+    setStorageOpen(false);
+  };
+  const toggleStorage = () => {
+    if (storageOpen && storagePinned) closeStorage();
+    else {
+      setStoragePinned(true);
+      setStorageOpen(true);
+    }
+  };
   const [trayRaised, setTrayRaised] = useState(false);
   const [dragReveal, setDragReveal] = useState(false);
   const [trayPosition, setTrayPosition] = useState({
@@ -559,6 +588,8 @@ export default function Planner() {
       inboxOpen,
       mobileInbox,
       storageOpen,
+      inboxPinned,
+      storagePinned,
       trayRaised,
     },
     (view) => {
@@ -577,6 +608,8 @@ export default function Planner() {
       setInboxOpen(view.inboxOpen);
       setMobileInbox(view.mobileInbox);
       setStorageOpen(view.storageOpen);
+      setInboxPinned(view.inboxPinned);
+      setStoragePinned(view.storagePinned);
       setTrayRaised(view.trayRaised);
       setPicked(null);
       setSelectedIds([]);
@@ -592,6 +625,7 @@ export default function Planner() {
         "newOpen",
         "inboxOpen",
         "mobileInbox",
+        "storageOpen",
       ] as const;
       return (
         before.anchor === after.anchor &&
@@ -613,14 +647,13 @@ export default function Planner() {
         setQuery("");
         event.preventDefault();
       } else if (storageOpen) {
-        setStorageOpen(false);
+        closeStorage();
         event.preventDefault();
       } else if (trayRaised) {
         setTrayRaised(false);
         event.preventDefault();
       } else if (inboxOpen || mobileInbox) {
-        setInboxOpen(false);
-        setMobileInbox(false);
+        closeInbox();
         event.preventDefault();
       } else if (goBackView()) event.preventDefault();
     };
@@ -635,6 +668,8 @@ export default function Planner() {
     inboxOpen,
     mobileInbox,
     storageOpen,
+    inboxPinned,
+    storagePinned,
     trayRaised,
   ]);
   const navigationAnchor = useRef(anchor);
@@ -662,7 +697,9 @@ export default function Planner() {
   useEffect(() => {
     if (!trayRaised || !mainRef.current) return;
     const main = mainRef.current;
-    main.querySelector<HTMLElement>(".period-tray")?.scrollTo({ top: 0, behavior: "instant" });
+    main
+      .querySelector<HTMLElement>(".period-tray")
+      ?.scrollTo({ top: 0, behavior: "instant" });
     const axis = main.querySelector<HTMLElement>(".time-axis");
     const measure = () => {
       const r = main.getBoundingClientRect(),
@@ -830,8 +867,8 @@ export default function Planner() {
       }
       if (neutral && e.key === "Tab") {
         e.preventDefault();
-        setInboxOpen((v) => !v);
-        setMobileInbox((v) => !v);
+        if (inboxOpen || mobileInbox) closeInbox();
+        else toggleInbox();
         return;
       }
       if (neutral && (e.code === "Space" || e.key === " ")) {
@@ -1066,6 +1103,9 @@ export default function Planner() {
     selectionMode,
     anchor,
     trayRaised,
+    inboxOpen,
+    mobileInbox,
+    inboxPinned,
   ]);
   useEffect(() => {
     const forward = (e: Event) => {
@@ -1074,8 +1114,8 @@ export default function Planner() {
     const inbox = (e: Event) => {
       e.preventDefault();
       const open = inboxOpen || mobileInbox;
-      setInboxOpen(!open);
-      setMobileInbox(!open);
+      if (open) closeInbox();
+      else toggleInbox();
     };
     const select = (e: Event) => {
       e.preventDefault();
@@ -1100,7 +1140,7 @@ export default function Planner() {
       window.removeEventListener("raum-selection-toggle", select);
       window.removeEventListener("raum-selection-delete", removeSelection);
     };
-  }, [inboxOpen, mobileInbox, selectedIds, state.todos]);
+  }, [inboxOpen, mobileInbox, inboxPinned, selectedIds, state.todos]);
   const [seriesQuestion, setSeriesQuestion] = useState<{
     title: string;
     resolve: (all: boolean | null) => void;
@@ -1346,8 +1386,7 @@ export default function Planner() {
     }
   };
   const openCalendarTask = (id: string) => {
-    setInboxOpen(false);
-    setMobileInbox(false);
+    closeTransientInbox();
     setSelected(id);
     setPicked(id);
     setSelectedIds([id]);
@@ -1821,8 +1860,10 @@ export default function Planner() {
     >
       <ResourceDrawer
         open={storageOpen}
+        pinned={storagePinned}
         onOpen={() => setStorageOpen(true)}
-        onClose={() => setStorageOpen(false)}
+        onToggle={toggleStorage}
+        onClose={closeStorage}
       />
       {shortcutHints.firstUse && (
         <ShortcutWelcome onChoose={shortcutHints.configure} />
@@ -1960,7 +2001,8 @@ export default function Planner() {
           <aside
             className="sidebar"
             onMouseLeave={(event) => {
-              if (event.buttons || dragged || selectionMode) return;
+              if (inboxPinned || event.buttons || dragged || selectionMode)
+                return;
               const next = event.relatedTarget;
               if (
                 next instanceof Element &&
@@ -2015,17 +2057,18 @@ export default function Planner() {
             />
 
             <div className="sidebar-heading">
-              <span>
+              <button
+                className="inbox-heading-toggle"
+                onClick={toggleInbox}
+                aria-label={
+                  inboxPinned ? "Inbox schließen" : "Inbox geöffnet lassen"
+                }
+                aria-expanded={inboxOpen || mobileInbox}
+              >
                 <Inbox size={18} />
                 Inbox <small>{weeklyOpen}</small>
-              </span>
-              <IconButton
-                title="Inbox einklappen"
-                onClick={() => {
-                  setInboxOpen(false);
-                  setMobileInbox(false);
-                }}
-              >
+              </button>
+              <IconButton title="Inbox einklappen" onClick={closeInbox}>
                 <PanelLeftClose size={15} />
               </IconButton>
             </div>
@@ -2097,21 +2140,20 @@ export default function Planner() {
           <main ref={mainRef} className="main-content">
             <div className="planner-toolbar">
               <div className="week-nav">
-                {!inboxOpen && (
-                  <IconButton
-                    title="Inbox öffnen"
-                    className="inbox-week-button"
-                    onClick={() => {
-                      setInboxOpen(true);
-                      setMobileInbox(true);
-                    }}
-                  >
-                    <PanelLeft size={17} />
-                    <span className="inbox-week-count" aria-hidden="true">
-                      {weeklyOpen}
-                    </span>
-                  </IconButton>
-                )}
+                <IconButton
+                  title={
+                    inboxPinned && (inboxOpen || mobileInbox)
+                      ? "Inbox schließen"
+                      : "Inbox öffnen"
+                  }
+                  className="inbox-week-button"
+                  onClick={toggleInbox}
+                >
+                  <PanelLeft size={17} />
+                  <span className="inbox-week-count" aria-hidden="true">
+                    {weeklyOpen}
+                  </span>
+                </IconButton>
                 <h2
                   className="overview-nav date-navigation"
                   onMouseLeave={() => {
@@ -2278,11 +2320,7 @@ export default function Planner() {
               </span>
             </div>
             <nav className="mobile-tabs">
-              <MobileDay
-                day={null}
-                active={mobileInbox}
-                onClick={() => setMobileInbox(true)}
-              >
+              <MobileDay day={null} active={mobileInbox} onClick={toggleInbox}>
                 <Inbox size={16} />
                 Inbox
               </MobileDay>
@@ -2355,8 +2393,7 @@ export default function Planner() {
                 large
                 onExtend={extendAcross}
                 onCreate={(day) => {
-                  setInboxOpen(false);
-                  setMobileInbox(false);
+                  closeTransientInbox();
                   setNewSlot({ day, time: "", drawn: false });
                   setNewOpen(true);
                 }}
@@ -2435,8 +2472,7 @@ export default function Planner() {
                 }}
                 onDayOpen={setDayPanel}
                 onCreate={(day, time, duration, days, drawn) => {
-                  setInboxOpen(false);
-                  setMobileInbox(false);
+                  closeTransientInbox();
                   setPasteTarget({ day, time });
                   setNewSlot({ day, time, duration, days, drawn });
                   setNewOpen(true);

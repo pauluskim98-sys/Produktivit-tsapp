@@ -26,11 +26,15 @@ type Item = {
 };
 export default function ResourceDrawer({
   open,
+  pinned,
   onOpen,
+  onToggle,
   onClose,
 }: {
   open: boolean;
+  pinned: boolean;
   onOpen: () => void;
+  onToggle: () => void;
   onClose: () => void;
 }) {
   const [items, setItems] = useState<Item[]>([]),
@@ -156,8 +160,9 @@ export default function ResourceDrawer({
     <>
       <button
         className="resource-toggle icon-button"
-        aria-label="Dokumente öffnen"
-        onClick={onOpen}
+        aria-label={open && pinned ? "Dokumente schließen" : "Dokumente öffnen"}
+        aria-expanded={open}
+        onClick={onToggle}
         onDragEnter={onOpen}
       >
         <Archive size={17} />
@@ -169,6 +174,8 @@ export default function ResourceDrawer({
         inert={!open}
         onMouseLeave={(e) => {
           if (
+            pinned ||
+            filePicker.current ||
             e.buttons ||
             busy ||
             externalDrag ||
@@ -198,7 +205,16 @@ export default function ResourceDrawer({
       >
         <header>
           <h2>
-            <Archive size={18} /> Dokumente
+            <button
+              className="icon-button"
+              aria-label={
+                pinned ? "Dokumente einklappen" : "Dokumente geöffnet lassen"
+              }
+              onClick={onToggle}
+            >
+              <Archive size={18} />
+            </button>{" "}
+            Dokumente
           </h2>
           <button
             className="icon-button"
