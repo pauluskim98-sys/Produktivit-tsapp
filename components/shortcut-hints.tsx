@@ -159,10 +159,6 @@ export function ShortcutWelcome({
         </div>
         <h2 id="shortcut-welcome-title">Lifemap leichter bedienen</h2>
         <p>Sollen beim Darüberfahren passende Tasten und Gesten erscheinen?</p>
-        <div className="shortcut-example">
-          <span>Inbox öffnen</span>
-          <kbd>Tab</kbd>
-        </div>
         <Duration days={days} onChange={setDays} />
         <div className="shortcut-welcome-actions">
           <button

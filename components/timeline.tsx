@@ -509,8 +509,6 @@ function TimeColumn({
           ),
         ).time
       : null;
-  const now = new Date(),
-    currentMinute = now.getHours() * 60 + now.getMinutes();
   return (
     <div
       className="time-column"
@@ -650,14 +648,6 @@ function TimeColumn({
           {hover}
         </div>
       )}
-      {dateKey(now) === day && (
-        <div
-          className="now-line"
-          style={{ top: gridMinute(currentMinute) * scale }}
-        >
-          <i />
-        </div>
-      )}
     </div>
   );
 }
@@ -740,6 +730,7 @@ export default function Timeline(props: Props) {
     };
     setDraft(moved ? drawing.current : null);
   };
+  const now = new Date();
   const [tick, setTick] = useState(0);
   const [scale, setScale] = useState(MINUTE_HEIGHT);
   useEffect(() => {
@@ -916,6 +907,18 @@ export default function Timeline(props: Props) {
         })}
       </div>
       <div className="timeline-body">
+        {props.days.some((d) => dateKey(d) === dateKey(now)) && (
+          <div
+            className="now-line timeline-now-line"
+            aria-label={`Aktuelle Uhrzeit ${toTime(now.getHours() * 60 + now.getMinutes())}`}
+            style={{
+              top: gridMinute(now.getHours() * 60 + now.getMinutes()) * scale,
+            }}
+          >
+            <i />
+          </div>
+        )}
+
         <div className="time-axis" style={{ height: 1140 * scale }}>
           {Array.from({ length: 19 }, (_, i) => {
             const h = (i + 6) % 24;

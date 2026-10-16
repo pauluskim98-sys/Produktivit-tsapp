@@ -28,6 +28,7 @@ function setup(storage = false) {
   }
   const window = {
     innerWidth: 1200,
+    innerHeight: 800,
     addEventListener: (name, fn) => {
       handlers[name] = fn;
     },
@@ -65,6 +66,7 @@ function setup(storage = false) {
   };
   vm.runInNewContext(source, context);
   context.exports.usePanelSwipe({
+    openPlan: () => actions.push("plan"),
     inboxOpen: false,
     ...(storage
       ? {
@@ -96,8 +98,8 @@ function setup(storage = false) {
       for (const fn of [...timers.values()]) fn();
       timers.clear();
     },
-    next() {
-      now += 200;
+    next(ms = 200) {
+      now += ms;
     },
   };
 }
@@ -144,4 +146,29 @@ test("right edge opens the resource drawer without opening task details", () => 
   const s = setup(true);
   s.handlers.pointermove({ clientX: 1199, buttons: 0, pointerType: "mouse" });
   assert.deepEqual(s.actions, [["storage", true]]);
+});
+
+test("renewed trackpad impulse responds before a full momentum timeout", () => {
+  const s = setup();
+  s.wheel(32);
+  s.next(25);
+  s.wheel(14);
+  s.next(25);
+  s.wheel(4);
+  s.next(45);
+  s.wheel(30);
+  assert.deepEqual(s.actions, [
+    ["calendar", 1],
+    ["calendar", 1],
+  ]);
+});
+test("bottom screen edge opens planning without opening a side panel", () => {
+  const s = setup(true);
+  s.handlers.pointermove({
+    clientX: 600,
+    clientY: 799,
+    buttons: 0,
+    pointerType: "mouse",
+  });
+  assert.deepEqual(s.actions, ["plan"]);
 });

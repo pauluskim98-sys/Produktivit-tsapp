@@ -1,4 +1,5 @@
 "use client";
+import { useAutosaveText } from "./use-autosave-text";
 import { totalDuration } from "@/lib/schedule";
 import { useDraggable } from "@dnd-kit/core";
 import { periodRange } from "@/lib/calendar-interactions";
@@ -6,7 +7,7 @@ import { eventPresentation } from "@/lib/subjects";
 import { CalendarOverview } from "./calendar-overview";
 import type { Todo } from "@/lib/types";
 import { useEffect, useRef, useState } from "react";
-import { X, Sparkles, Plus, Check, Copy } from "lucide-react";
+import { X, Sparkles, Plus, Copy, Settings2 } from "lucide-react";
 import { AiConnection } from "./ai-planner";
 import type { AppState } from "@/lib/types";
 import { dayAssessment, eventsForDay } from "@/lib/day-assessment";
@@ -30,6 +31,7 @@ import { useDroppable } from "@dnd-kit/core";
 import { useId } from "react";
 export default function DayPanel({
   day,
+  renderTasks,
   inline = false,
   onDay,
   state,
@@ -40,6 +42,7 @@ export default function DayPanel({
   onConnected,
   onExtend,
 }: {
+  renderTasks?: (content: React.ReactNode) => React.ReactNode;
   onExtend?: (todo: Todo, days: string[]) => Promise<void>;
   inline?: boolean;
   onDay?: (day: string) => void;
@@ -95,7 +98,6 @@ export default function DayPanel({
     range.days.some((d) => eventsForDay([e], d).length),
   );
   const [title, setTitle] = useState(""),
-    [note, setNote] = useState(state.dayNotes[day] || ""),
     [question, setQuestion] = useState(""),
     [questionOpen, setQuestionOpen] = useState(false),
     [messages, setMessages] = useState<
@@ -104,9 +106,13 @@ export default function DayPanel({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [connect, setConnect] = useState(false),
-    [copied, setCopied] = useState(false),
-    [noteSaved, setNoteSaved] = useState(false);
-  useEffect(() => setNote(state.dayNotes[day] || ""), [day, state.dayNotes]);
+    [copied, setCopied] = useState(false);
+  const {
+    text: note,
+    setText: setNote,
+    flush: saveNote,
+    error: noteError,
+  } = useAutosaveText(state.dayNotes[day] || "", onNote);
   useEffect(() => {
     api(`/api/day?date=${day}`)
       .then((d) => setMessages(d.messages))
@@ -119,16 +125,6 @@ export default function DayPanel({
         `${range.days.filter((d) => !tasks.some((t) => t.plannedDate === d) && !events.some((e) => eventsForDay([e], d).length)).length} Tage ohne Einträge.`,
       ]
     : dayAssessment(tasks, events, day);
-  async function saveNote() {
-    try {
-      await onNote(note);
-      setNoteSaved(true);
-      return true;
-    } catch (e) {
-      setError((e as Error).message);
-      return false;
-    }
-  }
   async function close() {
     if (note === (state.dayNotes[day] || "") || (await saveNote())) onClose();
   }
@@ -159,6 +155,86 @@ export default function DayPanel({
   });
   const prompt = () =>
     `Hilf mir, meinen Zeitraum ${range.start} bis ${range.end} einzuschätzen. Gib kurze Gedanken und praktische Tipps. ${question}\nAufgaben: ${JSON.stringify(tasks.map((t) => ({ date: t.plannedDate, title: t.title, time: t.time, duration: t.duration, done: t.done })))}\nTermine: ${JSON.stringify(events.map((e) => ({ title: e.title, start: e.start, end: e.end })))}\nTagesnotiz: ${note}`;
+  const taskContent = (
+    <>
+      <form
+        className="quick-add"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!title.trim() || busy) return;
+          setBusy(true);
+          try {
+            await onAdd(title.trim());
+            setTitle("");
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <button
+          type="button"
+          aria-label="Aufgabe eingeben"
+          onClick={() => taskInputRef.current?.focus()}
+        >
+          <Plus size={14} />
+        </button>
+        <input
+          ref={taskInputRef}
+          aria-label={`Aufgabe für ${label}`}
+          placeholder="Aufgabe hinzufügen"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={500}
+        />
+        <button disabled={busy || !title.trim()}>↵</button>
+      </form>
+      <div className="day-task-list">
+        {[...tasks]
+          .sort(
+            (a, b) =>
+              ({ high: 0, medium: 1, low: 2, none: 2 })[a.priority] -
+                { high: 0, medium: 1, low: 2, none: 2 }[b.priority] ||
+              a.position - b.position,
+          )
+          .map((t) => (
+            <PeriodTask
+              key={t.id}
+              todo={t}
+              onExtend={onExtend}
+              onOpen={async (id) => {
+                if (note !== (state.dayNotes[day] || "") && !(await saveNote()))
+                  return;
+                onOpen(id);
+              }}
+            />
+          ))}
+        {(period ? [] : events).map((e) => (
+          <div
+            className="day-import"
+            key={e.id}
+            style={{
+              borderLeftColor: eventPresentation(
+                e,
+                state.connections.find((c) => c.id === e.connectionId)?.color,
+              ).color,
+            }}
+          >
+            <strong>{e.title}</strong>
+            <span>
+              {e.allDay
+                ? "Ganztägig"
+                : new Date(e.start).toLocaleTimeString("de-DE", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
   return (
     <div
       className={inline ? "period-overview" : "detail-backdrop"}
@@ -198,92 +274,22 @@ export default function DayPanel({
             <X size={19} />
           </button>
         </header>
+        {inline && (
+          <h2 className="period-planner-heading">
+            {range.kind === "year"
+              ? "Jahresplaner"
+              : range.kind === "month"
+                ? "Monatsplaner"
+                : "Wochenplaner"}
+          </h2>
+        )}
         <div className="day-panel-body">
           <div className="day-work">
             <div className="period-tasks-column">
               <h3>
                 Aufgaben <span>{tasks.length}</span>
               </h3>
-              <form
-                className="quick-add"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!title.trim() || busy) return;
-                  setBusy(true);
-                  try {
-                    await onAdd(title.trim());
-                    setTitle("");
-                  } catch (e) {
-                    setError((e as Error).message);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                <button
-                  type="button"
-                  aria-label="Aufgabe eingeben"
-                  onClick={() => taskInputRef.current?.focus()}
-                >
-                  <Plus size={14} />
-                </button>
-                <input
-                  ref={taskInputRef}
-                  aria-label={`Aufgabe für ${label}`}
-                  placeholder="Aufgabe hinzufügen"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  maxLength={500}
-                />
-                <button disabled={busy || !title.trim()}>↵</button>
-              </form>
-              <div className="day-task-list">
-                {[...tasks]
-                  .sort(
-                    (a, b) =>
-                      ({ high: 0, medium: 1, low: 2, none: 2 })[a.priority] -
-                        { high: 0, medium: 1, low: 2, none: 2 }[b.priority] ||
-                      a.position - b.position,
-                  )
-                  .map((t) => (
-                    <PeriodTask
-                      key={t.id}
-                      todo={t}
-                      onExtend={onExtend}
-                      onOpen={async (id) => {
-                        if (
-                          note !== (state.dayNotes[day] || "") &&
-                          !(await saveNote())
-                        )
-                          return;
-                        onOpen(id);
-                      }}
-                    />
-                  ))}
-                {(period ? [] : events).map((e) => (
-                  <div
-                    className="day-import"
-                    key={e.id}
-                    style={{
-                      borderLeftColor: eventPresentation(
-                        e,
-                        state.connections.find((c) => c.id === e.connectionId)
-                          ?.color,
-                      ).color,
-                    }}
-                  >
-                    <strong>{e.title}</strong>
-                    <span>
-                      {e.allDay
-                        ? "Ganztägig"
-                        : new Date(e.start).toLocaleTimeString("de-DE", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {renderTasks ? renderTasks(taskContent) : taskContent}
             </div>
             <div className="period-notes-column">
               <h3>{noteLabel}</h3>
@@ -296,18 +302,10 @@ export default function DayPanel({
                 value={note}
                 onChange={(e) => {
                   setNote(e.target.value);
-                  setNoteSaved(false);
                 }}
                 maxLength={10000}
                 placeholder="Notizen, Gedanken, Ziele …"
               />
-              <button
-                className="secondary-button"
-                onClick={() => void saveNote()}
-              >
-                <Check size={14} />
-                {noteSaved ? "Gespeichert" : "Notiz speichern"}
-              </button>
             </div>
           </div>
           {!inline && (
@@ -327,24 +325,6 @@ export default function DayPanel({
               <summary>
                 <Sparkles size={14} /> KI & Überblick
               </summary>
-              {!inline && (
-                <h3>
-                  <Sparkles size={16} />{" "}
-                  {range.kind === "week"
-                    ? "Wochenblick"
-                    : range.kind === "month"
-                      ? "Monatsblick"
-                      : range.kind === "year"
-                        ? "Jahresblick"
-                        : "Tagesblick"}
-                </h3>
-              )}
-              <p className="assessment-label">Aus deinen Kalenderdaten</p>
-              <ul>
-                {assessment.map((tip, i) => (
-                  <li key={i}>{tip}</li>
-                ))}
-              </ul>
               <div className="advice-prompts">
                 {[
                   "Wo fehlen mir Pausen?",
@@ -358,12 +338,11 @@ export default function DayPanel({
               </div>
               {!state.aiAvailable ? (
                 <div className="ai-unconnected">
-                  <span>Nicht verbunden</span>
                   <button
                     className="text-button"
                     onClick={() => setConnect(!connect)}
                   >
-                    API-Verbindung einrichten
+                    <Settings2 size={13} /> Einstellungen
                   </button>
                   {connect && (
                     <AiConnection
@@ -461,9 +440,9 @@ export default function DayPanel({
             </details>
           </div>
         </div>
-        {error && (
+        {(error || noteError) && (
           <p role="alert" className="ai-error">
-            {error}
+            {error || noteError}
           </p>
         )}
       </section>

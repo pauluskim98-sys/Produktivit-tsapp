@@ -100,6 +100,41 @@ test(
       assert.match(r.headers.get("content-disposition"), /^attachment/);
       assert.equal(r.headers.get("x-content-type-options"), "nosniff");
       assert.equal(await r.text(), "<script>alert(1)</script>");
+      const mediaForm = new FormData();
+      mediaForm.append(
+        "files",
+        new File(["0123456789"], "Beispiel.mp4", { type: "video/mp4" }),
+      );
+      const mediaUpload = await fetch(base + "/api/storage", {
+        method: "POST",
+        headers: { Origin: base },
+        body: mediaForm,
+      });
+      const media = (await mediaUpload.json()).added[0];
+      const piece = await fetch(base + "/api/storage?file=" + media, {
+        headers: { Range: "bytes=2-5" },
+      });
+      assert.equal(piece.status, 206);
+      assert.equal(piece.headers.get("content-range"), "bytes 2-5/10");
+      assert.equal(await piece.text(), "2345");
+      const suffix = await fetch(base + "/api/storage?file=" + media, {
+        headers: { Range: "bytes=-3" },
+      });
+      assert.equal(await suffix.text(), "789");
+      assert.equal(
+        (
+          await fetch(base + "/api/storage?file=" + media, {
+            headers: { Range: "bytes=20-30" },
+          })
+        ).status,
+        416,
+      );
+      assert.match(
+        (
+          await fetch(base + "/api/storage?file=" + media + "&download=1")
+        ).headers.get("content-disposition"),
+        /^attachment/,
+      );
       await post("/api/storage", {
         action: "rename",
         id: file,

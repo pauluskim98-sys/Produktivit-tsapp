@@ -8,6 +8,7 @@ type Options = {
   setInbox: (open: boolean) => void;
   navigate: (direction: number) => void;
   openDetail: () => void;
+  openPlan?: () => void;
   storageOpen?: boolean;
   setStorage?: (open: boolean) => void;
 };
@@ -19,9 +20,11 @@ export function usePanelSwipe(options: Options) {
   useEffect(() => {
     let amount = 0,
       lastWheel = 0,
-      committed = false;
+      committed = false,
+      lastMagnitude = 0,
+      committedAt = 0;
     let inPanel = false;
-    let edge: "left" | "right" | null = null;
+    let edge: "left" | "right" | "bottom" | null = null;
     let origin: { x: number; y: number } | null = null;
     let settleTimer: ReturnType<typeof setTimeout>;
     const isPanel = (node: Element) =>
@@ -32,8 +35,9 @@ export function usePanelSwipe(options: Options) {
       );
     const finish = (offset: number, final = false) => {
       if (committed) return;
-      if (!inPanel && Math.abs(offset) >= 34) {
+      if (!inPanel && Math.abs(offset) >= 28) {
         committed = true;
+        committedAt = performance.now();
         current.current.navigate(offset < 0 ? 1 : -1);
       } else if (inPanel && Math.abs(offset) >= 160) {
         committed = true;
@@ -45,6 +49,7 @@ export function usePanelSwipe(options: Options) {
         );
       } else if (final && !inPanel && Math.abs(offset) >= 25) {
         committed = true;
+        committedAt = performance.now();
         current.current.navigate(offset < 0 ? 1 : -1);
       }
     };
@@ -56,21 +61,26 @@ export function usePanelSwipe(options: Options) {
         event.ctrlKey ||
         current.current.blocked ||
         Math.abs(event.deltaX) < 0.5 ||
-        Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.15
+        Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.05
       )
         return;
       event.preventDefault();
       const now = performance.now();
       if (
         !lastWheel ||
-        now - lastWheel > 160 ||
-        (amount && Math.sign(amount) === Math.sign(event.deltaX))
+        now - lastWheel > 120 ||
+        (amount && Math.sign(amount) === Math.sign(event.deltaX)) ||
+        (committed &&
+          now - committedAt > 80 &&
+          Math.abs(event.deltaX) >= 8 &&
+          Math.abs(event.deltaX) > lastMagnitude * 1.8)
       ) {
         amount = 0;
         committed = false;
         inPanel = isPanel(node);
       }
       lastWheel = now;
+      lastMagnitude = Math.abs(event.deltaX);
       if (!committed) {
         amount -=
           event.deltaX *
@@ -127,7 +137,9 @@ export function usePanelSwipe(options: Options) {
           ? "left"
           : event.clientX >= window.innerWidth - 4
             ? "right"
-            : null;
+            : event.clientY >= window.innerHeight - 4
+              ? "bottom"
+              : null;
       if (next === edge) return;
       edge = next;
       if (!next) return;
@@ -142,7 +154,11 @@ export function usePanelSwipe(options: Options) {
           el.offsetParent !== null &&
           getComputedStyle(el).visibility !== "hidden",
       );
-      if (modal) return;
+      if (modal || (next === "bottom" && current.current.detailOpen)) return;
+      if (next === "bottom") {
+        current.current.openPlan?.();
+        return;
+      }
       if (next === "left" && !current.current.inboxOpen)
         current.current.setInbox(true);
       if (next === "right" && !current.current.storageOpen)

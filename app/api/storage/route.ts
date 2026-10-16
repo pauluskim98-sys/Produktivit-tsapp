@@ -18,17 +18,57 @@ export async function GET(request: Request) {
     .get(id) as { name: string; mime: string; content: Uint8Array } | undefined;
   if (!row)
     return Response.json({ error: "Datei nicht gefunden." }, { status: 404 });
+  const download = new URL(request.url).searchParams.get("download") === "1";
   const inline =
-    /^image\/(?:png|jpeg|gif|webp)$|^audio\/(?:mpeg|wav|ogg|mp4)$|^video\/(?:mp4|webm|ogg)$/.test(
+    !download &&
+    /^image\/(?:png|jpeg|gif|webp)$|^audio\/(?:mpeg|wav|ogg|mp4|x-m4a|flac)$|^video\/(?:mp4|webm|ogg|quicktime)$|^application\/pdf$|^text\/plain$/.test(
       row.mime,
     );
-  return new Response(new Uint8Array(row.content), {
-    headers: {
-      "Content-Type": inline ? row.mime : "application/octet-stream",
-      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
-      "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "no-store",
-    },
+  const bytes = new Uint8Array(row.content),
+    size = bytes.length;
+  const headers: Record<string, string> = {
+    "Content-Type": inline ? row.mime : "application/octet-stream",
+    "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(row.name)}`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-store",
+    "Accept-Ranges": "bytes",
+  };
+  const range = request.headers.get("range");
+  if (range) {
+    const m = range.match(/^bytes=(\d*)-(\d*)$/);
+    if (!m || (!m[1] && !m[2]))
+      return new Response(null, {
+        status: 416,
+        headers: { ...headers, "Content-Range": `bytes */${size}` },
+      });
+    const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+    const end = m[1]
+      ? m[2]
+        ? Math.min(size - 1, Number(m[2]))
+        : size - 1
+      : size - 1;
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      start > end ||
+      start >= size
+    )
+      return new Response(null, {
+        status: 416,
+        headers: { ...headers, "Content-Range": `bytes */${size}` },
+      });
+    return new Response(bytes.slice(start, end + 1), {
+      status: 206,
+      headers: {
+        ...headers,
+        "Content-Range": `bytes ${start}-${end}/${size}`,
+        "Content-Length": String(end - start + 1),
+      },
+    });
+  }
+  return new Response(bytes, {
+    headers: { ...headers, "Content-Length": String(size) },
   });
 }
 export async function POST(request: Request) {
@@ -56,7 +96,27 @@ export async function POST(request: Request) {
         files.map(async (f) => ({
           id: crypto.randomUUID(),
           name: f.name.slice(0, 200) || "Datei",
-          mime: f.type.slice(0, 100),
+          mime: (
+            f.type ||
+            (
+              {
+                png: "image/png",
+                jpg: "image/jpeg",
+                jpeg: "image/jpeg",
+                webp: "image/webp",
+                gif: "image/gif",
+                mp4: "video/mp4",
+                webm: "video/webm",
+                mov: "video/quicktime",
+                mp3: "audio/mpeg",
+                wav: "audio/wav",
+                m4a: "audio/mp4",
+                pdf: "application/pdf",
+                txt: "text/plain",
+              } as Record<string, string>
+            )[f.name.split(".").pop()?.toLowerCase() || ""] ||
+            "application/octet-stream"
+          ).slice(0, 100),
           content: Buffer.from(await f.arrayBuffer()),
           size: f.size,
         })),

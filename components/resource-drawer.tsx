@@ -13,6 +13,7 @@ import {
   Pencil,
   Trash2,
   Archive,
+  Download,
 } from "lucide-react";
 import { record } from "@/lib/client-history";
 type Item = {
@@ -38,32 +39,54 @@ export default function ResourceDrawer({
     [edit, setEdit] = useState<string | null>(null),
     [folderForm, setFolderForm] = useState(false),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [externalDrag, setExternalDrag] = useState(false),
+    [preview, setPreview] = useState<Item | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const filePicker = useRef(false);
+  useEffect(() => {
+    const el = input.current;
+    const cancel = () => {
+      filePicker.current = false;
+    };
+    el?.addEventListener("cancel", cancel);
+    return () => el?.removeEventListener("cancel", cancel);
+  }, []);
+  useEffect(() => {
+    const over = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      if (e.clientX >= window.innerWidth - 28) {
+        e.preventDefault();
+        setExternalDrag(true);
+        onOpen();
+      }
+    };
+    const end = () => setExternalDrag(false);
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", end);
+    window.addEventListener("dragend", end);
+    return () => {
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", end);
+      window.removeEventListener("dragend", end);
+    };
+  }, [onOpen]);
   useEffect(() => {
     if (!open) return;
     const escape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (edit) setEdit(null);
+      if (preview) setPreview(null);
+      else if (edit) setEdit(null);
       else if (folderForm) setFolderForm(false);
       else onClose();
     };
-    const edgeDrop = (e: DragEvent) => {
-      if (
-        e.dataTransfer?.types.includes("Files") &&
-        e.clientX >= window.innerWidth - 24
-      )
-        onOpen();
-    };
     window.addEventListener("keydown", escape, true);
-    window.addEventListener("dragover", edgeDrop);
     return () => {
       window.removeEventListener("keydown", escape, true);
-      window.removeEventListener("dragover", edgeDrop);
     };
-  }, [open, edit, folderForm, onClose, onOpen]);
+  }, [open, edit, folderForm, preview, onClose, onOpen]);
   async function act(body: unknown) {
     const r = await fetch("/api/storage", {
       method: "POST",
@@ -133,7 +156,7 @@ export default function ResourceDrawer({
     <>
       <button
         className="resource-toggle icon-button"
-        aria-label="Ablage öffnen"
+        aria-label="Dokumente öffnen"
         onClick={onOpen}
         onDragEnter={onOpen}
       >
@@ -141,23 +164,46 @@ export default function ResourceDrawer({
       </button>
       <aside
         className={`resource-drawer ${open ? "is-open" : ""}`}
-        aria-label="Dateien und Medien"
+        aria-label="Dokumente"
         aria-hidden={!open}
         inert={!open}
         onMouseLeave={(e) => {
-          if (e.buttons || busy) return;
+          if (
+            e.buttons ||
+            busy ||
+            externalDrag ||
+            preview ||
+            edit ||
+            folderForm
+          )
+            return;
           onClose();
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setExternalDrag(true);
+          }
+        }}
+        onDrop={(e) => {
+          if (e.defaultPrevented) return;
+          if (e.dataTransfer.files.length) {
+            e.preventDefault();
+            void upload([...e.dataTransfer.files]);
+          }
+          setExternalDrag(false);
         }}
         data-escape-layer={open ? "" : undefined}
       >
         <header>
           <h2>
-            <Archive size={18} /> Ablage
+            <Archive size={18} /> Dokumente
           </h2>
           <button
             className="icon-button"
             data-close
-            aria-label="Ablage schließen"
+            aria-label="Dokumente schließen"
             onClick={onClose}
           >
             <X size={17} />
@@ -170,7 +216,7 @@ export default function ResourceDrawer({
           >
             <ChevronLeft size={15} />
           </button>
-          <strong>{current?.name || "Meine Ablage"}</strong>
+          <strong>{current?.name || "Meine Dokumente"}</strong>
         </div>
         <div className="resource-actions">
           <button
@@ -181,7 +227,13 @@ export default function ResourceDrawer({
           >
             <FolderPlus size={15} /> Ordner
           </button>
-          <button disabled={busy} onClick={() => input.current?.click()}>
+          <button
+            disabled={busy}
+            onClick={() => {
+              filePicker.current = true;
+              input.current?.click();
+            }}
+          >
             <Upload size={15} /> {busy ? "Lädt …" : "Hinzufügen"}
           </button>
           <input
@@ -190,6 +242,7 @@ export default function ResourceDrawer({
             type="file"
             multiple
             onChange={(e) => {
+              filePicker.current = false;
               void upload([...(e.target.files || [])]);
               e.target.value = "";
             }}
@@ -244,12 +297,14 @@ export default function ResourceDrawer({
           </p>
         )}
         <div
-          className="resource-list"
+          className={`resource-list ${externalDrag ? "file-drag-over" : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
           }}
           onDrop={(e) => {
             e.preventDefault();
+            e.stopPropagation();
+            setExternalDrag(false);
             const id = e.dataTransfer.getData("application/lifemap-resource");
             if (id) move(id, parent);
             else void upload([...e.dataTransfer.files]);
@@ -284,6 +339,7 @@ export default function ResourceDrawer({
                   if (item.kind !== "folder") return;
                   e.preventDefault();
                   e.stopPropagation();
+                  setExternalDrag(false);
                   const id = e.dataTransfer.getData(
                     "application/lifemap-resource",
                   );
@@ -293,7 +349,13 @@ export default function ResourceDrawer({
               >
                 {item.mime.startsWith("image/") &&
                 item.mime !== "image/svg+xml" ? (
-                  <img src={`/api/storage?file=${item.id}`} alt="" />
+                  <button
+                    className="resource-thumbnail"
+                    aria-label={`${item.name} ansehen`}
+                    onClick={() => setPreview(item)}
+                  >
+                    <img src={`/api/storage?file=${item.id}`} alt="" />
+                  </button>
                 ) : (
                   <Icon size={24} />
                 )}
@@ -346,13 +408,12 @@ export default function ResourceDrawer({
                       {item.name}
                     </button>
                   ) : (
-                    <a
+                    <button
                       className="resource-name"
-                      href={`/api/storage?file=${item.id}`}
-                      download={item.name}
+                      onClick={() => setPreview(item)}
                     >
                       {item.name}
-                    </a>
+                    </button>
                   )}
                   {item.kind === "file" && (
                     <small>
@@ -366,6 +427,16 @@ export default function ResourceDrawer({
                     <video controls src={`/api/storage?file=${item.id}`} />
                   )}
                 </div>
+                {item.kind === "file" && (
+                  <a
+                    className="icon-button"
+                    href={`/api/storage?file=${item.id}&download=1`}
+                    download={item.name}
+                    aria-label={`${item.name} herunterladen`}
+                  >
+                    <Download size={13} />
+                  </a>
+                )}
                 <button
                   className="icon-button"
                   aria-label={`${item.name} umbenennen`}
@@ -400,6 +471,64 @@ export default function ResourceDrawer({
           )}
         </div>
       </aside>
+      {preview && (
+        <div
+          className="resource-preview-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPreview(null);
+          }}
+        >
+          <section
+            className="resource-preview"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Vorschau ${preview.name}`}
+            data-escape-layer
+          >
+            <header>
+              <strong>{preview.name}</strong>
+              <a
+                href={`/api/storage?file=${preview.id}&download=1`}
+                download={preview.name}
+                className="icon-button"
+                aria-label="Datei herunterladen"
+              >
+                <Download size={17} />
+              </a>
+              <button
+                type="button"
+                className="icon-button"
+                data-close
+                aria-label="Vorschau schließen"
+                onClick={() => setPreview(null)}
+              >
+                <X size={19} />
+              </button>
+            </header>
+            {/^image\/(png|jpeg|webp|gif)$/.test(preview.mime) ? (
+              <img src={`/api/storage?file=${preview.id}`} alt={preview.name} />
+            ) : preview.mime.startsWith("audio/") ? (
+              <audio controls src={`/api/storage?file=${preview.id}`} />
+            ) : preview.mime.startsWith("video/") ? (
+              <video controls src={`/api/storage?file=${preview.id}`} />
+            ) : preview.mime === "application/pdf" ||
+              preview.mime === "text/plain" ? (
+              <iframe
+                title={preview.name}
+                src={`/api/storage?file=${preview.id}`}
+              />
+            ) : (
+              <a
+                className="secondary-button"
+                href={`/api/storage?file=${preview.id}&download=1`}
+                download={preview.name}
+              >
+                Datei herunterladen
+              </a>
+            )}
+          </section>
+        </div>
+      )}
     </>
   );
 }

@@ -7305,3 +7305,53 @@ button[hidden] {
   min-height: 34px; padding: 7px 9px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 12px;
 }
+
+/* Quiet, continuous time marker and a recognisable current day. */
+.timeline-body { position: relative; }
+.timeline-body > .timeline-now-line { left: 44px; right: 0; z-index: 3; }
+.timeline-day.is-today { background: color-mix(in srgb,var(--green) 10%,var(--surface)); box-shadow: inset 1px 0 color-mix(in srgb,var(--green) 25%,transparent), inset -1px 0 color-mix(in srgb,var(--green) 25%,transparent); }
+.timeline-day-head.is-today { background: color-mix(in srgb,var(--green) 22%,var(--surface)); border-color: color-mix(in srgb,var(--green) 35%,var(--line)); }
+
+/* Tasks keep the tall column; notes and the compact assistant share the right. */
+.day-panel .day-panel-body { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(240px,1fr); gap: 12px 18px; padding: 16px; align-content: start; }
+.day-panel .day-work { display: contents; }
+.day-panel .period-tasks-column { grid-column: 1; grid-row: 1 / span 3; min-width: 0; }
+.day-panel .period-notes-column { grid-column: 2; grid-row: 1; min-width: 0; }
+.day-panel .period-side { grid-column: 2; grid-row: 3; min-width: 0; }
+.day-panel .day-advice { grid-column: 2; grid-row: 2; min-width: 0; padding: 0; margin: 0; border: 0; }
+.day-panel .day-notepad { display: block; width: 100%; min-height: 220px; height: 220px; resize: vertical; }
+.day-panel .day-task-list { max-height: none; padding: 3px 0; }
+.day-panel .period-task-row { margin: 3px 0; min-height: 26px; }
+.day-panel .period-task-content { padding: 4px 7px; min-height: 26px; font-size: 11px; }
+.day-panel .period-task-content strong { font-size: 11px; font-weight: 450; }
+.day-panel .period-task-content small { margin-left: auto; font-size: 9px; }
+.day-panel .compact-advice { padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); font-size: 11px; }
+.day-panel .compact-advice > summary { display: flex; align-items: center; gap: 5px; padding: 0; font-size: 11px; cursor: pointer; }
+.day-panel .advice-prompts { display: flex; flex-wrap: wrap; gap: 4px; margin: 7px 0; }
+.day-panel .advice-prompts button { padding: 3px 6px; font-size: 10px; }
+.day-panel .ai-unconnected { display: inline-flex; padding: 0; margin: 0; gap: 3px; }
+.day-panel .ai-unconnected > button { display: inline-flex; align-items: center; gap: 4px; padding: 3px; font-size: 10px; }
+.day-panel .chatgpt-handoff { display: flex; flex-wrap: wrap; gap: 7px; margin: 3px 0 0; padding: 0; }
+.day-panel .chatgpt-handoff button,.day-panel .chatgpt-handoff a { padding: 3px 0; font-size: 10px; border: 0; background: transparent; }
+.day-panel .compact-advice > form { display: flex; gap: 5px; margin: 6px 0; }
+.day-panel .compact-advice > form textarea { flex: 1; min-width: 0; min-height: 40px; height: 40px; padding: 5px; font-size: 11px; }
+.day-panel .compact-advice > form button { padding: 4px 7px; font-size: 10px; height: auto; }
+.day-panel .life-inbox .life-tabs { margin: 0 0 8px; }
+.day-panel .life-inbox .suggestion-card { font-size: 11px; }
+.inbox-notes { margin-top: 18px; flex-shrink: 0; }
+.inbox-notes textarea { min-height: 160px; resize: vertical; }
+@media(max-width:650px) {
+  .day-panel .day-panel-body { grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); gap: 9px; padding: 10px; }
+  .day-panel .day-notepad { min-height: 180px; height: 180px; }
+}
+.resource-list.file-drag-over { outline: 2px dashed var(--green); outline-offset: -5px; background: var(--green-soft); }
+.resource-thumbnail { padding: 0; background: transparent; border: 0; cursor: pointer; }
+.resource-thumbnail img { width: 42px; height: 42px; border-radius: 6px; object-fit: cover; }
+.resource-preview-backdrop { position: fixed; inset: 0; z-index: 400; background: #0007; display: grid; place-items: center; padding: 24px; }
+.resource-preview { background: var(--surface); border-radius: 16px; padding: 14px; width: min(850px,95vw); max-height: 90vh; overflow: auto; box-shadow: 0 18px 60px #0004; }
+.resource-preview header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.resource-preview header strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.resource-preview > img,.resource-preview > video { display: block; max-width: 100%; max-height: 72vh; margin: auto; }
+.resource-preview > audio { display: block; width: 100%; margin: 30px 0; }
+.resource-preview > iframe { width: 100%; height: 70vh; border: 0; }
+.inline-period-panel > .period-planner-heading { margin: 12px 16px 0; font-size: 13px; font-weight: 550; letter-spacing: -.1px; }

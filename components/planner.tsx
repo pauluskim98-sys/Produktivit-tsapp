@@ -662,6 +662,7 @@ export default function Planner() {
   useEffect(() => {
     if (!trayRaised || !mainRef.current) return;
     const main = mainRef.current;
+    main.querySelector<HTMLElement>(".period-tray")?.scrollTo({ top: 0, behavior: "instant" });
     const axis = main.querySelector<HTMLElement>(".time-axis");
     const measure = () => {
       const r = main.getBoundingClientRect(),
@@ -693,6 +694,17 @@ export default function Planner() {
       main.removeEventListener("scroll", measure);
     };
   }, [trayRaised, anchor, overview]);
+  const raiseTray = () => {
+    const main = mainRef.current;
+    if (!main) return;
+    setTrayPosition((p) => ({
+      ...p,
+      placeholder:
+        main.querySelector<HTMLElement>(".period-tray")?.offsetHeight || 260,
+    }));
+    main.scrollTo({ top: 0, behavior: "instant" });
+    setTrayRaised(true);
+  };
   const searchRef = useRef<HTMLInputElement>(null);
   const lock = useRef(false);
   const taskWriteVersion = useRef(0);
@@ -827,14 +839,8 @@ export default function Planner() {
         if (e.repeat) return;
         const main = mainRef.current;
         if (main) {
-          if (!trayRaised) {
-            const placeholder =
-              main.querySelector<HTMLElement>(".period-tray")?.offsetHeight ||
-              260;
-            setTrayPosition((p) => ({ ...p, placeholder }));
-          }
-          main.scrollTo({ top: 0, behavior: "instant" });
-          setTrayRaised((v) => !v);
+          if (trayRaised) setTrayRaised(false);
+          else raiseTray();
         }
         return;
       }
@@ -1697,10 +1703,49 @@ export default function Planner() {
     [overview],
   );
 
+  const inboxAdd: React.ComponentProps<typeof LifeInbox>["onAdd"] = async (
+    title,
+    tags,
+    notes,
+    color,
+  ) => {
+    const task = {
+      ...newTodo(title, null, state.todos.length + 1),
+      tags,
+      notes,
+      color: color || "green",
+    };
+    await mutate({ action: "save", todo: task });
+  };
+  const inboxPriority: React.ComponentProps<typeof LifeInbox>["onPriority"] = (
+    todo,
+    priority,
+    horizon,
+  ) => {
+    const ranks = { high: 0, medium: 1, low: 2, none: 2 };
+    const first = state.todos
+      .filter(
+        (t) =>
+          t.id !== todo.id &&
+          !t.plannedDate &&
+          !t.done &&
+          (t.tags.find((tag) => /^h:/.test(tag)) || "h:week") ===
+            `h:${horizon}` &&
+          ranks[t.priority] >= ranks[priority],
+      )
+      .sort(
+        (a, b) =>
+          ranks[a.priority] - ranks[b.priority] || a.position - b.position,
+      )[0];
+    void batchUpdate(
+      priorityOrder(state.todos, todo, first?.id || null, priority, horizon),
+    ).catch(handleError);
+  };
   useActionHints(shortcutHints.enabled);
 
   usePanelSwipe({
     navigate,
+    openPlan: raiseTray,
     openDetail: () => {
       if (picked && state.todos.some((todo) => todo.id === picked))
         setSelected(picked);
@@ -1899,6 +1944,7 @@ export default function Planner() {
                   detail: {
                     active: event.active.data.current.tabId,
                     over: event.over.data.current.tabId,
+                    scope: event.active.data.current.scope,
                   },
                 }),
               );
@@ -1984,64 +2030,12 @@ export default function Planner() {
               </IconButton>
             </div>
             <InboxReturnDrop todos={state.todos} />
-            <InboxNotes
-              value={state.dayNotes.inbox || ""}
-              onSave={async (content) => {
-                const before = state.dayNotes.inbox || "";
-                const apply = async (value: string) => {
-                  await api("/api/notes", { date: "inbox", content: value });
-                  setState((s) => ({
-                    ...s,
-                    dayNotes: { ...s.dayNotes, inbox: value },
-                  }));
-                };
-                await apply(content);
-                record({
-                  undo: () => apply(before),
-                  redo: () => apply(content),
-                });
-              }}
-            />
             <LifeInbox
               events={state.events}
               todos={state.todos}
-              onAdd={async (title, tags, notes, color) => {
-                const task = {
-                  ...newTodo(title, null, state.todos.length + 1),
-                  tags,
-                  notes,
-                  color: color || "green",
-                };
-                await mutate({ action: "save", todo: task });
-              }}
+              onAdd={inboxAdd}
               onOpen={setSelected}
-              onPriority={(todo, priority, horizon) => {
-                const ranks = { high: 0, medium: 1, low: 2, none: 2 };
-                const first = state.todos
-                  .filter(
-                    (t) =>
-                      t.id !== todo.id &&
-                      !t.plannedDate &&
-                      !t.done &&
-                      (t.tags.find((tag) => /^h:/.test(tag)) || "h:week") ===
-                        `h:${horizon}` &&
-                      ranks[t.priority] >= ranks[priority],
-                  )
-                  .sort(
-                    (a, b) =>
-                      ranks[a.priority] - ranks[b.priority] ||
-                      a.position - b.position,
-                  )[0];
-                void batchUpdate(
-                  priorityOrder(
-                    state.todos,
-                    todo,
-                    first?.id || null,
-                    priority,
-                    horizon,
-                  ),
-                ).catch(handleError);
-              }}
+              onPriority={inboxPriority}
             >
               <p className="sidebar-caption">Erst sammeln. Später einplanen.</p>
               <QuickAdd day={null} onAdd={add} />
@@ -2089,6 +2083,16 @@ export default function Planner() {
                 )}
               </div>
             </LifeInbox>
+            <InboxNotes
+              value={state.dayNotes.inbox || ""}
+              onSave={async (content) => {
+                await api("/api/notes", { date: "inbox", content });
+                setState((s) => ({
+                  ...s,
+                  dayNotes: { ...s.dayNotes, inbox: content },
+                }));
+              }}
+            />
           </aside>
           <main ref={mainRef} className="main-content">
             <div className="planner-toolbar">
@@ -2512,6 +2516,16 @@ export default function Planner() {
               >
                 <DayPanel
                   inline
+                  renderTasks={(content) => (
+                    <LifeInbox
+                      todos={state.todos}
+                      events={state.events}
+                      onAdd={inboxAdd}
+                      onOpen={setSelected}
+                      onPriority={inboxPriority}
+                      todoContent={content}
+                    />
+                  )}
                   key={`bottom:${overview}:${anchor}`}
                   day={`${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`}
                   state={state}

@@ -1,4 +1,5 @@
 "use client";
+import { freeTime } from "@/lib/free-time";
 import { totalDuration } from "@/lib/schedule";
 import { useEffect, useState } from "react";
 import { periodRange } from "@/lib/calendar-interactions";
@@ -29,6 +30,7 @@ export default function Statistics({
     };
   }, []);
   const range = periodRange(`${kind}:${anchor}`)!;
+  const time = freeTime(range.days, state.todos, state.events);
   const tasks = state.todos.filter(
     (t) =>
       t.plannedDate &&
@@ -84,6 +86,25 @@ export default function Statistics({
             {hours.toLocaleString("de-DE", { maximumFractionDigits: 1 })}
             <span> h</span>
           </strong>
+        </article>
+        <article>
+          <small>Freie Zeit</small>
+          <strong>
+            {time.free.toLocaleString("de-DE", { maximumFractionDigits: 1 })}
+            <span> h</span>
+          </strong>
+          <small>Unverplant · 06–24 Uhr</small>
+          <progress value={time.free} max={time.available} />
+        </article>
+        <article>
+          <small>Belegte Zeit inkl. Kalender</small>
+          <strong>
+            {time.occupied.toLocaleString("de-DE", {
+              maximumFractionDigits: 1,
+            })}
+            <span> h</span>
+          </strong>
+          <small>Überschneidungen nur einmal</small>
         </article>
         <article>
           <small>Ausgewählte Gerichte</small>

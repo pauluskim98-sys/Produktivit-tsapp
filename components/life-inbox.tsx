@@ -177,6 +177,7 @@ const baseTabs = [
 ];
 function InboxTab({
   id,
+  namespace,
   label,
   selected,
   editing,
@@ -188,6 +189,7 @@ function InboxTab({
   onRemove,
 }: {
   id: string;
+  namespace: string;
   label: string;
   selected: boolean;
   editing: boolean;
@@ -199,8 +201,8 @@ function InboxTab({
   onRemove: () => void;
 }) {
   const drag = useSortable({
-    id: `life-tab:${id}`,
-    data: { kind: "life-tab", tabId: id },
+    id: `life-tab:${namespace}:${id}`,
+    data: { kind: "life-tab", tabId: id, scope: namespace },
     disabled: editing,
   });
   const cancel = useRef(false);
@@ -289,10 +291,12 @@ export default function LifeInbox({
   onAdd,
   onOpen,
   children,
+  todoContent,
   onPriority,
   events,
 }: {
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  todoContent?: React.ReactNode;
   events: CalendarEvent[];
   todos: Todo[];
   onAdd: (
@@ -304,6 +308,7 @@ export default function LifeInbox({
   onOpen: (id: string) => void;
   onPriority: (todo: Todo, priority: Priority, horizon: string) => void;
 }) {
+  const namespace = useId();
   const [tab, setTab] = useState("todo"),
     [life, setLife] = useState<LifeState | null>(null),
     [items, setItems] = useState<Suggestion[]>([]),
@@ -400,7 +405,8 @@ export default function LifeInbox({
     });
   useEffect(() => {
     const reorder = (event: Event) => {
-      const { active, over } = (event as CustomEvent).detail;
+      const { active, over, scope } = (event as CustomEvent).detail;
+      if (scope && scope !== namespace) return;
       if (!life || active === over) return;
       const order = tabs.map(([id]) => id);
       const from = order.indexOf(active),
@@ -507,12 +513,13 @@ export default function LifeInbox({
     <div className="life-inbox" ref={inboxRef}>
       <nav className="life-tabs">
         <SortableContext
-          items={tabs.map(([id]) => `life-tab:${id}`)}
+          items={tabs.map(([id]) => `life-tab:${namespace}:${id}`)}
           strategy={rectSortingStrategy}
         >
           {tabs.map(([id, n]) => (
             <InboxTab
               key={id}
+              namespace={namespace}
               id={id}
               label={life?.labels[id] || n}
               selected={tab === id}
@@ -855,48 +862,50 @@ export default function LifeInbox({
             ))}
         </section>
       )}
-      {tab === "todo" ? (
-        <>
-          <div className="todo-horizons">
-            {[
-              ["week", "Woche"],
-              ["month", "Monat"],
-              ["year", "Jahr"],
-            ].map(([id, l]) => (
-              <HorizonButton
-                key={id}
-                id={id}
-                label={l}
-                active={horizon === id}
-                onClick={() => setHorizon(id)}
+      {tab === "todo"
+        ? todoContent || (
+            <>
+              <div className="todo-horizons">
+                {[
+                  ["week", "Woche"],
+                  ["month", "Monat"],
+                  ["year", "Jahr"],
+                ].map(([id, l]) => (
+                  <HorizonButton
+                    key={id}
+                    id={id}
+                    label={l}
+                    active={horizon === id}
+                    onClick={() => setHorizon(id)}
+                  />
+                ))}
+              </div>
+              <form
+                className="todo-quick"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (quick.trim()) {
+                    void add(quick.trim(), [], "");
+                    setQuick("");
+                  }
+                }}
+              >
+                <input
+                  aria-label="Todo hinzufügen"
+                  placeholder="Aufgabe hinzufügen"
+                  value={quick}
+                  onChange={(e) => setQuick(e.target.value)}
+                />
+              </form>
+              <PriorityList
+                todos={pending}
+                horizon={horizon}
+                onOpen={onOpen}
+                onPriority={onPriority}
               />
-            ))}
-          </div>
-          <form
-            className="todo-quick"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (quick.trim()) {
-                void add(quick.trim(), [], "");
-                setQuick("");
-              }
-            }}
-          >
-            <input
-              aria-label="Todo hinzufügen"
-              placeholder="Aufgabe hinzufügen"
-              value={quick}
-              onChange={(e) => setQuick(e.target.value)}
-            />
-          </form>
-          <PriorityList
-            todos={pending}
-            horizon={horizon}
-            onOpen={onOpen}
-            onPriority={onPriority}
-          />
-        </>
-      ) : null}
+            </>
+          )
+        : null}
       {(life?.tabSettings[tab]?.online ??
         (["food", "events", "sport"].includes(tab) || rhythm?.online)) && (
         <>
