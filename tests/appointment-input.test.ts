@@ -30,6 +30,31 @@ test("relative dates and explicit hours", () => {
   assert.equal(result.plannedDate, "2026-10-13");
   assert.equal(result.time, "09:00");
 });
+test("natural language extracts separate minute and hour durations into a clean title", () => {
+  for (const [text, minutes] of [
+    ["Morgen 16 Uhr 90 min Anatomie", 90],
+    ["Anatomie morgen um 16:00 für 1,5 Stunden", 90],
+    ["Anatomie 16 Uhr 45 Min.", 45],
+    ["Anatomie 16 Uhr Dauer: 2 h", 120],
+  ] as const) {
+    const r = parseAppointmentInput(text, "2026-10-19");
+    assert.equal(r.title, "Anatomie", text);
+    assert.equal(r.time, "16:00", text);
+    assert.equal(r.duration, minutes, text);
+  }
+  assert.equal(
+    parseAppointmentInput(
+      "Morgen 16 Uhr 90 min Anatomie",
+      "2026-10-25",
+      "2026-10-19",
+    ).plannedDate,
+    "2026-10-20",
+  );
+  assert.equal(
+    parseAppointmentInput("Kapitel 90 lernen", "2026-10-19").title,
+    "Kapitel 90 lernen",
+  );
+});
 test("invalid dates and ordinary numbers stay untouched", () => {
   assert.equal(
     parseAppointmentInput("Kapitel 12 lernen", base).title,

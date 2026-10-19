@@ -13,6 +13,8 @@ import {
 } from "@/lib/client-history";
 import ReminderSetup from "./reminder-setup";
 import LifeInbox from "./life-inbox";
+import { autoSchedule } from "@/lib/auto-schedule";
+import { goalRange } from "@/lib/goals";
 import StorageShelf from "./storage-shelf";
 import InboxReturnDrop from "./inbox-return-drop";
 import ResourceDrawer from "./resource-drawer";
@@ -85,6 +87,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CalendarDays,
+  CalendarClock,
   Check,
   ChevronDown,
   Circle,
@@ -1266,10 +1269,14 @@ export default function Planner() {
     notes = "",
   ) => {
     try {
+      const parsed = parseAppointmentInput(title);
+      const plannedDate =
+        parsed.plannedDate || day || (parsed.time ? dateKey(new Date()) : null);
+      const scheduledTime = parsed.time || time;
       await save({
         ...newTodo(
-          title,
-          day,
+          parsed.title || title,
+          plannedDate,
           Math.max(
             0,
             ...state.todos
@@ -1277,8 +1284,10 @@ export default function Planner() {
               .map((t) => t.position),
           ) + 1,
         ),
-        time: day ? time : "",
-        duration,
+        time: plannedDate ? scheduledTime : "",
+        duration: parsed.duration ?? duration ?? (scheduledTime ? 60 : null),
+        location: parsed.location || "",
+        description: parsed.description,
         color,
         notes,
       });
@@ -1759,13 +1768,45 @@ export default function Planner() {
     notes,
     color,
   ) => {
+    const parsed = parseAppointmentInput(title);
     const task = {
-      ...newTodo(title, null, state.todos.length + 1),
+      ...newTodo(
+        parsed.title || title,
+        parsed.plannedDate || (parsed.time ? dateKey(new Date()) : null),
+        state.todos.length + 1,
+      ),
+      time: parsed.time || "",
+      duration: parsed.duration ?? (parsed.time ? 60 : null),
+      location: parsed.location || "",
+      description: parsed.description,
       tags,
       notes,
       color: color || "green",
     };
     await mutate({ action: "save", todo: task });
+  };
+  const autoPlanInbox: NonNullable<
+    React.ComponentProps<typeof LifeInbox>["onAutoPlan"]
+  > = async (ids, horizon) => {
+    const tasks = state.todos.filter(
+      (t) => ids.includes(t.id) && !t.done && !t.time,
+    );
+    const result = autoSchedule(
+      tasks,
+      state.todos,
+      state.events,
+      goalRange(anchor, horizon),
+    );
+    if (!result.scheduled.length)
+      throw new Error(
+        "Im gewählten Zeitraum ist kein ausreichend freier Platz zwischen 08 und 22 Uhr vorhanden.",
+      );
+    await batchUpdate(result.scheduled);
+    setSelectedIds([]);
+    setPicked(null);
+    setToast({
+      text: `${result.scheduled.length} Aufgaben eingeplant${result.skipped.length ? ` · ${result.skipped.length} bleiben in der Inbox` : ""}`,
+    });
   };
   const inboxPriority: React.ComponentProps<typeof LifeInbox>["onPriority"] = (
     todo,
@@ -2091,6 +2132,7 @@ export default function Planner() {
               onAdd={inboxAdd}
               onOpen={setSelected}
               onPriority={inboxPriority}
+              onAutoPlan={autoPlanInbox}
             >
               <p className="sidebar-caption">Erst sammeln. Später einplanen.</p>
               <QuickAdd day={null} onAdd={add} />
@@ -2540,6 +2582,7 @@ export default function Planner() {
                       onAdd={inboxAdd}
                       onOpen={setSelected}
                       onPriority={inboxPriority}
+                      onAutoPlan={autoPlanInbox}
                       anchor={anchor}
                     />
                   )}
@@ -2751,6 +2794,25 @@ export default function Planner() {
       {newOpen && (
         <Detail
           isNew
+          onAutoPlan={(task) => {
+            const today = dateKey(new Date());
+            const from = task.plannedDate || today;
+            const range = {
+              start: from,
+              end: task.plannedDate || dateKey(addDays(parseDate(today), 13)),
+            };
+            const result = autoSchedule(
+              [task],
+              state.todos,
+              state.events,
+              range,
+            );
+            if (!result.scheduled.length)
+              throw new Error(
+                "An diesem Tag ist kein ausreichend freier Platz zwischen 08 und 22 Uhr vorhanden.",
+              );
+            return result.scheduled[0];
+          }}
           showSchedule={!newSlot?.drawn}
           todo={{
             ...newTodo("", newSlot?.day || null, state.todos.length + 1),
@@ -3087,6 +3149,7 @@ function Detail({
   onError,
   onRepeat,
   onAiConnected,
+  onAutoPlan,
 }: {
   isNew?: boolean;
   editSchedule?: boolean;
@@ -3101,6 +3164,7 @@ function Detail({
   onAiConnected: () => void;
   aiAvailable: boolean;
   onError: (e: unknown) => void;
+  onAutoPlan?: (todo: Todo) => Todo;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const closeTimer = useRef<number | null>(null);
@@ -3174,6 +3238,7 @@ function Detail({
     [repeating, setRepeating] = useState(false);
   const [screenshot, setScreenshot] = useState<ScreenshotImport | null>(null);
   const [importedFields, setImportedFields] = useState<string[]>([]);
+  const naturalIgnore = useRef<string | null>(null);
   const dirty =
     Boolean(screenshot) || JSON.stringify(draft) !== JSON.stringify(todo);
   type DraftSnapshot = {
@@ -3189,6 +3254,7 @@ function Detail({
     fields: importedFields,
   });
   const restoreDraft = (value: DraftSnapshot) => {
+    naturalIgnore.current = value.todo.title;
     setDraft(value.todo);
     setScreenshot(value.screenshot);
     setImportedFields(value.fields);
@@ -3212,6 +3278,7 @@ function Detail({
     const parsed = parseAppointmentInput(
       raw,
       draft.plannedDate || dateKey(new Date()),
+      dateKey(new Date()),
     );
     return {
       ...draft,
@@ -3240,9 +3307,43 @@ function Detail({
     };
   };
   const applyTitle = (raw = draft.title) => {
+    if (raw === naturalIgnore.current) return;
+    const parsed = parseAppointmentInput(
+      raw,
+      draft.plannedDate || dateKey(new Date()),
+      dateKey(new Date()),
+    );
     const next = extractTitle(raw);
-    if (JSON.stringify(next) !== JSON.stringify(draft)) update(next);
+    if (JSON.stringify(next) !== JSON.stringify(draft)) {
+      rememberDraft();
+      setDraft(next);
+      setImportedFields((prev) => [
+        ...new Set([
+          ...prev,
+          ...(parsed.title !== raw ? ["title"] : []),
+          ...(parsed.plannedDate ? ["plannedDate"] : []),
+          ...(parsed.time ? ["time"] : []),
+          ...(parsed.duration ? ["duration"] : []),
+          ...(parsed.location ? ["location"] : []),
+        ]),
+      ]);
+    }
   };
+  useEffect(() => {
+    if (draft.title === naturalIgnore.current) return;
+    const parsed = parseAppointmentInput(
+      draft.title,
+      draft.plannedDate || dateKey(new Date()),
+      dateKey(new Date()),
+    );
+    if (
+      !parsed.title.trim() ||
+      !(parsed.plannedDate || parsed.time || parsed.duration)
+    )
+      return;
+    const timer = window.setTimeout(() => applyTitle(), 550);
+    return () => window.clearTimeout(timer);
+  }, [draft.title]);
   const applyScreenshot = (text: string, before: string, after: string) => {
     const proposal = parseScreenshotImport(
       text,
@@ -3400,6 +3501,9 @@ function Detail({
         (e.metaKey || e.ctrlKey) &&
         ["z", "y"].includes(e.key.toLowerCase()) &&
         (Boolean(screenshot) ||
+          importedFields.length > 0 ||
+          ((e.key.toLowerCase() === "y" || e.shiftKey) &&
+            draftFuture.current.length > 0) ||
           !(e.target as HTMLElement).closest(
             "input,textarea,[contenteditable]",
           ))
@@ -3458,8 +3562,8 @@ function Detail({
         close();
       }
     };
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
+    window.addEventListener("keydown", listener, true);
+    return () => window.removeEventListener("keydown", listener, true);
   });
   useEffect(() => {
     const listener = (e: BeforeUnloadEvent) => {
@@ -3552,7 +3656,10 @@ function Detail({
               data-imported={imported("title")}
               value={draft.title}
               maxLength={500}
-              onChange={(e) => update({ title: e.target.value })}
+              onChange={(e) => {
+                naturalIgnore.current = null;
+                update({ title: e.target.value });
+              }}
               onBlur={() => applyTitle()}
               onKeyDown={(e) => {
                 if (
@@ -3708,7 +3815,43 @@ function Detail({
             </div>
           )}
           <div className="detail-fields">
-            {!((isNew && showSchedule) || screenshot || editSchedule) && (
+            {onAutoPlan && (
+              <button
+                type="button"
+                className="auto-plan-button detail-auto-plan"
+                disabled={
+                  saving ||
+                  saved ||
+                  readingImage ||
+                  travelBusy ||
+                  Boolean(screenshot) ||
+                  !draft.title.trim()
+                }
+                onClick={() => {
+                  try {
+                    const next = onAutoPlan(extractTitle());
+                    rememberDraft();
+                    setDraft(next);
+                    setImportedFields((prev) => [
+                      ...new Set([...prev, "plannedDate", "time", "duration"]),
+                    ]);
+                  } catch (e) {
+                    onError(e);
+                  }
+                }}
+              >
+                <CalendarClock size={14} />
+                Auto planen
+              </button>
+            )}
+            {!(
+              (isNew && showSchedule) ||
+              screenshot ||
+              editSchedule ||
+              importedFields.some((f) =>
+                ["plannedDate", "time", "duration"].includes(f),
+              )
+            ) && (
               <div
                 className="schedule-summary"
                 data-imported={
@@ -3722,7 +3865,11 @@ function Detail({
                   : "Inbox"}
               </div>
             )}
-            {((isNew && showSchedule) || screenshot) && (
+            {((isNew && showSchedule) ||
+              screenshot ||
+              importedFields.some((f) =>
+                ["plannedDate", "time", "duration"].includes(f),
+              )) && (
               <ScheduleFields
                 date={draft.plannedDate || ""}
                 time={draft.time}
@@ -3748,27 +3895,33 @@ function Detail({
                 }
               />
             )}
-            {editSchedule && !isNew && (
-              <ScheduleFields
-                showDate={false}
-                time={draft.time}
-                duration={draft.duration || 60}
-                groupLabel={
-                  groupCount > 1 ? `Uhrzeit für ${groupCount} Tage` : "Uhrzeit"
-                }
-                labels={[
-                  "Termindatum",
-                  "Gemeinsame Uhrzeit",
-                  "Dauer in Stunden",
-                ]}
-                onChange={(patch) =>
-                  update({
-                    ...patch,
-                    duration: patch.duration || draft.duration || 60,
-                  })
-                }
-              />
-            )}
+            {editSchedule &&
+              !isNew &&
+              !importedFields.some((f) =>
+                ["plannedDate", "time", "duration"].includes(f),
+              ) && (
+                <ScheduleFields
+                  showDate={false}
+                  time={draft.time}
+                  duration={draft.duration || 60}
+                  groupLabel={
+                    groupCount > 1
+                      ? `Uhrzeit für ${groupCount} Tage`
+                      : "Uhrzeit"
+                  }
+                  labels={[
+                    "Termindatum",
+                    "Gemeinsame Uhrzeit",
+                    "Dauer in Stunden",
+                  ]}
+                  onChange={(patch) =>
+                    update({
+                      ...patch,
+                      duration: patch.duration || draft.duration || 60,
+                    })
+                  }
+                />
+              )}
             <details
               className="travel-settings"
               onToggle={(e) => {

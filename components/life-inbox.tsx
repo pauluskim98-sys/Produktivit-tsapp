@@ -17,6 +17,7 @@ import {
   CloudSun,
   Bookmark,
   Target,
+  CalendarClock,
 } from "lucide-react";
 import type { Todo, Priority, CalendarEvent } from "@/lib/types";
 import type { TaskColor } from "@/lib/task-colors";
@@ -305,6 +306,7 @@ export default function LifeInbox({
   children,
   todoContent,
   onPriority,
+  onAutoPlan,
   events,
   anchor = dateKey(new Date()),
 }: {
@@ -321,8 +323,13 @@ export default function LifeInbox({
   ) => Promise<void>;
   onOpen: (id: string) => void;
   onPriority: (todo: Todo, priority: Priority, horizon: string) => void;
+  onAutoPlan?: (
+    ids: string[],
+    horizon: "week" | "month" | "year",
+  ) => Promise<void>;
 }) {
   const namespace = useId();
+  const [autoPlanning, setAutoPlanning] = useState(false);
   const [tab, setTab] = useState("todo"),
     [life, setLife] = useState<LifeState | null>(null),
     [items, setItems] = useState<Suggestion[]>([]),
@@ -928,6 +935,30 @@ export default function LifeInbox({
                 onOpen={onOpen}
                 onPriority={onPriority}
               />
+              {onAutoPlan && (
+                <button
+                  className="auto-plan-button"
+                  disabled={autoPlanning || !pending.length}
+                  title="Freie Zeiten zwischen 08 und 22 Uhr finden · 15 Minuten Abstand"
+                  onClick={async () => {
+                    setAutoPlanning(true);
+                    setError("");
+                    try {
+                      await onAutoPlan(
+                        pending.map((t) => t.id),
+                        horizon as "week" | "month" | "year",
+                      );
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setAutoPlanning(false);
+                    }
+                  }}
+                >
+                  <CalendarClock size={14} />
+                  {autoPlanning ? "Wird eingeplant …" : "Auto planen"}
+                </button>
+              )}
             </>
           )
         : null}

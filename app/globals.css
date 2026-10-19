@@ -7404,3 +7404,7 @@ button[hidden] {
 .address-place-results small { font-size:10px; color:var(--secondary); padding:0; }
 .app-shell .sidebar .period-task-row, .app-shell .sidebar .period-task-row.compact, .app-shell .day-panel .unified-todo-list .period-task-row { padding:0; min-height:26px; }
 .goal-row.goal-drop-over { background:var(--green-soft); border-radius:7px; outline:1px solid var(--green); }
+.auto-plan-button { display:inline-flex; align-items:center; justify-content:center; gap:6px; margin:10px 0 3px; padding:7px 10px; border:1px solid var(--panel-edge); border-radius:8px; background:color-mix(in srgb,var(--green) 6%,var(--surface)); color:var(--green); font-size:11px; font-weight:500; cursor:pointer; }
+.auto-plan-button:hover:not(:disabled) { background:var(--green-soft); border-color:var(--green); }
+.auto-plan-button:disabled { opacity:.45; cursor:default; }
+.detail-auto-plan { margin:0 0 10px; }

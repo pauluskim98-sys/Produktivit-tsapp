@@ -6,7 +6,24 @@ import { normalizeClockNotation } from "./clock-notation.ts";
 export function parseAppointmentInput(
   text: string,
   base = dateKey(new Date()),
+  relativeBase = base,
 ) {
+  let explicitDuration: number | undefined;
+  const length =
+    text.match(
+      /\b(?:(?:für|Dauer\s*:?|Länge\s*:?)\s*)?(\d{1,4}(?:[.,]\d{1,2})?)\s*(Minuten?|Min\.?|Std\.?|Stunden?)\b\.?/i,
+    ) ||
+    text.match(/\b(?:für|Dauer\s*:?)\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*(h)\b/i);
+  if (length) {
+    const minutes = Math.round(
+      Number(length[1].replace(",", ".")) *
+        (/^(?:Std|Stund|h)/i.test(length[2]) ? 60 : 1),
+    );
+    if (minutes >= 1 && minutes <= 10080) {
+      explicitDuration = minutes;
+      text = text.replace(length[0], " ");
+    }
+  }
   text = normalizeClockNotation(text);
   const location = addressFromText(text);
   let cleaned = location
@@ -16,7 +33,7 @@ export function parseAppointmentInput(
     : text;
   let plannedDate: string | undefined,
     time: string | undefined,
-    duration: number | undefined;
+    duration: number | undefined = explicitDuration;
   const takeDate = (match: RegExpMatchArray | null, key: string) => {
     if (!match || !isDateKey(key)) return false;
     plannedDate = key;
@@ -59,7 +76,7 @@ export function parseAppointmentInput(
         );
       else {
         match = cleaned.match(
-          /\b(übermorgen|morgen|heute|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\b/i,
+          /(?<![\p{L}\p{N}_])(übermorgen|morgen|heute|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\b/iu,
         );
         if (match) {
           const value = match[1].toLowerCase();
@@ -79,9 +96,11 @@ export function parseAppointmentInput(
                 ? 1
                 : value === "übermorgen"
                   ? 2
-                  : (weekdays.indexOf(value) - parseDate(base).getDay() + 7) %
+                  : (weekdays.indexOf(value) -
+                      parseDate(relativeBase).getDay() +
+                      7) %
                     7;
-          takeDate(match, dateKey(addDays(parseDate(base), days)));
+          takeDate(match, dateKey(addDays(parseDate(relativeBase), days)));
         }
       }
     }
@@ -105,7 +124,7 @@ export function parseAppointmentInput(
         const [h, m] = toTime(s).split(":").map(Number);
         return h * 60 + m;
       };
-      duration =
+      duration ??=
         (minutes(match[2]) - minutes(match[1]) + 1440) % 1440 || undefined;
     }
     cleaned = cleaned.replace(match[0], " ");
