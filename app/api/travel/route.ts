@@ -1,7 +1,8 @@
 import { sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-import { lookupPlaces } from "@/lib/place-search";
+import { lookupPlaces, lookupNamedPlaces } from "@/lib/place-search";
+import { getLife } from "@/lib/life";
 async function geocode(address: string) {
   const coordinates = address.match(/^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/);
   if (
@@ -14,13 +15,20 @@ async function geocode(address: string) {
       lon: Number(coordinates[2]),
       label: address,
     };
-  const [place] = await lookupPlaces(address);
+  let direct: any[] = [];
+  try {
+    direct = await lookupPlaces(address);
+  } catch {}
+  const place =
+    direct[0] || (await lookupNamedPlaces(address, getLife().city))[0];
   if (
     !place ||
     !Number.isFinite(Number(place.lat)) ||
     !Number.isFinite(Number(place.lon))
   )
-    throw new Error(`Adresse nicht gefunden: ${address}`);
+    throw new Error(
+      `Ort nicht gefunden: ${address}. Bitte einen Vorschlag auswählen.`,
+    );
   return {
     lat: Number(place.lat),
     lon: Number(place.lon),

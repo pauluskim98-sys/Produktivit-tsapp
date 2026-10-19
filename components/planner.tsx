@@ -13,6 +13,7 @@ import {
 } from "@/lib/client-history";
 import ReminderSetup from "./reminder-setup";
 import LifeInbox from "./life-inbox";
+import StorageShelf from "./storage-shelf";
 import InboxReturnDrop from "./inbox-return-drop";
 import ResourceDrawer from "./resource-drawer";
 import InboxNotes from "./inbox-notes";
@@ -1492,6 +1493,16 @@ export default function Planner() {
         await mutate({ action: "save", todo: source });
     }
     if (!source) return;
+    if (over.data.current?.kind === "goal-category") {
+      const category = `c:${over.data.current.categoryId}`;
+      const tasks = selectedIds.includes(source.id)
+        ? state.todos.filter((t) => selectedIds.includes(t.id))
+        : [source];
+      await batchUpdate(
+        tasks.map((t) => ({ ...t, tags: [...new Set([...t.tags, category])] })),
+      );
+      return;
+    }
     if (over.data.current?.kind === "inbox-return") {
       const returning =
         selectedIds.length > 1 && selectedIds.includes(source.id)
@@ -1715,7 +1726,7 @@ export default function Planner() {
   const weeklyOpen = openWeekCount(state.todos, weekKeys);
   const tags = [
     ...new Set(
-      state.todos.flatMap((t) => t.tags.filter((x) => !/^(k|r|h):/.test(x))),
+      state.todos.flatMap((t) => t.tags.filter((x) => !/^(k|r|h|c):/.test(x))),
     ),
   ].sort();
   const current = state.todos.find((t) => t.id === selected);
@@ -2074,6 +2085,7 @@ export default function Planner() {
             </div>
             <InboxReturnDrop todos={state.todos} />
             <LifeInbox
+              anchor={anchor}
               events={state.events}
               todos={state.todos}
               onAdd={inboxAdd}
@@ -2339,45 +2351,6 @@ export default function Planner() {
                 </MobileDay>
               ))}
             </nav>
-            {(selectionMode || selectedIds.length > 0) && (
-              <div className="selection-toolbar">
-                <span>
-                  {selectionMode
-                    ? "Auswahl ziehen"
-                    : `${selectedIds.length} Termine ausgewählt`}
-                </span>
-                {selectedIds.length > 0 && (
-                  <>
-                    <button
-                      onClick={() => {
-                        groupClipboard.current = state.todos.filter((t) =>
-                          selectedIds.includes(t.id),
-                        );
-                        void navigator.clipboard.writeText(
-                          "RAUM_TASKS:" +
-                            JSON.stringify(groupClipboard.current),
-                        );
-                        setToast({ text: "Auswahl kopiert" });
-                      }}
-                    >
-                      Kopieren
-                    </button>
-                    <button onClick={() => void deleteGroup().catch(() => {})}>
-                      Löschen
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => {
-                    setSelectionMode(false);
-                    setSelectedIds([]);
-                    setPicked(null);
-                  }}
-                >
-                  Auswahl aufheben
-                </button>
-              </div>
-            )}
             {error ? (
               <div className="load-error">
                 {error}
@@ -2552,17 +2525,25 @@ export default function Planner() {
               >
                 <DayPanel
                   inline
-                  renderTasks={(content) => (
+                  shelf={
+                    <StorageShelf
+                      onOpenDocuments={() => {
+                        setStoragePinned(true);
+                        setStorageOpen(true);
+                      }}
+                    />
+                  }
+                  renderTasks={() => (
                     <LifeInbox
                       todos={state.todos}
                       events={state.events}
                       onAdd={inboxAdd}
                       onOpen={setSelected}
                       onPriority={inboxPriority}
-                      todoContent={content}
+                      anchor={anchor}
                     />
                   )}
-                  key={`bottom:${overview}:${anchor}`}
+                  key="bottom-storage"
                   day={`${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`}
                   state={state}
                   onClose={() => {}}
@@ -2578,7 +2559,7 @@ export default function Planner() {
                     await save(task);
                   }}
                   onNote={async (content) => {
-                    const date = `${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`;
+                    const date = "storage";
                     await api("/api/notes", { date, content });
                     setState((s) => ({
                       ...s,
@@ -2634,12 +2615,23 @@ export default function Planner() {
         </div>
         <DragOverlay>
           {dragged ? (
-            <TaskCard
-              todo={dragged}
-              onOpen={() => {}}
-              onToggle={() => {}}
-              overlay
-            />
+            <div
+              className="task-drag-group"
+              data-active-task-drag
+              aria-label="Gezogene Aufgaben"
+            >
+              {(selectedIds.includes(dragged.id)
+                ? state.todos.filter((t) => selectedIds.includes(t.id))
+                : [dragged]
+              ).map((todo) => (
+                <div
+                  key={todo.id}
+                  className={`drag-group-item color-${todo.color || "green"}`}
+                >
+                  <span>{todo.title}</span>
+                </div>
+              ))}
+            </div>
           ) : null}
         </DragOverlay>
         {dayPanel && (
@@ -2767,6 +2759,9 @@ export default function Planner() {
           }}
           onClose={() => {
             setNewOpen(false);
+            setPicked(null);
+            setSelectedIds([]);
+            setPasteTarget(null);
           }}
           onDelete={() => setNewOpen(false)}
           onRepeat={async (weekdays, weeks, source) => {
@@ -2779,7 +2774,10 @@ export default function Planner() {
               weeks,
             });
             setNewOpen(false);
-            setSelected(source.id);
+            setSelected(null);
+            setPicked(null);
+            setSelectedIds([]);
+            setPasteTarget(null);
           }}
           aiAvailable={state.aiAvailable}
           onAiConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
@@ -3114,6 +3112,8 @@ function Detail({
   const travelTimer = useRef<number | null>(null);
   useEffect(() => () => travelRequest.current?.abort(), []);
   const [travelOrigin, setTravelOrigin] = useState("");
+  const [chosenOrigin, setChosenOrigin] = useState("");
+  const [chosenDestination, setChosenDestination] = useState("");
   const [travelOptions, setTravelOptions] = useState<
     {
       mode: "bike" | "transit";
@@ -3285,8 +3285,15 @@ function Detail({
     draft.location ||
     addressFromText(draft.title + "\n" + draft.description) ||
     "";
+  const routeReady = Boolean(
+    (addressFromText(travelOrigin) ||
+      /^-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?$/.test(travelOrigin) ||
+      chosenOrigin === travelOrigin) &&
+    (addressFromText(destination) || chosenDestination === destination),
+  );
   const calculateTravel = async () => {
     if (!destination || !travelOrigin.trim()) return;
+    if (!routeReady) return;
     if (!draft.plannedDate || !draft.time) return;
     if (travelTimer.current !== null) window.clearTimeout(travelTimer.current);
     travelRequest.current?.abort();
@@ -3325,6 +3332,7 @@ function Detail({
     setTravelOptions([]);
     if (
       travelOpen &&
+      routeReady &&
       travelOrigin.trim() &&
       destination.trim() &&
       draft.plannedDate &&
@@ -3341,6 +3349,7 @@ function Detail({
     };
   }, [
     travelOpen,
+    routeReady,
     travelOrigin,
     destination,
     draft.plannedDate,
@@ -3784,6 +3793,7 @@ function Detail({
                   <span>Startadresse</span>
                   <AddressInput
                     label="Startadresse für Wegzeit"
+                    onChoose={setChosenOrigin}
                     value={travelOrigin}
                     locate
                     onError={onError}
@@ -3797,6 +3807,7 @@ function Detail({
                   <span>Zieladresse</span>
                   <AddressInput
                     label="Zieladresse für Wegzeit"
+                    onChoose={setChosenDestination}
                     value={destination}
                     onError={onError}
                     onChange={(location) => {
@@ -3821,6 +3832,7 @@ function Detail({
                         type="button"
                         onClick={() => {
                           update({ location: p.address });
+                          setChosenDestination(p.address);
                           setTravelOptions([]);
                           setPlaceSuggestions([]);
                         }}
@@ -3846,6 +3858,7 @@ function Detail({
                   type="button"
                   className="secondary-button"
                   disabled={
+                    !routeReady ||
                     !destination ||
                     !travelOrigin.trim() ||
                     travelBusy ||
@@ -4120,12 +4133,12 @@ function Detail({
                   aria-label="Tags, mit Komma getrennt"
                   placeholder="Studium, Privat …"
                   value={draft.tags
-                    .filter((x) => !/^(k|r|h):/.test(x))
+                    .filter((x) => !/^(k|r|h|c):/.test(x))
                     .join(", ")}
                   onChange={(e) =>
                     update({
                       tags: [
-                        ...draft.tags.filter((x) => /^(k|r|h):/.test(x)),
+                        ...draft.tags.filter((x) => /^(k|r|h|c):/.test(x)),
                         ...e.target.value.split(",").map((t) => t.trimStart()),
                       ],
                     })

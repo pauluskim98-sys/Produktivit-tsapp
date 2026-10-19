@@ -1,6 +1,7 @@
 import { TASK_COLOR_VALUES, type TaskColor } from "./task-colors.ts";
 import { db } from "./db";
 import { isDateKey } from "./dates";
+import type { GoalCategory, GoalHorizon, GoalTarget } from "./goals";
 export interface Friend {
   id: string;
   name: string;
@@ -32,6 +33,9 @@ export interface MealLog {
   quality: "balanced" | "mixed" | "treat" | "unknown";
 }
 export interface LifeState {
+  goalCategories?: GoalCategory[];
+  hiddenGoalCategories?: string[];
+  goalSettings?: Record<string, Partial<Record<GoalHorizon, GoalTarget>>>;
   whatsappImport?: { selected: Record<string, boolean>; seen: string[] };
   tabOrder: string[];
   city: string;
@@ -76,6 +80,46 @@ export function saveLife(value: unknown) {
     s.rhythms.length > 100
   )
     throw new Error("Bitte Angaben prüfen.");
+  const goalId = (id: unknown) =>
+    typeof id === "string" && /^[\w-]{1,100}$/.test(id);
+  if (
+    !Array.isArray(s.goalCategories || []) ||
+    (s.goalCategories || []).length > 100 ||
+    (s.goalCategories || []).some(
+      (g) =>
+        !goalId(g.id) ||
+        typeof g.name !== "string" ||
+        !g.name.trim() ||
+        g.name.length > 100,
+    ) ||
+    !Array.isArray(s.hiddenGoalCategories || []) ||
+    (s.hiddenGoalCategories || []).length > 300 ||
+    (s.hiddenGoalCategories || []).some((id) => !goalId(id)) ||
+    (s.goalSettings != null &&
+      (typeof s.goalSettings !== "object" ||
+        Array.isArray(s.goalSettings) ||
+        Object.keys(s.goalSettings).length > 300))
+  )
+    throw new Error("Zielkategorien prüfen.");
+  for (const [id, periods] of Object.entries(s.goalSettings || {})) {
+    if (
+      !goalId(id) ||
+      !periods ||
+      typeof periods !== "object" ||
+      Array.isArray(periods)
+    )
+      throw new Error("Ziele prüfen.");
+    for (const [period, goal] of Object.entries(periods))
+      if (
+        !["week", "month", "year"].includes(period) ||
+        !goal ||
+        !Number.isFinite(goal.target) ||
+        goal.target <= 0 ||
+        goal.target > 10000 ||
+        !["hours", "times"].includes(goal.unit)
+      )
+        throw new Error("Zielumfang prüfen.");
+  }
   for (const f of s.friends)
     if (
       !f.name?.trim() ||

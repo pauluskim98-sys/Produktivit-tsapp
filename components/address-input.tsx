@@ -3,18 +3,21 @@ import { useEffect, useState } from "react";
 import { BookOpen, Plus, X, LocateFixed } from "lucide-react";
 import { matchingAddresses, type SavedAddress } from "@/lib/address-book";
 import { record } from "@/lib/client-history";
+import type { PlaceProposal } from "@/lib/place-search";
 export default function AddressInput({
   label,
   value,
   onChange,
   onError,
   locate = false,
+  onChoose,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   onError: (e: unknown) => void;
   locate?: boolean;
+  onChoose?: (value: string) => void;
 }) {
   const [entries, setEntries] = useState<SavedAddress[]>([]),
     [open, setOpen] = useState(false),
@@ -24,6 +27,40 @@ export default function AddressInput({
     [name, setName] = useState(""),
     [address, setAddress] = useState(""),
     [busy, setBusy] = useState(false);
+  const [places, setPlaces] = useState<PlaceProposal[]>([]);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    setPlaces([]);
+    if (!focused || value.trim().length < 3 || /^-?\d+\.\d+,/.test(value)) {
+      setSearching(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setSearching(true);
+      fetch("/api/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          queries: [value.trim().slice(0, 300)],
+          autocomplete: true,
+        }),
+        signal: controller.signal,
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (!controller.signal.aborted) setPlaces(d.proposals || []);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false);
+        });
+    }, 600);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [value, focused]);
   useEffect(() => {
     const load = () => {
       fetch("/api/address-book")
@@ -52,6 +89,7 @@ export default function AddressInput({
   };
   const choose = (entry: SavedAddress) => {
     onChange(entry.address);
+    onChoose?.(entry.address);
     setOpen(false);
     setFocused(false);
   };
@@ -63,7 +101,7 @@ export default function AddressInput({
           aria-label={label}
           value={value}
           maxLength={1000}
-          placeholder="Adresse oder gespeicherter Name"
+          placeholder="Ort, Stichwort oder Adresse"
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
@@ -118,6 +156,34 @@ export default function AddressInput({
           <BookOpen size={16} />
         </button>
       </div>
+      {focused && (places.length > 0 || searching) && (
+        <div
+          className="address-place-results"
+          role="listbox"
+          aria-label="Ortsvorschläge"
+        >
+          {searching && <small>Orte werden gesucht …</small>}
+          {places.map((p) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={false}
+              key={`${p.name}:${p.address}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const selected = `${p.name}, ${p.address}`;
+                onChange(selected);
+                onChoose?.(selected);
+                setFocused(false);
+                setPlaces([]);
+              }}
+            >
+              <strong>{p.name}</strong>
+              <small>{p.address}</small>
+            </button>
+          ))}
+        </div>
+      )}
       {!open && focused && value.trim() && matches.length > 0 && (
         <div className="address-autocomplete">
           {matches.slice(0, 3).map((e) => (

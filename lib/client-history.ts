@@ -307,6 +307,8 @@ export function installHistory() {
       }
     }
     if (e.key === "Escape") {
+      // Let the active drag sensor cancel before view/selection navigation.
+      if (document.querySelector("[data-active-task-drag]")) return;
       navigateBack(e);
       return;
     }

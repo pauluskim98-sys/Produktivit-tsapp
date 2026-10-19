@@ -16,6 +16,7 @@ import {
   Dumbbell,
   CloudSun,
   Bookmark,
+  Target,
 } from "lucide-react";
 import type { Todo, Priority, CalendarEvent } from "@/lib/types";
 import type { TaskColor } from "@/lib/task-colors";
@@ -27,6 +28,7 @@ import SocialCircle from "./social-circle";
 import { suggestionKey } from "@/lib/suggestion-refresh";
 import PriorityList from "./priority-list";
 import WhatsappConnection from "./whatsapp-connection";
+import GoalsPanel from "./goals-panel";
 type Suggestion = {
   id: string;
   title: string;
@@ -37,10 +39,12 @@ type Suggestion = {
   tags: string[];
 };
 function SuggestionCard({
+  category,
   defaultColor = "green",
   item,
   onAdd,
 }: {
+  category?: string;
   defaultColor?: TaskColor;
   item: Suggestion;
   onAdd: (
@@ -53,7 +57,13 @@ function SuggestionCard({
   const id = useId();
   const drag = useDraggable({
     id: `suggestion:${id}`,
-    data: { suggestion: { ...item, color: defaultColor } },
+    data: {
+      suggestion: {
+        ...item,
+        tags: [...item.tags, ...(category ? [`c:${category}`] : [])],
+        color: defaultColor,
+      },
+    },
   });
   return (
     <article
@@ -69,7 +79,7 @@ function SuggestionCard({
         onClick={() =>
           void onAdd(
             item.title,
-            item.tags,
+            [...item.tags, ...(category ? [`c:${category}`] : [])],
             item.notes + (item.url ? `\n${item.url}` : ""),
           )
         }
@@ -169,6 +179,7 @@ function PriorityLane({
 }
 const baseTabs = [
   ["todo", "Todo"],
+  ["goals", "Ziele"],
   ["food", "Essen"],
   ["events", "Aktivitäten"],
   ["social", "Beziehungen"],
@@ -210,6 +221,7 @@ function InboxTab({
     (
       {
         todo: ListTodo,
+        goals: Target,
         food: Utensils,
         events: CalendarDays,
         social: Heart,
@@ -294,7 +306,9 @@ export default function LifeInbox({
   todoContent,
   onPriority,
   events,
+  anchor = dateKey(new Date()),
 }: {
+  anchor?: string;
   children?: React.ReactNode;
   todoContent?: React.ReactNode;
   events: CalendarEvent[];
@@ -490,7 +504,13 @@ export default function LifeInbox({
     try {
       await onAdd(
         title,
-        [...tags, `h:${horizon}`],
+        [
+          ...new Set([
+            ...tags,
+            `h:${horizon}`,
+            ...(tab !== "todo" ? [`c:${tab}`] : []),
+          ]),
+        ],
         notes,
         life?.tabSettings[tab]?.defaultColor || "green",
       );
@@ -739,129 +759,134 @@ export default function LifeInbox({
           onClose={() => setTabSettings(null)}
         />
       )}
-      {tab !== "todo" && tab !== "social" && tab !== "weather" && life && (
-        <section className="manual-options">
-          <button
-            className="text-button"
-            onClick={() => setOptionForm(!optionForm)}
-          >
-            ＋ Eigene Option
-          </button>
-          {optionForm && (
-            <form
-              data-escape-layer
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!optionName.trim()) return;
-                if (
-                  await save({
-                    ...life,
-                    rhythms: [
-                      ...life.rhythms,
-                      {
-                        id: crypto.randomUUID(),
-                        tabId: tab,
-                        name: optionName.trim(),
-                        days: optionDays,
-                        target: optionTarget,
-                        unit: optionUnit,
-                      },
-                    ],
-                  })
-                ) {
-                  setOptionName("");
-                  setOptionForm(false);
-                }
-              }}
+      {tab !== "todo" &&
+        tab !== "goals" &&
+        tab !== "social" &&
+        tab !== "weather" &&
+        life && (
+          <section className="manual-options">
+            <button
+              className="text-button"
+              onClick={() => setOptionForm(!optionForm)}
             >
-              <button
-                hidden
-                data-close
-                type="button"
-                onClick={() => setOptionForm(false)}
-              >
-                Schließen
-              </button>
-              <input
-                autoFocus
-                aria-label="Eigene Option"
-                placeholder="Aktivität"
-                value={optionName}
-                onChange={(e) => setOptionName(e.target.value)}
-                required
-                maxLength={100}
-              />
-              <label>
-                <input
-                  aria-label="Optionshäufigkeit"
-                  type="number"
-                  step={0.5}
-                  min={0.5}
-                  max={1000}
-                  value={optionTarget}
-                  onChange={(e) => setOptionTarget(Number(e.target.value))}
-                />{" "}
-                <select
-                  aria-label="Optionsumfang"
-                  value={optionUnit}
-                  onChange={(e) =>
-                    setOptionUnit(e.target.value as "times" | "hours")
+              ＋ Eigene Option
+            </button>
+            {optionForm && (
+              <form
+                data-escape-layer
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!optionName.trim()) return;
+                  if (
+                    await save({
+                      ...life,
+                      rhythms: [
+                        ...life.rhythms,
+                        {
+                          id: crypto.randomUUID(),
+                          tabId: tab,
+                          name: optionName.trim(),
+                          days: optionDays,
+                          target: optionTarget,
+                          unit: optionUnit,
+                        },
+                      ],
+                    })
+                  ) {
+                    setOptionName("");
+                    setOptionForm(false);
                   }
-                >
-                  <option value="times">Mal</option>
-                  <option value="hours">Stunden</option>
-                </select>
-                <span>pro</span>
-                <select
-                  aria-label="Optionszeitraum"
-                  value={optionDays}
-                  onChange={(e) => setOptionDays(Number(e.target.value))}
-                >
-                  <option value={1}>Tag</option>
-                  <option value={7}>Woche</option>
-                  <option value={30}>Monat</option>
-                </select>
-              </label>
-              <button>Hinzufügen</button>
-            </form>
-          )}
-          {life.rhythms
-            .filter((r) => r.tabId === tab)
-            .sort((a, b) => {
-              const count = (r: typeof a) =>
-                todos
-                  .filter(
-                    (t) =>
-                      t.tags.includes(`r:${r.id}`) &&
-                      t.done &&
-                      t.plannedDate &&
-                      t.plannedDate >=
-                        dateKey(addDays(parseDate(today), -r.days)),
-                  )
-                  .reduce(
-                    (total, t) =>
-                      total +
-                      (r.unit === "hours" ? (t.duration || 60) / 60 : 1),
-                    0,
-                  ) / r.target;
-              return count(a) - count(b);
-            })
-            .map((r) => (
-              <SuggestionCard
-                defaultColor={life?.tabSettings[tab]?.defaultColor || "green"}
-                key={r.id}
-                item={{
-                  id: r.id,
-                  title: r.name,
-                  tags: [`r:${r.id}`],
-                  notes: "",
-                  source: `${r.target} ${r.unit === "hours" ? "Std." : "Mal"} / ${r.days === 1 ? "Tag" : r.days === 7 ? "Woche" : r.days === 30 ? "Monat" : r.days + " Tage"}`,
                 }}
-                onAdd={add}
-              />
-            ))}
-        </section>
-      )}
+              >
+                <button
+                  hidden
+                  data-close
+                  type="button"
+                  onClick={() => setOptionForm(false)}
+                >
+                  Schließen
+                </button>
+                <input
+                  autoFocus
+                  aria-label="Eigene Option"
+                  placeholder="Aktivität"
+                  value={optionName}
+                  onChange={(e) => setOptionName(e.target.value)}
+                  required
+                  maxLength={100}
+                />
+                <label>
+                  <input
+                    aria-label="Optionshäufigkeit"
+                    type="number"
+                    step={0.5}
+                    min={0.5}
+                    max={1000}
+                    value={optionTarget}
+                    onChange={(e) => setOptionTarget(Number(e.target.value))}
+                  />{" "}
+                  <select
+                    aria-label="Optionsumfang"
+                    value={optionUnit}
+                    onChange={(e) =>
+                      setOptionUnit(e.target.value as "times" | "hours")
+                    }
+                  >
+                    <option value="times">Mal</option>
+                    <option value="hours">Stunden</option>
+                  </select>
+                  <span>pro</span>
+                  <select
+                    aria-label="Optionszeitraum"
+                    value={optionDays}
+                    onChange={(e) => setOptionDays(Number(e.target.value))}
+                  >
+                    <option value={1}>Tag</option>
+                    <option value={7}>Woche</option>
+                    <option value={30}>Monat</option>
+                  </select>
+                </label>
+                <button>Hinzufügen</button>
+              </form>
+            )}
+            {life.rhythms
+              .filter((r) => r.tabId === tab)
+              .sort((a, b) => {
+                const count = (r: typeof a) =>
+                  todos
+                    .filter(
+                      (t) =>
+                        t.tags.includes(`r:${r.id}`) &&
+                        t.done &&
+                        t.plannedDate &&
+                        t.plannedDate >=
+                          dateKey(addDays(parseDate(today), -r.days)),
+                    )
+                    .reduce(
+                      (total, t) =>
+                        total +
+                        (r.unit === "hours" ? (t.duration || 60) / 60 : 1),
+                      0,
+                    ) / r.target;
+                return count(a) - count(b);
+              })
+              .map((r) => (
+                <SuggestionCard
+                  category={tab}
+                  defaultColor={life?.tabSettings[tab]?.defaultColor || "green"}
+                  key={r.id}
+                  item={{
+                    id: r.id,
+                    title: r.name,
+                    tags: [`r:${r.id}`],
+                    notes: "",
+                    source: `${r.target} ${r.unit === "hours" ? "Std." : "Mal"} / ${r.days === 1 ? "Tag" : r.days === 7 ? "Woche" : r.days === 30 ? "Monat" : r.days + " Tage"}`,
+                  }}
+                  onAdd={add}
+                />
+              ))}
+          </section>
+        )}
       {tab === "todo"
         ? todoContent || (
             <>
@@ -906,6 +931,16 @@ export default function LifeInbox({
             </>
           )
         : null}
+      {tab === "goals" && life && (
+        <GoalsPanel
+          life={life}
+          tabs={tabs}
+          todos={todos}
+          events={events}
+          anchor={anchor}
+          save={save}
+        />
+      )}
       {(life?.tabSettings[tab]?.online ??
         (["food", "events", "sport"].includes(tab) || rhythm?.online)) && (
         <>
@@ -938,6 +973,7 @@ export default function LifeInbox({
           )}
           {items.map((item) => (
             <SuggestionCard
+              category={tab}
               defaultColor={life?.tabSettings[tab]?.defaultColor || "green"}
               key={item.id}
               item={item}
@@ -1120,6 +1156,7 @@ export default function LifeInbox({
                 </strong>
                 <progress value={achieved} max={rhythm.target} />
                 <SuggestionCard
+                  category={tab}
                   defaultColor={life?.tabSettings[tab]?.defaultColor || "green"}
                   item={{
                     id: rhythm.id,

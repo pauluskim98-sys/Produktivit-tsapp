@@ -5,6 +5,64 @@ export interface PlaceProposal {
   source: string;
   url: string;
 }
+const namedCache = new Map<string, { at: number; places: any[] }>();
+/** Photon supports name/category queries, unlike a strict street address. */
+export async function lookupNamedPlaces(
+  query: string,
+  city = "Köln",
+): Promise<any[]> {
+  query = query.replace(/([\p{L}]{3,})(?:straße|strasse)\b/giu, "$1 Straße");
+  const q = query.toLocaleLowerCase("de").includes(city.toLocaleLowerCase("de"))
+    ? query
+    : `${query}, ${city}`;
+  const cached = namedCache.get(q);
+  if (cached && Date.now() - cached.at < 3600000) return cached.places;
+  const url = new URL("https://photon.komoot.io/api/");
+  url.search = new URLSearchParams({ q, lang: "de", limit: "5" }).toString();
+  const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!r.ok) throw new Error("Ortssuche momentan nicht erreichbar.");
+  const data = await r.json();
+  let places = (data.features || []).flatMap((f: any) => {
+    const p = f.properties || {},
+      [lon, lat] = f.geometry?.coordinates || [];
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+    const osm_type = (
+      { N: "node", W: "way", R: "relation" } as Record<string, string>
+    )[p.osm_type];
+    return [
+      {
+        name: p.name,
+        lat,
+        lon,
+        osm_type,
+        osm_id: p.osm_id,
+        address: {
+          road: p.street,
+          house_number: p.housenumber,
+          postcode: p.postcode,
+          city: p.city || p.town || p.village,
+        },
+        display_name: [p.name, p.street, p.housenumber, p.postcode, p.city]
+          .filter(Boolean)
+          .join(", "),
+      },
+    ];
+  });
+  const street = query.match(/[\p{L}-]+\s+(?:Straße|Strasse)\b/iu)?.[0];
+  if (street) {
+    const normalize = (s: string) =>
+      s
+        .toLocaleLowerCase("de")
+        .replace(/ß/g, "ss")
+        .replace(/[^\p{L}]/gu, "");
+    places = places.filter((p: any) =>
+      normalize(p.address.road || "").includes(normalize(street)),
+    );
+  }
+  namedCache.set(q, { at: Date.now(), places });
+  if (namedCache.size > 200) namedCache.delete(namedCache.keys().next().value!);
+  return places;
+}
 const cache = new Map<string, { at: number; places: any[] }>();
 let queue = Promise.resolve();
 export async function lookupPlaces(query: string): Promise<any[]> {

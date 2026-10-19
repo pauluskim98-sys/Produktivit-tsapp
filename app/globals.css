@@ -7309,7 +7309,7 @@ button[hidden] {
 /* Quiet, continuous time marker and a recognisable current day. */
 .timeline-body { position: relative; }
 .timeline-body > .timeline-now-line { left: 44px; right: 0; z-index: 3; }
-.timeline-day.is-today { background: color-mix(in srgb,var(--green) 10%,var(--surface)); box-shadow: inset 1px 0 color-mix(in srgb,var(--green) 25%,transparent), inset -1px 0 color-mix(in srgb,var(--green) 25%,transparent); }
+.timeline-day.is-today { background: color-mix(in srgb,var(--green) 4%,var(--surface)); box-shadow: inset 1px 0 color-mix(in srgb,var(--green) 10%,transparent), inset -1px 0 color-mix(in srgb,var(--green) 10%,transparent); }
 .timeline-day-head.is-today { background: color-mix(in srgb,var(--green) 22%,var(--surface)); border-color: color-mix(in srgb,var(--green) 35%,var(--line)); }
 
 /* Tasks keep the tall column; notes and the compact assistant share the right. */
@@ -7356,3 +7356,51 @@ button[hidden] {
 .resource-preview > iframe { width: 100%; height: 70vh; border: 0; }
 .inline-period-panel > .period-planner-heading { margin: 12px 16px 0; font-size: 13px; font-weight: 550; letter-spacing: -.1px; }
 .app-shell .inbox-heading-toggle { display: flex; align-items: center; gap: 9px; padding: 0; background: transparent; border: 0; color: inherit; font-family: Manrope, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: -.3px; cursor: pointer; }
+
+/* Small tools stay together; writing and content get the space. */
+.day-panel .compact-advice > summary { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0; }
+.day-panel .compact-advice > summary > span { display:inline-flex; align-items:center; gap:5px; }
+.day-panel .compact-advice .advice-settings { display:inline-flex; align-items:center; gap:3px; margin:0; padding:0; font-size:10px; font-weight:400; color:var(--secondary); }
+.day-panel .chatgpt-handoff { align-items:center; gap:10px; margin:0; }
+.day-panel .compact-advice { padding:8px 10px; }
+.day-panel .advice-prompts { margin:6px 0; }
+.app-shell .sidebar .period-task-row, .app-shell .sidebar .period-task-row.compact { min-height:26px; margin:2px 0; border-radius:7px; }
+.app-shell .sidebar .period-task-content { min-height:26px; padding:4px 8px; font-size:11px; }
+.app-shell .sidebar .period-task-content strong { font-size:11px; font-weight:450; }
+.app-shell .sidebar .todo-quick input { min-height:30px; padding:6px 9px; font-size:11px; }
+.task-drag-group { display:flex; flex-direction:column; gap:4px; max-height:70vh; width:240px; overflow:auto; filter:drop-shadow(0 7px 12px #0002); }
+.drag-group-item { background:var(--task-bg,var(--green-soft)); border:1px solid var(--task-border,var(--line)); border-left:3px solid var(--task-edge,var(--green)); border-radius:7px; padding:8px 10px; color:var(--ink); font-size:11px; }
+.goals-period { display:flex; align-items:center; gap:5px; color:var(--secondary); font-size:10px; margin:10px 0 4px; }
+.goal-row { padding:9px 0; border-bottom:1px solid var(--line); }
+.goal-row-main { display:flex; align-items:center; gap:5px; }
+.goal-name { flex:1; min-width:0; font-size:12px; font-weight:500; overflow-wrap:anywhere; }
+.goal-row-main input { width:45px; padding:4px; font-size:11px; text-align:right; min-height:25px; background:var(--surface); border:1px solid var(--line); border-radius:5px; }
+.goal-row-main select { width:51px; padding:4px 1px; border:0; font-size:10px; background:transparent; color:var(--secondary); }
+.goal-row-main .icon-button { width:19px; height:23px; }
+.goal-track { position:relative; height:5px; background:var(--surface-soft); border-radius:6px; overflow:hidden; margin:7px 0 4px; }
+.goal-track i { position:absolute; inset:0 auto 0 0; border-radius:6px; transition:width 220ms; }
+.goal-planned { background:color-mix(in srgb,var(--green) 28%,transparent); }
+.goal-completed { background:var(--green); }
+.goal-row > small { display:block; font-size:9px; color:var(--green); line-height:1.5; }
+.goal-row > small span { color:var(--secondary); }
+.goal-add { display:flex; gap:5px; margin:8px 0; }
+.goal-add input { flex:1; min-width:0; padding:7px; font-size:11px; }
+.goal-add-button { display:flex; align-items:center; gap:5px; margin-top:10px; font-size:11px; }
+.goals-panel > select { max-width:100%; font-size:10px; padding:5px; margin-top:8px; background:transparent; border:0; color:var(--secondary); }
+.storage-shelf { margin-top:18px; border-top:1px solid var(--line); padding-top:10px; }
+.storage-shelf.file-over { outline:1px dashed var(--green); border-radius:8px; background:var(--green-soft); }
+.shelf-heading { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--secondary); }
+.shelf-heading > span { flex:1; }
+.shelf-heading .icon-button { width:23px; height:23px; }
+.shelf-files { display:flex; flex-wrap:wrap; gap:6px; padding:7px 0; }
+.shelf-files > a { display:flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:7px; padding:5px 7px; font-size:10px; color:var(--ink); max-width:180px; background:var(--surface); }
+.shelf-files > a > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.shelf-files img { width:24px; height:24px; object-fit:cover; border-radius:4px; }
+.shelf-files > small { font-size:10px; color:var(--muted); }
+.address-place-results { position:relative; z-index:5; border:1px solid var(--line); background:var(--surface); border-radius:8px; margin-top:4px; overflow:hidden; box-shadow:0 6px 16px #0001; }
+.address-place-results button { display:flex; flex-direction:column; gap:3px; text-align:left; width:100%; padding:8px 10px; border-bottom:1px solid var(--line); }
+.address-place-results button:hover { background:var(--hover); }
+.address-place-results strong { font-size:11px; font-weight:500; }
+.address-place-results small { font-size:10px; color:var(--secondary); padding:0; }
+.app-shell .sidebar .period-task-row, .app-shell .sidebar .period-task-row.compact, .app-shell .day-panel .unified-todo-list .period-task-row { padding:0; min-height:26px; }
+.goal-row.goal-drop-over { background:var(--green-soft); border-radius:7px; outline:1px solid var(--green); }

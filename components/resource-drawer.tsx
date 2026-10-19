@@ -100,6 +100,7 @@ export default function ResourceDrawer({
     const data = await r.json();
     if (!r.ok) throw new Error(data.error);
     setItems(data.items);
+    window.dispatchEvent(new Event("lifemap-storage"));
     return data;
   }
   useEffect(() => {
@@ -108,6 +109,17 @@ export default function ResourceDrawer({
         .then((r) => r.json())
         .then((d) => setItems(d.items || []))
         .catch((e) => setError(e.message));
+  }, [open]);
+  useEffect(() => {
+    const refresh = () => {
+      if (open)
+        fetch("/api/storage")
+          .then((r) => r.json())
+          .then((d) => setItems(d.items || []))
+          .catch(() => {});
+    };
+    window.addEventListener("lifemap-storage", refresh);
+    return () => window.removeEventListener("lifemap-storage", refresh);
   }, [open]);
   async function action(body: unknown) {
     setError("");
@@ -129,6 +141,7 @@ export default function ResourceDrawer({
       const result = await r.json();
       if (!r.ok) throw new Error(result.error);
       setItems(result.items);
+      window.dispatchEvent(new Event("lifemap-storage"));
       record({
         undo: async () => {
           for (const id of result.added) await act({ action: "delete", id });

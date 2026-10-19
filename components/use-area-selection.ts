@@ -61,6 +61,36 @@ export function useAreaSelection(
       onPointerDownCapture: (e: PointerEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement;
         if (
+          enabled &&
+          (target.closest(
+            "input,textarea,select,[contenteditable],.life-tabs",
+          ) ||
+            (target.closest(".planner-toolbar") &&
+              !target.closest(".header-date-preview")))
+        ) {
+          onSelection([]);
+          return;
+        }
+        if (!enabled && ids.length) {
+          const task = target.closest<HTMLElement>(
+            "[data-task-id],[data-task-ids]",
+          );
+          if (
+            task &&
+            representedTaskIds(task.dataset.taskId, task.dataset.taskIds).some(
+              (id) => ids.includes(id),
+            )
+          )
+            return;
+          onSelection([]);
+          if (target.closest(".timeline-scroll,.calendar-overview")) {
+            suppressClick.current = true;
+            e.preventDefault();
+            e.stopPropagation();
+          }
+          return;
+        }
+        if (
           !enabled ||
           e.button !== 0 ||
           (target.closest(".planner-toolbar") &&
@@ -74,7 +104,10 @@ export function useAreaSelection(
           target.closest<HTMLElement>(
             '.timeline-scroll,[role="dialog"],.sidebar,.period-overview,.calendar-overview',
           ) || e.currentTarget;
-        if (!scope.querySelector("[data-task-id],[data-task-ids]")) return;
+        if (!scope.querySelector("[data-task-id],[data-task-ids]")) {
+          onSelection([]);
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         suppressClick.current = true;
@@ -122,7 +155,7 @@ export function useAreaSelection(
         start.current = null;
         setRect(null);
         e.currentTarget.releasePointerCapture(e.pointerId);
-        onSelection([...new Set(selected)]);
+        onSelection(r.width < 4 && r.height < 4 ? [] : [...new Set(selected)]);
       },
       onClickCapture: (e: React.MouseEvent) => {
         if (

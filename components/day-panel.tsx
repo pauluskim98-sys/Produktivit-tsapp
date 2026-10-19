@@ -32,6 +32,7 @@ import { useId } from "react";
 export default function DayPanel({
   day,
   renderTasks,
+  shelf,
   inline = false,
   onDay,
   state,
@@ -43,6 +44,7 @@ export default function DayPanel({
   onExtend,
 }: {
   renderTasks?: (content: React.ReactNode) => React.ReactNode;
+  shelf?: React.ReactNode;
   onExtend?: (todo: Todo, days: string[]) => Promise<void>;
   inline?: boolean;
   onDay?: (day: string) => void;
@@ -59,7 +61,11 @@ export default function DayPanel({
   const dropId = useId();
   const drop = useDroppable({
     id: `period-panel:${dropId}`,
-    data: { kind: "periodpanel", day: range.start, period: day },
+    data: {
+      kind: inline ? "inbox-return" : "periodpanel",
+      day: range.start,
+      period: day,
+    },
   });
   const period = range.kind !== "day";
   const label =
@@ -78,8 +84,10 @@ export default function DayPanel({
         : range.kind === "year"
           ? "Jahresübersicht"
           : "Tagesübersicht";
-  const noteLabel =
-    range.kind === "week"
+  const noteKey = inline ? "storage" : day;
+  const noteLabel = inline
+    ? "Notizen"
+    : range.kind === "week"
       ? "Wochennotiz"
       : range.kind === "month"
         ? "Monatsnotiz"
@@ -112,7 +120,7 @@ export default function DayPanel({
     setText: setNote,
     flush: saveNote,
     error: noteError,
-  } = useAutosaveText(state.dayNotes[day] || "", onNote);
+  } = useAutosaveText(state.dayNotes[noteKey] || "", onNote);
   useEffect(() => {
     api(`/api/day?date=${day}`)
       .then((d) => setMessages(d.messages))
@@ -126,14 +134,16 @@ export default function DayPanel({
       ]
     : dayAssessment(tasks, events, day);
   async function close() {
-    if (note === (state.dayNotes[day] || "") || (await saveNote())) onClose();
+    if (note === (state.dayNotes[noteKey] || "") || (await saveNote()))
+      onClose();
   }
   async function ask(message: string) {
     if (!message.trim() || busy) return;
     setBusy(true);
     setError("");
     try {
-      if (note !== (state.dayNotes[day] || "") && !(await saveNote())) return;
+      if (note !== (state.dayNotes[noteKey] || "") && !(await saveNote()))
+        return;
       const d = await api("/api/day", { date: day, message });
       setMessages(d.messages);
       setQuestion("");
@@ -204,7 +214,10 @@ export default function DayPanel({
               todo={t}
               onExtend={onExtend}
               onOpen={async (id) => {
-                if (note !== (state.dayNotes[day] || "") && !(await saveNote()))
+                if (
+                  note !== (state.dayNotes[noteKey] || "") &&
+                  !(await saveNote())
+                )
                   return;
                 onOpen(id);
               }}
@@ -247,7 +260,7 @@ export default function DayPanel({
         className={`day-panel ${inline ? "inline-period-panel" : ""} ${drop.isOver ? "panel-drop-over" : ""}`}
         role={inline ? "region" : "dialog"}
         aria-modal={inline ? undefined : true}
-        aria-label={viewLabel}
+        aria-label={inline ? "Ablage" : viewLabel}
       >
         <header>
           <h2>
@@ -274,29 +287,22 @@ export default function DayPanel({
             <X size={19} />
           </button>
         </header>
-        {inline && (
-          <h2 className="period-planner-heading">
-            {range.kind === "year"
-              ? "Jahresplaner"
-              : range.kind === "month"
-                ? "Monatsplaner"
-                : "Wochenplaner"}
-          </h2>
-        )}
         <div className="day-panel-body">
           <div className="day-work">
             <div className="period-tasks-column">
               <h3>
-                Aufgaben <span>{tasks.length}</span>
+                {inline ? "Ablage" : "Aufgaben"}{" "}
+                {!inline && <span>{tasks.length}</span>}
               </h3>
               {renderTasks ? renderTasks(taskContent) : taskContent}
+              {shelf}
             </div>
             <div className="period-notes-column">
               <h3>{noteLabel}</h3>
               <textarea
                 className="day-notepad"
                 onBlur={() => {
-                  if (note !== (state.dayNotes[day] || "")) void saveNote();
+                  if (note !== (state.dayNotes[noteKey] || "")) void saveNote();
                 }}
                 aria-label={noteLabel}
                 value={note}
@@ -323,7 +329,19 @@ export default function DayPanel({
           <div className="day-advice">
             <details className="compact-advice" open>
               <summary>
-                <Sparkles size={14} /> KI & Überblick
+                <span>
+                  <Sparkles size={14} /> KI & Überblick
+                </span>
+                <button
+                  className="text-button advice-settings"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setConnect(!connect);
+                  }}
+                >
+                  <Settings2 size={13} /> Einstellungen
+                </button>
               </summary>
               <div className="advice-prompts">
                 {[
@@ -336,22 +354,13 @@ export default function DayPanel({
                   </button>
                 ))}
               </div>
-              {!state.aiAvailable ? (
-                <div className="ai-unconnected">
-                  <button
-                    className="text-button"
-                    onClick={() => setConnect(!connect)}
-                  >
-                    <Settings2 size={13} /> Einstellungen
-                  </button>
-                  {connect && (
-                    <AiConnection
-                      onClose={() => setConnect(false)}
-                      onConnected={onConnected}
-                    />
-                  )}
-                </div>
-              ) : (
+              {connect && (
+                <AiConnection
+                  onClose={() => setConnect(false)}
+                  onConnected={onConnected}
+                />
+              )}
+              {state.aiAvailable && (
                 <button
                   className="secondary-button"
                   disabled={busy}
@@ -370,14 +379,6 @@ export default function DayPanel({
                   <p>{m.content}</p>
                 </div>
               ))}
-              {inline && !questionOpen && !question && (
-                <button
-                  className="text-button"
-                  onClick={() => setQuestionOpen(true)}
-                >
-                  Frage stellen
-                </button>
-              )}
               {(!inline || questionOpen || question) && (
                 <form
                   data-escape-layer={inline ? "" : undefined}
@@ -412,31 +413,41 @@ export default function DayPanel({
                   </button>
                 </form>
               )}
-              {!state.aiAvailable && (
-                <div className="chatgpt-handoff">
+              <div className="chatgpt-handoff">
+                {inline && !questionOpen && !question && (
                   <button
-                    className="secondary-button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(prompt());
-                        setCopied(true);
-                      } catch {
-                        setError("Kopieren wurde vom Browser blockiert.");
-                      }
-                    }}
+                    className="text-button"
+                    onClick={() => setQuestionOpen(true)}
                   >
-                    <Copy size={14} />
-                    {copied ? "Für ChatGPT kopiert" : "Für ChatGPT kopieren"}
+                    Frage stellen
                   </button>
-                  <a
-                    href="https://chatgpt.com/"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    ChatGPT öffnen ↗
-                  </a>
-                </div>
-              )}
+                )}
+                {!state.aiAvailable && (
+                  <>
+                    <button
+                      className="secondary-button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(prompt());
+                          setCopied(true);
+                        } catch {
+                          setError("Kopieren wurde vom Browser blockiert.");
+                        }
+                      }}
+                    >
+                      <Copy size={14} />
+                      {copied ? "Für ChatGPT kopiert" : "Für ChatGPT kopieren"}
+                    </button>
+                    <a
+                      href="https://chatgpt.com/"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      ChatGPT öffnen ↗
+                    </a>
+                  </>
+                )}
+              </div>
             </details>
           </div>
         </div>
