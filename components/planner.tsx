@@ -4,6 +4,7 @@ import { changedTaskFields, applySeriesEdit } from "@/lib/series-edit";
 import { priorityOrder } from "@/lib/priority-order";
 import { goBackView, goForwardView, useViewHistory } from "@/lib/view-history";
 import Statistics from "./statistics";
+import PeriodReview from "./period-review";
 import { useAreaSelection } from "./use-area-selection";
 import {
   installHistory,
@@ -2707,6 +2708,27 @@ export default function Planner() {
             onConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
           />
         )}
+        <PeriodReview
+          state={state}
+          ready={!loading}
+          onAdd={async (title, day, tags, color) => {
+            const parsed = parseAppointmentInput(title, day);
+            const task = {
+              ...newTodo(
+                parsed.title || title,
+                parsed.plannedDate || day,
+                state.todos.length + 1,
+              ),
+              time: parsed.time || "",
+              duration: parsed.duration ?? (parsed.time ? 60 : null),
+              location: parsed.location || "",
+              description: parsed.description,
+              tags,
+              color: color || "green",
+            };
+            await mutate({ action: "save", todo: task });
+          }}
+        />
       </DndContext>
       {planning && (
         <AiPlanner

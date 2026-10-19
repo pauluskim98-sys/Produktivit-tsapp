@@ -1,7 +1,13 @@
 import { TASK_COLOR_VALUES, type TaskColor } from "./task-colors.ts";
 import { db } from "./db";
 import { isDateKey } from "./dates";
-import type { GoalCategory, GoalHorizon, GoalTarget } from "./goals";
+import {
+  validGoalRules,
+  type GoalRules,
+  type GoalCategory,
+  type GoalHorizon,
+  type GoalTarget,
+} from "./goals";
 export interface Friend {
   id: string;
   name: string;
@@ -34,6 +40,7 @@ export interface MealLog {
 }
 export interface LifeState {
   goalCategories?: GoalCategory[];
+  goalPeriodSettings?: GoalRules;
   hiddenGoalCategories?: string[];
   goalSettings?: Record<string, Partial<Record<GoalHorizon, GoalTarget>>>;
   whatsappImport?: { selected: Record<string, boolean>; seen: string[] };
@@ -101,6 +108,8 @@ export function saveLife(value: unknown) {
         Object.keys(s.goalSettings).length > 300))
   )
     throw new Error("Zielkategorien prüfen.");
+  if (!validGoalRules(s.goalPeriodSettings))
+    throw new Error("Zielzeiträume prüfen.");
   for (const [id, periods] of Object.entries(s.goalSettings || {})) {
     if (
       !goalId(id) ||

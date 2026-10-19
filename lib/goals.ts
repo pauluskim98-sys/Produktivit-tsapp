@@ -113,3 +113,98 @@ export function goalProgress(
     completedPercent: Math.min(100, (completed / target.target) * 100),
   };
 }
+
+/** Effective-dated targets carry forward. A later edit never rewrites an older period. */
+export type GoalRules = Record<
+  string,
+  Partial<Record<GoalHorizon, Record<string, GoalTarget>>>
+>;
+export type GoalSettings = {
+  goalSettings?: Record<string, Partial<Record<GoalHorizon, GoalTarget>>>;
+  goalPeriodSettings?: GoalRules;
+};
+export function goalTarget(
+  settings: GoalSettings,
+  id: string,
+  horizon: GoalHorizon,
+  anchor: string,
+) {
+  const start = goalRange(anchor, horizon).start;
+  const rules = settings.goalPeriodSettings?.[id]?.[horizon] || {};
+  const latest = Object.keys(rules)
+    .filter((day) => day <= start)
+    .sort()
+    .at(-1);
+  return latest ? rules[latest] : settings.goalSettings?.[id]?.[horizon];
+}
+export function setGoalTarget<T extends GoalSettings>(
+  settings: T,
+  id: string,
+  horizon: GoalHorizon,
+  anchor: string,
+  target: GoalTarget,
+  distribute = false,
+): T {
+  const rules = structuredClone(settings.goalPeriodSettings || {});
+  const put = (period: GoalHorizon, value: number) => {
+    const category = (rules[id] ||= {});
+    const dates = (category[period] ||= {});
+    dates[goalRange(anchor, period).start] = {
+      target: value,
+      unit: target.unit,
+    };
+  };
+  put(horizon, target.target);
+  // Deliberately use four weeks per month: 48 hours/year → 4/month → 1/week.
+  if (distribute && horizon === "year") {
+    put("month", target.target / 12);
+    put("week", target.target / 48);
+  } else if (distribute && horizon === "month") put("week", target.target / 4);
+  return { ...settings, goalPeriodSettings: rules };
+}
+export function validGoalRules(value: unknown): value is GoalRules | undefined {
+  if (value === undefined) return true;
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length > 300
+  )
+    return false;
+  let count = 0;
+  for (const [id, horizons] of Object.entries(value)) {
+    if (
+      !/^[\w-]{1,100}$/.test(id) ||
+      !horizons ||
+      typeof horizons !== "object" ||
+      Array.isArray(horizons)
+    )
+      return false;
+    for (const [horizon, rules] of Object.entries(horizons)) {
+      if (
+        !["week", "month", "year"].includes(horizon) ||
+        !rules ||
+        typeof rules !== "object" ||
+        Array.isArray(rules)
+      )
+        return false;
+      for (const [date, goal] of Object.entries(rules)) {
+        if (
+          ++count > 10000 ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          !Number.isFinite(+parseDate(date)) ||
+          dateKey(parseDate(date)) !== date ||
+          goalRange(date, horizon as GoalHorizon).start !== date ||
+          !goal ||
+          typeof goal !== "object" ||
+          !Number.isFinite(goal.target) ||
+          goal.target <= 0 ||
+          goal.target > 10000 ||
+          !["hours", "times"].includes(goal.unit)
+        )
+          return false;
+      }
+    }
+  }
+  return true;
+}

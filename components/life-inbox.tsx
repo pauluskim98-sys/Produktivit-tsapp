@@ -30,6 +30,8 @@ import { suggestionKey } from "@/lib/suggestion-refresh";
 import PriorityList from "./priority-list";
 import WhatsappConnection from "./whatsapp-connection";
 import GoalsPanel from "./goals-panel";
+import { categoryIcons } from "./category-icon";
+import { baseLifeTabs, lifeTabs } from "@/lib/life-tabs";
 type Suggestion = {
   id: string;
   title: string;
@@ -178,15 +180,7 @@ function PriorityLane({
     </section>
   );
 }
-const baseTabs = [
-  ["todo", "Todo"],
-  ["goals", "Ziele"],
-  ["food", "Essen"],
-  ["events", "Aktivitäten"],
-  ["social", "Beziehungen"],
-  ["sport", "Sport"],
-  ["weather", "Wetter"],
-];
+const baseTabs = baseLifeTabs;
 function InboxTab({
   id,
   namespace,
@@ -218,18 +212,7 @@ function InboxTab({
     disabled: editing,
   });
   const cancel = useRef(false);
-  const Icon =
-    (
-      {
-        todo: ListTodo,
-        goals: Target,
-        food: Utensils,
-        events: CalendarDays,
-        social: Heart,
-        sport: Dumbbell,
-        weather: CloudSun,
-      } as Record<string, typeof Bookmark>
-    )[id] || Bookmark;
+  const Icon = categoryIcons[id] || Bookmark;
   return (
     <span
       ref={drag.setNodeRef}
@@ -407,23 +390,7 @@ export default function LifeInbox({
       return false;
     }
   }
-  const tabs = [
-    ...baseTabs,
-    ...(life?.rhythms || []).filter((r) => !r.tabId).map((r) => [r.id, r.name]),
-  ]
-    .filter(([id]) => !life?.hidden.includes(id))
-    .sort((a, b) => {
-      const order = life?.tabOrder || [];
-      const rank = (id: string) =>
-        order.includes(id)
-          ? order.indexOf(id)
-          : order.length +
-            (baseTabs.some(([x]) => x === id)
-              ? baseTabs.findIndex(([x]) => x === id)
-              : baseTabs.length +
-                (life?.rhythms.findIndex((r) => r.id === id) || 0));
-      return rank(a[0]) - rank(b[0]);
-    });
+  const tabs = life ? lifeTabs(life) : baseTabs;
   useEffect(() => {
     const reorder = (event: Event) => {
       const { active, over, scope } = (event as CustomEvent).detail;

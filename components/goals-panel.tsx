@@ -1,16 +1,39 @@
 "use client";
 import { useEffect, useRef, useState, useId } from "react";
 import { useDroppable } from "@dnd-kit/core";
-import { Plus, X, Target } from "lucide-react";
+import { Plus, X, Target, ChevronDown, GitBranch } from "lucide-react";
+import CategoryIcon from "./category-icon";
 import type { LifeState } from "@/lib/life";
 import type { Todo, CalendarEvent } from "@/lib/types";
 import {
   goalRange,
+  goalTarget,
+  setGoalTarget,
   goalProgress,
   type GoalCategory,
   type GoalHorizon,
   type GoalTarget,
 } from "@/lib/goals";
+// Serialize goal edits across the sidebar, shelf and review; merge into fresh state.
+let goalWrites: Promise<unknown> = Promise.resolve();
+function queueGoalWrite(
+  save: (life: LifeState) => Promise<boolean>,
+  update: (life: LifeState) => LifeState,
+) {
+  const job = goalWrites
+    .catch(() => {})
+    .then(async () => {
+      try {
+        const response = await fetch("/api/life");
+        if (!response.ok) return false;
+        return await save(update(await response.json()));
+      } catch {
+        return false;
+      }
+    });
+  goalWrites = job;
+  return job;
+}
 function GoalRow({
   category,
   setting,
@@ -21,6 +44,7 @@ function GoalRow({
   now,
   onSave,
   onRemove,
+  onDistribute,
 }: {
   category: GoalCategory;
   setting?: GoalTarget;
@@ -31,6 +55,7 @@ function GoalRow({
   now: Date;
   onSave: (value: GoalTarget) => Promise<unknown>;
   onRemove: () => void;
+  onDistribute?: (value: GoalTarget) => Promise<unknown>;
 }) {
   const dropId = useId();
   const drop = useDroppable({
@@ -85,6 +110,7 @@ function GoalRow({
           className="goal-name"
           title={`Aufgaben hierher ziehen oder mit „${category.name}“ taggen.`}
         >
+          <CategoryIcon id={category.id} />
           {category.name}
         </span>
         <input
@@ -100,14 +126,36 @@ function GoalRow({
             }
           }}
         />
-        <select
-          aria-label={`${category.name}: Einheit`}
-          value={unit}
-          onChange={(e) => setUnit(e.target.value as GoalTarget["unit"])}
-        >
-          <option value="hours">Std.</option>
-          <option value="times">Mal</option>
-        </select>
+        <span className="goal-unit">
+          <select
+            aria-label={`${category.name}: Einheit`}
+            value={unit}
+            onChange={(e) => setUnit(e.target.value as GoalTarget["unit"])}
+          >
+            <option value="hours">Std.</option>
+            <option value="times">Mal</option>
+          </select>
+          <ChevronDown size={10} />
+        </span>
+        {onDistribute && (
+          <button
+            className="icon-button goal-distribute"
+            aria-label={`${category.name}: Ziel automatisch verteilen`}
+            title="Auf kleinere Zeiträume verteilen · 12 Monate, 4 Wochen pro Monat"
+            onClick={() => {
+              const target = Number(amount.replace(",", "."));
+              if (Number.isFinite(target) && target > 0 && target <= 10000) {
+                const value = { target, unit };
+                last.current = JSON.stringify(value);
+                void onDistribute(value).then((ok) => {
+                  if (!ok) last.current = "";
+                });
+              }
+            }}
+          >
+            <GitBranch size={13} />
+          </button>
+        )}
         <button
           className="icon-button"
           aria-label={`${category.name}: Zielkategorie entfernen`}
@@ -138,14 +186,15 @@ function GoalRow({
           </>
         )}
       </div>
-      <small>
-        {number(progress.completed)} vergangen / erledigt{" "}
-        <span>
-          · {number(progress.planned)} eingeplant
-          {setting
-            ? ` / ${number(setting.target)} ${unit === "hours" ? "Std." : "Mal"}`
-            : ""}
-        </span>
+      <small
+        title={`${number(progress.completed)} ${unit === "hours" ? "Std." : "Mal"} vergangen oder erledigt · ${number(progress.planned)} eingeplant`}
+      >
+        {setting
+          ? `${number(progress.completed)} / ${number(setting.target)} ${unit === "hours" ? "Std." : "Mal"}`
+          : ""}
+        {setting && progress.completedPercent >= 100 && (
+          <span className="goal-achieved"> ✓</span>
+        )}
       </small>
     </div>
   );
@@ -157,6 +206,7 @@ export default function GoalsPanel({
   events,
   anchor,
   save,
+  initialHorizon = "week",
 }: {
   life: LifeState;
   tabs: string[][];
@@ -164,11 +214,13 @@ export default function GoalsPanel({
   events: CalendarEvent[];
   anchor: string;
   save: (life: LifeState) => Promise<boolean>;
+  initialHorizon?: GoalHorizon;
 }) {
-  const [horizon, setHorizon] = useState<GoalHorizon>("week"),
+  const [horizon, setHorizon] = useState<GoalHorizon>(initialHorizon),
     [name, setName] = useState(""),
     [adding, setAdding] = useState(false),
-    [now, setNow] = useState(new Date());
+    [now, setNow] = useState(new Date()),
+    [notice, setNotice] = useState("");
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(id);
@@ -213,23 +265,40 @@ export default function GoalsPanel({
         <GoalRow
           key={`${horizon}:${category.id}`}
           category={category}
-          setting={life.goalSettings?.[category.id]?.[horizon]}
+          setting={goalTarget(life, category.id, horizon, anchor)}
           todos={todos}
           events={events}
           life={life}
           range={range}
           now={now}
           onSave={(value) =>
-            save({
-              ...life,
-              goalSettings: {
-                ...life.goalSettings,
-                [category.id]: {
-                  ...life.goalSettings?.[category.id],
-                  [horizon]: value,
-                },
-              },
-            })
+            queueGoalWrite(save, (current) =>
+              setGoalTarget(current, category.id, horizon, anchor, value),
+            )
+          }
+          onDistribute={
+            horizon !== "week"
+              ? async (value) => {
+                  const ok = await queueGoalWrite(save, (current) =>
+                    setGoalTarget(
+                      current,
+                      category.id,
+                      horizon,
+                      anchor,
+                      value,
+                      true,
+                    ),
+                  );
+                  setNotice(
+                    ok
+                      ? horizon === "year"
+                        ? `${category.name}: ${Number((value.target / 12).toFixed(2)).toLocaleString("de-DE")} ${value.unit === "hours" ? "Std." : "Mal"}/Monat · ${Number((value.target / 48).toFixed(2)).toLocaleString("de-DE")} ${value.unit === "hours" ? "Std." : "Mal"}/Woche`
+                        : `${category.name}: ${Number((value.target / 4).toFixed(2)).toLocaleString("de-DE")} ${value.unit === "hours" ? "Std." : "Mal"}/Woche`
+                      : "Das Ziel konnte nicht gespeichert werden.",
+                  );
+                  return ok;
+                }
+              : undefined
           }
           onRemove={() =>
             void save({
@@ -242,6 +311,11 @@ export default function GoalsPanel({
           }
         />
       ))}
+      {notice && (
+        <small className="goal-distribution-notice" role="status">
+          {notice}
+        </small>
+      )}
       {adding ? (
         <form
           className="goal-add"

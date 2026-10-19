@@ -7408,3 +7408,99 @@ button[hidden] {
 .auto-plan-button:hover:not(:disabled) { background:var(--green-soft); border-color:var(--green); }
 .auto-plan-button:disabled { opacity:.45; cursor:default; }
 .detail-auto-plan { margin:0 0 10px; }
+
+/* Quiet, persistent goals and the end-of-period review. */
+.goal-name { display:flex; align-items:center; gap:7px; }
+.goal-name svg { flex-shrink:0; color:var(--green); opacity:.8; }
+.goal-unit { position:relative; display:flex; align-items:center; }
+.goal-row-main .goal-unit select { appearance:none; padding-right:12px; width:43px; cursor:pointer; }
+.goal-unit > svg { position:absolute; right:2px; pointer-events:none; opacity:.24; transition:opacity 150ms; }
+.goal-row-main > .icon-button { opacity:.22; transition:opacity 150ms; }
+.goal-row:hover .icon-button,.goal-row:focus-within .icon-button,.goal-row:hover .goal-unit > svg,.goal-row:focus-within .goal-unit > svg { opacity:1; }
+.goal-row > small { text-align:right; font-variant-numeric:tabular-nums; min-height:0; }
+.goal-row > small:empty { display:none; }
+.goal-row > small .goal-achieved { color:var(--green); }
+.review-open-button { margin:0 0 12px; font-size:12px; }
+.period-review-backdrop { position:fixed; inset:0; z-index:190; background:#16271e66; backdrop-filter:blur(9px); display:grid; place-items:center; padding:24px; }
+.period-review-dialog { --review-accent:#bce5bd; width:min(100%,1000px); max-height:calc(100dvh - 48px); overflow:auto; background:var(--surface); border:1px solid var(--line); border-radius:23px; box-shadow:0 30px 100px #10251b40; animation:review-arrive 260ms ease-out both; overscroll-behavior:contain; }
+.review-topline { position:sticky; top:0; z-index:2; background:var(--surface); border-bottom:1px solid var(--line); padding:13px 21px; display:flex; align-items:center; gap:12px; }
+.review-topline > span { display:flex; align-items:center; gap:8px; color:var(--green); font-size:13px; font-weight:600; }
+.review-topline nav { margin-left:auto; display:flex; gap:5px; }
+.review-topline nav button { border:0; background:transparent; color:var(--secondary); font-size:11px; padding:6px 10px; border-radius:20px; }
+.review-topline nav button[aria-pressed="true"] { background:var(--green-soft); color:var(--green); }
+.review-layout { display:grid; grid-template-columns:minmax(280px,.85fr) minmax(0,1.35fr); }
+.review-reflection { background:radial-gradient(ellipse at 10% 0%,#5d8768 0,transparent 68%),#263e33; color:#f2f6ee; padding:28px; position:relative; }
+.review-eyebrow { display:block; text-transform:uppercase; letter-spacing:.12em; font-size:9px; opacity:.7; }
+.review-reflection h2 { margin:15px 0 23px; font-size:30px; line-height:1.16; letter-spacing:-1px; font-weight:550; }
+.review-reflection h2 em { font-weight:400; color:#d2e4cd; font-style:normal; }
+.review-ring { position:relative; width:132px; height:132px; border-radius:50%; padding:7px; margin:0 auto 24px; }
+.review-ring > div { height:100%; border-radius:50%; background:#304b3c; display:flex; flex-direction:column; justify-content:center; align-items:center; }
+.review-ring strong { font-size:38px; line-height:1.2; font-weight:500; font-variant-numeric:tabular-nums; }
+.review-ring strong small { font-size:17px; opacity:.65; margin-left:2px; }
+.review-ring span { font-size:10px; color:#e0eddb; }
+.review-ring-check { position:absolute; right:0; bottom:5px; background:var(--review-accent); color:#244132; border-radius:50%; padding:4px; width:29px; height:29px; }
+.review-ring.is-complete { box-shadow:0 0 36px #bce5bd38; }
+.review-metrics { display:grid; grid-template-columns:1fr 1fr; gap:12px; border-top:1px solid #ffffff22; border-bottom:1px solid #ffffff22; padding:15px 0; }
+.review-metrics > div { display:grid; grid-template-columns:18px 1fr; gap:4px 7px; align-items:center; }
+.review-metrics strong { font-weight:500; font-size:21px; }
+.review-metrics strong small { font-size:13px; opacity:.6; }
+.review-metrics span { grid-column:1/-1; font-size:10px; color:#d2dfd2; }
+.review-encouragement { color:#dce8d9; font-size:12px; line-height:1.65; margin:18px 0; }
+.review-goal-results > div { display:flex; gap:8px; align-items:center; margin:13px 0; color:#dfecdc; font-size:11px; }
+.review-goal-results > div > span { flex:1; }
+.review-goal-results small { font-size:10px; white-space:nowrap; }
+.review-goal-results i,.review-time > i { display:block; height:3px; background:#ffffff20; border-radius:8px; margin-top:6px; overflow:hidden; }
+.review-goal-results b,.review-time b { display:block; height:100%; background:var(--review-accent); border-radius:8px; }
+.review-time { border-top:1px solid #ffffff22; margin-top:20px; padding-top:15px; display:flex; flex-wrap:wrap; justify-content:space-between; gap:7px; font-size:10px; color:#d9e6d4; }
+.review-time > i { width:100%; margin:0; }
+.review-time small { font-size:9px; opacity:.65; }
+.review-next { padding:26px 28px 20px; min-width:0; }
+.review-next-heading .review-eyebrow { color:var(--green); opacity:1; }
+.review-next h3 { margin:8px 0; font-size:23px; font-weight:500; letter-spacing:-.6px; }
+.review-next-heading p { font-size:11px; color:var(--secondary); line-height:1.6; margin:0 0 17px; }
+.review-next .goals-panel { border:1px solid var(--line); border-radius:13px; padding:12px 15px; background:var(--bg); }
+.review-next .goal-row { padding:7px 0; }
+.review-task-planning { margin-top:22px; }
+.review-task-planning h4 { font-size:13px; font-weight:500; margin:0 0 10px; }
+.review-category-tabs { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }
+.review-category-tabs button { display:flex; align-items:center; gap:5px; background:var(--bg); color:var(--secondary); border:1px solid var(--line); border-radius:20px; padding:6px 9px; font-size:10px; }
+.review-category-tabs button[aria-pressed="true"] { background:var(--green-soft); border-color:var(--green); color:var(--green); }
+.review-task-planning form { display:flex; align-items:center; border:1px solid var(--line); border-radius:10px; background:var(--bg); padding:5px; }
+.review-task-planning form input { flex:1; width:0; min-width:0; border:0; background:transparent; padding:8px; font-size:12px; }
+.review-task-planning form button { display:grid; place-items:center; padding:7px; border:0; border-radius:7px; color:var(--green); background:var(--green-soft); }
+.review-next-tasks { max-height:140px; overflow:auto; }
+.review-next-tasks > div { display:flex; align-items:center; gap:6px; font-size:11px; padding:9px 2px; border-bottom:1px solid var(--line); }
+.review-next-tasks > div > span { flex:1; }
+.review-next-tasks small { font-size:9px; color:var(--secondary); }
+.review-next footer { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:24px; }
+.review-next footer span { font-size:9px; color:var(--secondary); }
+.review-next footer button { display:flex; align-items:center; gap:9px; font-size:11px; padding:9px 12px; border-radius:20px; }
+.review-error { font-size:12px; color:var(--red); }
+.review-error button { text-decoration:underline; border:0; background:transparent; }
+@keyframes review-arrive { from { opacity:0; transform:translateY(15px) scale(.99); } to { opacity:1; transform:none; } }
+@media(max-width:680px) { .period-review-backdrop {padding:10px;} .period-review-dialog {max-height:calc(100dvh - 20px);border-radius:16px;} .review-layout {grid-template-columns:1fr;} .review-reflection {padding:22px;} .review-reflection h2 {font-size:25px;} .review-next {padding:22px;} .review-ring {width:115px;height:115px;} }
+@media(prefers-reduced-motion:reduce) { .period-review-dialog {animation:none;} }
+.goal-row { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:9px; align-items:center; }
+.goal-row-main { grid-column:1/-1; }
+.goal-track { margin:6px 0 1px; height:4px; }
+.goal-row > small { font-size:9px; line-height:1; margin-top:5px; }
+.goal-distribution-notice { display:block; margin:9px 0 3px; color:var(--green); font-size:10px; line-height:1.4; }
+.review-next .goal-row { padding:6px 0; }
+@media(min-width:681px) {
+  .period-review-dialog { overflow:hidden; }
+  .review-layout { max-height:calc(100dvh - 106px); }
+  .review-reflection,.review-next { overflow:auto; overscroll-behavior:contain; }
+  .review-next footer { position:sticky; bottom:-20px; background:var(--surface); padding:12px 0 3px; margin-top:12px; }
+}
+@media(min-width:681px) {
+  .review-layout { height:min(700px,calc(100dvh - 106px)); grid-template-rows:minmax(0,1fr); }
+  .review-reflection,.review-next { min-height:0; }
+}
+.review-next { padding-top:22px; }
+.review-next-heading p { margin-bottom:12px; }
+.review-next .goal-row { padding:4px 0; }
+.review-next .goal-track { margin:3px 0 0; }
+.review-next .goal-row > small { margin-top:2px; font-size:8px; }
+.review-next .goals-panel .todo-horizons button { padding-top:5px; padding-bottom:5px; }
+.review-next .goals-period { margin:7px 0 2px; }
+.review-next .review-task-planning { margin-top:16px; }

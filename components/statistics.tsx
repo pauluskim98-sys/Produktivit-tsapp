@@ -71,6 +71,16 @@ export default function Statistics({
         </small>
         <ChevronDown className="statistics-chevron" size={16} />
       </summary>
+      <button
+        className="text-button review-open-button"
+        onClick={() =>
+          window.dispatchEvent(
+            new CustomEvent("lifemap-review", { detail: { anchor, kind } }),
+          )
+        }
+      >
+        Rückblick & nächste Ziele
+      </button>
       <div className="stat-grid">
         <article>
           <small>Erledigt</small>
