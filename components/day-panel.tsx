@@ -1,5 +1,7 @@
 "use client";
 import { useAutosaveText } from "./use-autosave-text";
+import PlannerNotepad from "./planner-notepad";
+import NoteHeading from "./note-heading";
 import { totalDuration } from "@/lib/schedule";
 import { useDraggable } from "@dnd-kit/core";
 import { periodRange } from "@/lib/calendar-interactions";
@@ -34,6 +36,8 @@ export default function DayPanel({
   renderTasks,
   shelf,
   inline = false,
+  inlineNoteKey,
+  onNoteStep,
   onDay,
   state,
   onClose,
@@ -47,6 +51,8 @@ export default function DayPanel({
   shelf?: React.ReactNode;
   onExtend?: (todo: Todo, days: string[]) => Promise<void>;
   inline?: boolean;
+  inlineNoteKey?: string;
+  onNoteStep?: (direction:number)=>void;
   onDay?: (day: string) => void;
   day: string;
   state: AppState;
@@ -84,9 +90,9 @@ export default function DayPanel({
         : range.kind === "year"
           ? "Jahresübersicht"
           : "Tagesübersicht";
-  const noteKey = inline ? "storage" : day;
+  const noteKey = inline ? inlineNoteKey || "storage" : day;
   const noteLabel = inline
-    ? "Notizen"
+    ? `${noteKey.startsWith("week:") ? "Wochen" : noteKey.startsWith("month:") ? "Monats" : "Tages"}notizen`
     : range.kind === "week"
       ? "Wochennotiz"
       : range.kind === "month"
@@ -298,19 +304,18 @@ export default function DayPanel({
               {shelf}
             </div>
             <div className="period-notes-column">
-              <h3>{noteLabel}</h3>
-              <textarea
-                className="day-notepad"
-                onBlur={() => {
-                  if (note !== (state.dayNotes[noteKey] || "")) void saveNote();
-                }}
-                aria-label={noteLabel}
+              <NoteHeading label={noteLabel} />
+              <PlannerNotepad
+                onStep={onNoteStep}
+                noteDate={noteKey}
+                tasks={state.todos}
+                onTaskOpen={onOpen}
+                onBlur={saveNote}
+                label={noteLabel}
                 value={note}
-                onChange={(e) => {
-                  setNote(e.target.value);
+                onChange={(value) => {
+                  setNote(value);
                 }}
-                maxLength={10000}
-                placeholder="Notizen, Gedanken, Ziele …"
               />
             </div>
           </div>

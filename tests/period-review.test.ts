@@ -148,7 +148,7 @@ test("persisted goal rules reject invalid periods, values, arrays and malformed 
   assert.equal(validGoalRules(undefined), true);
   assert.equal(
     validGoalRules(
-      setGoalTarget({}, "sport", "week", "2026-10-19", target(1))
+      setGoalTarget({} as GoalSettings, "sport", "week", "2026-10-19", target(1))
         .goalPeriodSettings,
     ),
     true,

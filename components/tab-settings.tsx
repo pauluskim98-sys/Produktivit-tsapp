@@ -1,5 +1,8 @@
 "use client";
 import { useState } from "react";
+import { categoryColor } from "@/lib/planner-categories";
+import { tabEmoji } from "@/lib/tab-emoji";
+import TabEmojiPicker from "./tab-emoji-picker";
 import ColorPicker from "./task-color-picker";
 import type { TaskColor } from "@/lib/task-colors";
 import { useDialog } from "./use-dialog";
@@ -28,8 +31,9 @@ export default function TabSettings({
       (initial?.links || rhythm?.links || []).join("\n"),
     ),
     [defaultColor, setDefaultColor] = useState<TaskColor>(
-      initial?.defaultColor || "green",
+      initial?.defaultColor || categoryColor(id),
     ),
+    [emoji, setEmoji] = useState(initial?.emoji || ""),
     [days, setDays] = useState(rhythm?.days || 7),
     [target, setTarget] = useState(rhythm?.target || 1),
     [busy, setBusy] = useState(false),
@@ -38,6 +42,7 @@ export default function TabSettings({
   async function close() {
     setBusy(true);
     try {
+      if(emoji.trim() && !tabEmoji(emoji.trim())){setError("Bitte ein einzelnes Emoji wählen.");return;}
       const urls = links.split(/\s+/).filter(Boolean);
       if (urls.some((x) => !/^https:\/\//.test(x))) {
         setError("Bitte vollständige https://-Adressen verwenden.");
@@ -48,7 +53,7 @@ export default function TabSettings({
           ...life,
           tabSettings: {
             ...life.tabSettings,
-            [id]: { ...initial, online, links: urls, defaultColor },
+            [id]: { ...initial, online, links: urls, defaultColor, emoji:emoji.trim() || undefined },
           },
           rhythms: life.rhythms.map((r) =>
             r.id === id ? { ...r, online, links: urls, days, target } : r,
@@ -94,10 +99,11 @@ export default function TabSettings({
           🌐
         </button>
         <ColorPicker
-          label="Standardfarbe für Aufgaben"
+          label="Reiterfarbe und Standardfarbe für Aufgaben"
           value={defaultColor}
           onChange={setDefaultColor}
         />
+        <TabEmojiPicker value={emoji} onChange={setEmoji} color={defaultColor}/>
         <label>
           Websites
           <textarea

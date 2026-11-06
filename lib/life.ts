@@ -1,4 +1,5 @@
 import { TASK_COLOR_VALUES, type TaskColor } from "./task-colors.ts";
+import { tabEmoji } from "./tab-emoji.ts";
 import { db } from "./db";
 import { isDateKey } from "./dates";
 import {
@@ -54,12 +55,9 @@ export interface LifeState {
   groups: { id: string; name: string }[];
   tabSettings: Record<
     string,
-    { online?: boolean; links?: string[]; defaultColor?: TaskColor }
+    { online?: boolean; links?: string[]; defaultColor?: TaskColor; icon?:string; emoji?:string }
   >;
 }
-db.exec(
-  "CREATE TABLE IF NOT EXISTS LifeState (id INTEGER PRIMARY KEY, content TEXT NOT NULL)",
-);
 export function getLife(): LifeState {
   const row = db.prepare("SELECT content FROM LifeState WHERE id=1").get();
   const s = row
@@ -221,6 +219,9 @@ export function saveLife(value: unknown) {
   )
     throw new Error("Gruppen prüfen.");
   for (const setting of Object.values(s.tabSettings)) {
+    if(setting.emoji!==undefined && (typeof setting.emoji!=="string" || !tabEmoji(setting.emoji)))throw new Error("Bitte ein einzelnes Emoji wählen.");
+    if(setting.icon!==undefined && !["bookmark","star","book","music","home","heart","sport","work","food","art"].includes(setting.icon))
+      throw new Error("Reitersymbol prüfen.");
     if (
       setting.defaultColor !== undefined &&
       !TASK_COLOR_VALUES.includes(setting.defaultColor)

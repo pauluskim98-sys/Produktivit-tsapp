@@ -1,12 +1,14 @@
+import { accountRoute } from "@/lib/account-route";
 import { db, USER } from "@/lib/db";
 import { periodRange } from "@/lib/calendar-interactions";
 import { sameOrigin, errorResponse } from "@/lib/validation";
-export async function POST(request: Request) {
+import { isNotebookFolder, notebookFolder } from "@/lib/notebook";
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const { date, content } = await request.json();
     if (
-      (date !== "inbox" && date !== "storage" && !periodRange(date)) ||
+      (typeof date !== "string" || (date !== "inbox" && date !== "storage" && !periodRange(date) && !notebookFolder(date) && !isNotebookFolder(date))) ||
       typeof content !== "string" ||
       content.length > 10000
     )
@@ -19,3 +21,5 @@ export async function POST(request: Request) {
     return errorResponse(e);
   }
 }
+
+export const POST = accountRoute(handlePOST);

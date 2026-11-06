@@ -619,6 +619,43 @@ test("Gewählte Gerichte und Drag-and-drop-Termine erfassen Essen samt Datum und
   );
 });
 
+test("Importierte Einzeltermine und Serien lassen sich wieder einblenden", async () => {
+  const day = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const name = "QA " + crypto.randomUUID();
+  const content = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:" + name,
+    `DTSTART:${day}T100000Z`, `DTEND:${day}T110000Z`,
+    "RRULE:FREQ=DAILY;COUNT=2", "SUMMARY:Verlaufstest", "END:VEVENT",
+    "BEGIN:VEVENT", "UID:standalone-a", `DTSTART:${day}T120000Z`, `DTEND:${day}T130000Z`,
+    "SUMMARY:Verlaufstest", "END:VEVENT",
+    "BEGIN:VEVENT", "UID:standalone-b", `DTSTART:${day}T140000Z`, `DTEND:${day}T150000Z`,
+    "SUMMARY:Verlaufstest", "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  assert.equal((await request("/api/calendar", {action:"connect",name,content})).status, 200);
+  const state = (await request("/api/state")).data;
+  const { id } = state.connections.find((connection) => connection.name === name);
+  const occurrences = async () => (await request("/api/state")).data.events.filter((event) => event.connectionId === id);
+  try {
+    const events = await occurrences();
+    assert.equal(events.length, 4);
+    for (const scope of ["event", "series", "title"]) {
+      const eventId = events.find((event) => Boolean(event.seriesId) === (scope!=="title")).id;
+      const removed = await request("/api/calendar-edit", { action:"event", id, eventId, scope, hidden:true, title:"Ungespeicherter Entwurf", color:"#123456" });
+      assert.equal(removed.status, 200);
+      const remaining=events.filter((event)=>scope==="event"?event.id!==eventId:scope==="series"?!event.seriesId:event.seriesId);
+      assert.deepEqual(await occurrences(), remaining);
+      const command = { action:"deletion-history", ...removed.data.deletedRule };
+      assert.equal((await request("/api/calendar-edit", { ...command, redo:false })).status, 200);
+      assert.deepEqual(await occurrences(), events);
+      assert.equal((await request("/api/calendar-edit", { ...command, redo:true })).status, 200);
+      assert.deepEqual(await occurrences(), remaining);
+      assert.equal((await request("/api/calendar-edit", { ...command, redo:false })).status, 200);
+    }
+  } finally {
+    await request("/api/calendar", {action:"disconnect",id});
+  }
+});
+
 test("Kalender entfernen, per Verlauf wiederherstellen und erneut entfernen", async () => {
   const ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:history-test\r\nDTSTART:20261015T100000Z\r\nDTEND:20261015T110000Z\r\nSUMMARY:History calendar\r\nEND:VEVENT\r\nEND:VCALENDAR";

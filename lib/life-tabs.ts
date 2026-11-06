@@ -6,12 +6,15 @@ export const baseLifeTabs = [
   ["events", "Aktivitäten"],
   ["social", "Beziehungen"],
   ["sport", "Sport"],
+  ["hobbies", "Hobbies"],
+  ["learning", "Lernen"],
+  ["work", "Arbeit"],
   ["weather", "Wetter"],
 ];
 export function lifeTabs(life: LifeState): string[][] {
   const tabs = [
     ...baseLifeTabs,
-    ...life.rhythms.filter((r) => !r.tabId).map((r) => [r.id, r.name]),
+    ...life.rhythms.filter((r) => !r.tabId && !baseLifeTabs.some(([, name]) => name.toLocaleLowerCase("de") === r.name.toLocaleLowerCase("de"))).map((r) => [r.id, r.name]),
   ];
   const rank = (id: string) =>
     life.tabOrder.includes(id)

@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import {
   calendarSnapshot,
   rememberCalendar,
@@ -81,7 +82,7 @@ async function handlePost(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const body = await request.clone().json();
@@ -100,3 +101,5 @@ export async function POST(request: Request) {
     return errorResponse(e);
   }
 }
+
+export const POST = accountRoute(handlePOST);

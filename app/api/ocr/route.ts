@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import { cleanScreenshotText } from "@/lib/ocr-text";
 import { createWorker, type Worker } from "tesseract.js";
 import { mkdir } from "node:fs/promises";
@@ -6,7 +7,7 @@ import { sameOrigin } from "@/lib/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 let active = false;
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let worker: Worker | undefined;
   let acquired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -74,3 +75,5 @@ export async function POST(request: Request) {
     if (acquired) active = false;
   }
 }
+
+export const POST = accountRoute(handlePOST);

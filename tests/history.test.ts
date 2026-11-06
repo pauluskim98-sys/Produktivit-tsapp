@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyHistoryDelta } from "../lib/history-delta.ts";
+import { historyValues, mutationResponse } from "../lib/mutation-history.ts";
+test("record history accepts SQLite row snapshots and protects newer changes",()=>{
+  const before={name:"Vorher",color:"#123456"};
+  const after={...before,name:"Nachher"};
+  const stored=Object.assign(Object.create(null),after);
+  const change={id:"calendar",before,after};
+  assert.equal(mutationResponse({ok:true},{...change,before:stored}).headers.get("X-Lifemap-History"),null);
+  assert.deepEqual(historyValues(change,false,stored),before);
+  assert.deepEqual(historyValues(change,true,before),after);
+  assert.throws(()=>historyValues(change,false,{...after,name:"Neuerer Stand"}),/inzwischen/);
+});
 test("undo/redo changes only edited fields and keeps new contact timestamps", () => {
   const before = {
     friends: [

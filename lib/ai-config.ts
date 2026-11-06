@@ -6,23 +6,22 @@ import {
   chmodSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-const file = join(
-  dirname(
-    process.env.DATABASE_PATH || join(process.cwd(), "data", "raum.sqlite"),
-  ),
-  "ai-config.json",
-);
+import { accountDataPath } from "./db";
+import { accountConfig } from "./private-account";
+const keyFile = () => join(accountDataPath(), "ai-config.json");
 export function getApiKey() {
+  const fallback = accountConfig().mode === "local" ? process.env.OPENAI_API_KEY || "" : "";
   try {
-    const data = JSON.parse(readFileSync(file, "utf8"));
+    const data = JSON.parse(readFileSync(keyFile(), "utf8"));
     return typeof data.key === "string" && data.key
       ? data.key
-      : process.env.OPENAI_API_KEY || "";
+      : fallback;
   } catch {
-    return process.env.OPENAI_API_KEY || "";
+    return fallback;
   }
 }
 export function saveApiKey(key: string) {
+  const file = keyFile();
   mkdirSync(dirname(file), { recursive: true });
   const temp = file + ".tmp";
   writeFileSync(temp, JSON.stringify({ key }), { mode: 0o600 });

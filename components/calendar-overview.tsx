@@ -10,6 +10,7 @@ import { periodRange } from "@/lib/calendar-interactions";
 import PeriodTask from "./period-task";
 import { TASK_COLOR_HEX } from "@/lib/task-colors";
 import { calendarTitle } from "@/lib/calendar-title";
+import { taskDay } from "@/lib/planner-day";
 const dow = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 type Props = {
   period: string;
@@ -23,6 +24,8 @@ type Props = {
   }) => void;
   large?: boolean;
   onOpen?: (id: string) => void;
+  onToggle?: (todo: Todo) => void;
+  onImportance?: (todo:Todo,important:boolean)=>void;
   onExtend?: (todo: Todo, days: string[]) => Promise<void>;
   onCreate?: (day: string) => void;
 };
@@ -39,6 +42,7 @@ export function CalendarOverview(props: Props) {
   return (
     <div
       className={`calendar-overview ${props.large ? "calendar-overview-large" : ""} ${annual ? "annual-overview" : ""}`}
+      tabIndex={props.large ? 0 : undefined}
     >
       {range.kind === "week" ? (
         <section className="mini-month">
@@ -121,13 +125,13 @@ function DateCell({
     data: { kind: "periodday", day },
   });
   const [tip, setTip] = useState<{ x: number; y: number } | null>(null);
-  const own = props.todos.filter((t) => t.plannedDate === day);
+  const own = props.todos.filter((t) => taskDay(t) === day);
   const all = [
     ...own.map((t) => ({
       id: t.id,
       title: t.title,
       time: t.time,
-      color: TASK_COLOR_HEX[t.color || "green"],
+      color: t.calendarGroupColor || TASK_COLOR_HEX[t.color || "green"],
       detail: `${t.title}${t.time ? `\n${t.time} · ${t.duration || 60} Min.` : ""}${t.description ? `\n${t.description}` : ""}`,
       todo: t,
       taskIds: [t.id],
@@ -154,10 +158,9 @@ function DateCell({
       (a.time || "00:00").localeCompare(b.time || "00:00") ||
       a.title.localeCompare(b.title),
   );
-  const high = own.some((t) => t.priority === "high" && !t.done);
   const monthEntries = Array.from(
     all.reduce((entries, entry) => {
-      const key = eventBlockTitle(entry.title).toLocaleLowerCase("de-DE");
+      const key = entry.todo ? `task:${eventBlockTitle(entry.title).toLocaleLowerCase("de-DE")}` : `event:${entry.id}`;
       const existing = entries.get(key);
       if (existing) {
         existing.detail += `\n\n${entry.detail}`;
@@ -180,7 +183,8 @@ function DateCell({
     <div
       ref={setNodeRef}
       data-calendar-date={day}
-      className={`mini-date ${isOver ? "mini-date-over" : ""} ${high ? "has-high" : ""} ${day === dateKey(new Date()) ? "is-today" : ""}`}
+      data-task-flag={own.some((task)=>task.priority==="high")?"red":own.some((task)=>task.priority==="medium")?"yellow":undefined}
+      className={`mini-date ${isOver ? "mini-date-over" : ""} ${day === dateKey(new Date()) ? "is-today" : ""}`}
       onClick={(e) => {
         if (!(e.target as HTMLElement).closest("button")) props.onPick(day);
       }}
@@ -272,11 +276,14 @@ function DateCell({
                 selectionIds={e.taskIds}
                 todo={e.todo}
                 onOpen={props.onOpen || (() => {})}
+                onToggle={props.onToggle}
                 onExtend={props.onExtend}
+                onImportance={props.onImportance ? (important)=>props.onImportance?.(e.todo!,important) : undefined}
               />
             ) : (
               <div
                 data-calendar-event={e.id}
+                data-task-id={e.id}
                 className="month-event"
                 key={e.id}
                 title={e.detail}

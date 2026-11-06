@@ -1,7 +1,8 @@
+import { accountRoute } from "@/lib/account-route";
 import { getApiKey, saveApiKey } from "@/lib/ai-config";
 import { sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const { key } = await request.json();
@@ -27,3 +28,5 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = accountRoute(handlePOST);

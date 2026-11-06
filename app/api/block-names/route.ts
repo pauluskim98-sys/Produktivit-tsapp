@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import { db, getEvents, getTodos, putTodo, transaction, USER } from "@/lib/db";
 import { sameOrigin, errorResponse } from "@/lib/validation";
 import type { Todo } from "@/lib/types";
@@ -7,7 +8,7 @@ type Snapshot = {
   todos: { id: string; title: string }[];
   aliases: { originalTitle: string; title: string | null }[];
 };
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const body = await request.json();
@@ -123,3 +124,5 @@ export async function POST(request: Request) {
     return errorResponse(error);
   }
 }
+
+export const POST = accountRoute(handlePOST);

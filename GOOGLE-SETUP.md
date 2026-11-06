@@ -1,0 +1,17 @@
+# Lifemap für mehrere Personen und Geräte
+
+Alle öffnen dieselbe HTTPS-Adresse und melden sich mit Google an. Jede Person erhält einen eigenen Datenbereich, der auf allen ihren Geräten verfügbar ist. Die Trennung verwendet die dauerhafte Google-Konto-ID, nicht die E-Mail-Adresse. Der bisherige lokale Datenbestand bleibt getrennt. Keine lokale Instanz ohne aktivierten Kontoschutz im Internet freigeben.
+
+1. Eine HTTPS-Adresse und einen Node.js-Server mit dauerhaftem Speicher für SQLite festlegen. Beispielsweise kann [Railway eine HTTPS-Adresse erzeugen](https://docs.railway.com/networking/domains/working-with-domains). Das mitgelieferte `Dockerfile` kann dort als Dienst gebaut werden. Ein dauerhaftes Volume unter `/data` einhängen (`DATABASE_PATH=/data/raum.sqlite`). Nur eine Lifemap-Instanz pro Datenbank betreiben. Das Container-Startskript verweigert den Start ohne vollständigen Kontoschutz. Bei einem eigenen Reverse Proxy muss dieser den öffentlichen Host-Header weitergeben.
+2. In der [Google Auth Platform](https://console.cloud.google.com/auth/clients) einen OAuth-Client vom Typ „Webanwendung“ erstellen. Als Weiterleitungsadresse genau `https://DEINE-ADRESSE/api/auth/google/callback` eintragen. Für den Pilotbetrieb Testnutzer hinzufügen; für weitere Personen den externen Google-Zugang nach Googles Vorgaben freigeben.
+3. Die vier `LIFEMAP_…`-Werte aus `.env.example` serverseitig setzen. `LIFEMAP_PUBLIC_ORIGIN` enthält die HTTPS-Adresse ohne abschließenden Schrägstrich. Den Sitzungsschlüssel mit mindestens 32 zufälligen Bytes erzeugen (z. B. `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`). Client Secret und Sitzungsschlüssel nur in den Geheimniseinstellungen des Hosts speichern.
+4. Vor dem Login muss `/api/state` HTTP 401 liefern. Mit zwei verschiedenen Google-Konten anmelden und jeweils eigene Aufgaben, Notizen und Anhänge anlegen. Das zweite Konto darf die Daten des ersten nicht sehen. Das gleiche Konto muss seine Daten nach Neuladen und auf einem zweiten Gerät wiederfinden.
+5. Bestehende Daten nicht als Standard-Datenbank auf den Server kopieren. Eine etwaige Übernahme muss ausdrücklich dem gewünschten Konto zugeordnet werden. Keine `.env`-Dateien oder lokalen Sitzungen veröffentlichen.
+
+WhatsApp, Todoist und System-Erinnerungen sind in dieser Serverversion deaktiviert. KI nutzt nur den für das jeweilige Konto eingerichteten Schlüssel. Kalenderverbindungen können manuell aktualisiert werden; die lokalen Hintergrunddienste laufen im Mehrbenutzerbetrieb nicht.
+
+## Vorbereiteter Fly.io-Start
+
+`fly.toml` ist für eine Maschine in Frankfurt, eine persistente Platte und die vorgesehene Adresse `https://lifemap-planer-6d4e.fly.dev` vorbereitet. Diese Adresse wird erst nach der Veröffentlichung erreichbar. Der exakte Rücksprung für Google lautet `https://lifemap-planer-6d4e.fly.dev/api/auth/google/callback`.
+
+Nach Kostenfreigabe und Google-Einrichtung: App `lifemap-planer-6d4e` im eigenen Fly.io-Konto anlegen, ein Volume `lifemap_data` mit 1 GB in `fra` anlegen, die drei geheimen Anmeldewerte über `fly secrets import --stage` per Standardeingabe setzen (`LIFEMAP_GOOGLE_CLIENT_ID`, `LIFEMAP_GOOGLE_CLIENT_SECRET`, `LIFEMAP_SESSION_SECRET`). Dann mit `fly deploy --remote-only --ha=false --vm-cpu-kind shared --vm-cpus 1 --vm-memory 512` genau eine Maschine bereitstellen. Die URL und der Datenpfad stehen schon in `fly.toml`. Nicht die lokale Datenbank übertragen. Nach dem Start zuerst `/login`, den Schutz von `/api/state` und die Anmeldung mit zwei echten Testkonten prüfen.

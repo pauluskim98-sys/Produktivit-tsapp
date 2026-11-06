@@ -25,6 +25,8 @@ export function parseAppointmentInput(
     }
   }
   text = normalizeClockNotation(text);
+  text = text.replace(/\bum\s+([01]?\d|2[0-3])(?![\d:./])(?:\s*(?:bis|[-–—])\s*([01]?\d|2[0-3])(?![\d:./]))?/gi,
+    (_, start:string, end?:string)=>`${start}:00${end?`–${end}:00`:""}`);
   const location = addressFromText(text);
   let cleaned = location
     ? text
@@ -45,7 +47,7 @@ export function parseAppointmentInput(
   let match = cleaned.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
   if (match) takeDate(match, `${match[1]}-${match[2]}-${match[3]}`);
   else {
-    match = cleaned.match(/\b(\d{1,2})[./](\d{1,2})[./](?:(\d{4}|\d{2})\b)?/);
+    match = cleaned.match(/\b(\d{1,2})[./](\d{1,2})(?:[./](\d{4}|\d{2})\b|\.(?!\d)|(?=\s|$))/);
     if (match) takeDate(match, key(match[1], match[2], match[3]));
     else {
       const months = [
@@ -75,9 +77,11 @@ export function parseAppointmentInput(
           ),
         );
       else {
-        match = cleaned.match(
-          /(?<![\p{L}\p{N}_])(übermorgen|morgen|heute|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\b/iu,
-        );
+          match = Array.from(cleaned.matchAll(/(?<![\p{L}\p{N}_])(übermorgen|morgen|heute|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag|Mo|Di|Mi|Do|Fr|Sa|So)\b\.?/giu)).find((candidate)=>{
+            if(!/^(so|do)$/.test(candidate[1]))return true;
+            const index=candidate.index||0;
+            return candidate[0].endsWith(".") || /\bam\s*$/i.test(cleaned.slice(0,index)) || /^\s*(?:um\s+)?\d/.test(cleaned.slice(index+candidate[0].length));
+          }) || null;
         if (match) {
           const value = match[1].toLowerCase();
           const weekdays = [
@@ -96,7 +100,7 @@ export function parseAppointmentInput(
                 ? 1
                 : value === "übermorgen"
                   ? 2
-                  : (weekdays.indexOf(value) -
+                  : (weekdays.findIndex((day)=>day===value || day.slice(0,2)===value) -
                       parseDate(relativeBase).getDay() +
                       7) %
                     7;
@@ -180,4 +184,34 @@ export function parseAppointmentInput(
     ...phones.map((phone) => `Telefon: ${phone}`),
   ].join("\n");
   return { title, description, plannedDate, time, duration, location };
+}
+
+const recurringDays=["montag","dienstag","mittwoch","donnerstag","freitag","samstag","sonntag"];
+const weekdayPattern=recurringDays.map((day)=>`${day}s?|${day.slice(0,2)}\\.?`).join("|");
+const recurringList=new RegExp(`\\b(?:immer|jede[nrms]?|wöchentlich(?:\\s+am)?)\\s+((?:${weekdayPattern})(?![\\p{L}\\p{N}])(?:\\s*(?:,|/|und|&)\\s*(?:${weekdayPattern})(?![\\p{L}\\p{N}]))*)`,"giu");
+export function parseRecurringAppointmentInput(text:string, base=dateKey(new Date()), relativeBase=base) {
+  const days=new Set<number>();
+  const addWeekdays=(list:string)=>{
+    for(const item of list.matchAll(new RegExp(`\\b(${weekdayPattern})(?![\\p{L}\\p{N}])`,"giu"))){
+      const name=item[1].toLowerCase().replace(/\.$/,"");
+      const index=recurringDays.findIndex((day)=>name===day || name===day+"s" || name===day.slice(0,2));
+      if(index>=0)days.add(index);
+    }
+  };
+  const cleaned=text
+    .replace(/\b(?:jeden\s+tag|alle\s+tage|täglich)\b/gi,()=>{for(let i=0;i<7;i++)days.add(i);return " ";})
+    .replace(/\b(?:werktags|unter\s+der\s+woche)\b/gi,()=>{for(let i=0;i<5;i++)days.add(i);return " ";})
+    .replace(recurringList,(_,list:string)=>{addWeekdays(list);return " ";})
+    .replace(new RegExp(`\\b(?:${recurringDays.map((day)=>day+"s").join("|")})(?:\\s*(?:,|/|und|&)\\s*(?:${recurringDays.map((day)=>day+"s").join("|")}))*\\b`,"gi"),(list)=>{addWeekdays(list);return " ";})
+    .replace(/(?<!\bfür\s)(?<!\bwie\s)\bimmer\b(?!\s+wieder\b)/gi,()=>{if(!days.size)for(let i=0;i<7;i++)days.add(i);return " ";});
+  const weekly=/\bwöchentlich\b/i.test(cleaned);
+  const parsed=parseAppointmentInput(cleaned.replace(/\bwöchentlich\b/gi," "),base,relativeBase);
+  if(weekly && !days.size)days.add((parseDate(parsed.plannedDate || base).getDay()+6)%7);
+  if(!days.size)return {...parsed,repeatDays:[] as number[]};
+  const first=parseDate(parsed.plannedDate || base);
+  for(let offset=0;offset<7;offset++){
+    const day=addDays(first,offset);
+    if(days.has((day.getDay()+6)%7))return {...parsed,plannedDate:dateKey(day),repeatDays:[...days].sort()};
+  }
+  return {...parsed,repeatDays:[...days].sort()};
 }

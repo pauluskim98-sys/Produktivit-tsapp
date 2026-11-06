@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import { sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -124,7 +125,7 @@ async function transitRoute(
     label: `Bahn + Fußwege · ${outbound.lines} / ${inbound.lines}`,
   };
 }
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const { origin, destination, start, end } = await request.json();
@@ -167,3 +168,5 @@ export async function POST(request: Request) {
     return errorResponse(error);
   }
 }
+
+export const POST = accountRoute(handlePOST);

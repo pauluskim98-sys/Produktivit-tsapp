@@ -32,6 +32,14 @@ import WhatsappConnection from "./whatsapp-connection";
 import GoalsPanel from "./goals-panel";
 import { categoryIcons } from "./category-icon";
 import { baseLifeTabs, lifeTabs } from "@/lib/life-tabs";
+import { pastedImage, prepareScreenshot } from "@/lib/pasted-image";
+import { categoryColor } from "@/lib/planner-categories";
+import { TASK_COLOR_HEX } from "@/lib/task-colors";
+import { parseAppointmentInput } from "@/lib/appointment-input";
+import { taskPicture, categorySuggestions } from "@/lib/task-picture";
+import PeriodTaskGrid, { taskPeriod, type TaskPeriod } from "./period-task-grid";
+import { taskDay } from "@/lib/planner-day";
+import { parseQuadrant, withQuadrant } from "@/lib/eisenhower";
 type Suggestion = {
   id: string;
   title: string;
@@ -282,7 +290,71 @@ function InboxTab({
     </span>
   );
 }
+function SortableEntry({ id, scope, label, children, onSubmit, onOpen, onRename, icon, color }: {
+  id:string;scope:string;label:string;children:React.ReactNode;onSubmit:React.FormEventHandler<HTMLFormElement>;
+  onOpen:()=>void;onRename:(name:string)=>Promise<boolean>;icon:React.ReactNode;color:string;
+}) {
+  const drag=useSortable({id:`planner-entry:${scope}:${id}`,data:{kind:"life-tab",tabId:id,scope}});
+  const [name,setName]=useState<string|null>(null);
+  const click=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+  useEffect(()=>()=>clearTimeout(click.current),[]);
+  async function rename() {
+    if(name===null)return;
+    const value=name.trim();
+    setName(null);
+    if(value && value!==label && !await onRename(value))setName(value);
+  }
+  return <form ref={drag.setNodeRef} className="inbox-entry-row" style={{transform:CSS.Transform.toString(drag.transform),transition:drag.transition,opacity:drag.isDragging?.55:1,zIndex:drag.isDragging?2:undefined}} onSubmit={onSubmit}>
+    {name===null ? <button type="button" className="entry-tab" ref={drag.setActivatorNodeRef} {...drag.attributes} {...drag.listeners}
+      style={{"--category-color":color} as React.CSSProperties} title="Ziehen zum Sortieren · Doppelklick zum Umbenennen"
+      onClick={(event)=>{clearTimeout(click.current);if(event.detail===0)onOpen();else if(event.detail===1)click.current=setTimeout(onOpen,250);}}
+      onDoubleClick={()=>{clearTimeout(click.current);setName(label);}}
+    >{icon}<span>{label}</span></button> : <input className="entry-name" autoFocus onFocus={(event)=>event.currentTarget.select()} aria-label="Reiter umbenennen" maxLength={80}
+      value={name} onChange={(event)=>setName(event.target.value)} onBlur={()=>void rename()}
+      onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void rename();}if(event.key==="Escape"){event.preventDefault();event.stopPropagation();setName(null);}}}/>}
+    {children}
+  </form>;
+}
+type WeatherHour = {time:string;temperature:number|null;rain:number|null;label:string};
+const weatherHourFormat=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Berlin",hour:"2-digit",hourCycle:"h23"});
+function WeatherHours({day,hours}:{day:string;hours:WeatherHour[]}) {
+  const strip=useRef<HTMLDivElement>(null);
+  const [now,setNow]=useState(()=>new Date());
+  useEffect(()=>{
+    const refresh=()=>setNow(new Date());
+    const timer=window.setInterval(refresh,15_000);
+    window.addEventListener("focus",refresh);
+    document.addEventListener("visibilitychange",refresh);
+    return ()=>{window.clearInterval(timer);window.removeEventListener("focus",refresh);document.removeEventListener("visibilitychange",refresh);};
+  },[]);
+  const today=now.toLocaleDateString("sv-SE",{timeZone:"Europe/Berlin"});
+  const current=weatherHourFormat.format(now)+":00";
+  useEffect(()=>{
+    const container=strip.current;
+    if(!container)return;
+    const center=()=>{
+      const active=container.querySelector<HTMLElement>("[data-weather-center]");
+      if(!active || !container.clientWidth)return;
+      const bounds=container.getBoundingClientRect(), item=active.getBoundingClientRect();
+      container.scrollLeft+=item.left+item.width/2-bounds.left-container.clientWidth/2;
+    };
+    const frame=requestAnimationFrame(center);
+    const size=new ResizeObserver(center);
+    size.observe(container);
+    return ()=>{cancelAnimationFrame(frame);size.disconnect();};
+  },[day,current,hours.length]);
+  return <div ref={strip} className="weather-hours weather-hours-today" tabIndex={0} aria-label="Stündlicher Wetterverlauf">
+    {hours.map((hour,index)=><div className="weather-hour" key={`${hour.time}:${index}`} data-weather-center={hour.time===current || undefined} aria-current={day===today && hour.time===current?"time":undefined}>
+      <time>{hour.time}</time><span title={hour.label} aria-label={hour.label}>{hour.label.split(" ")[0]}</span>
+      <strong>{hour.temperature===null?"–":`${hour.temperature} °C`}</strong>
+      <small>{hour.rain===null?"–":`${hour.rain} %`}</small>
+    </div>)}
+  </div>;
+}
+
 export default function LifeInbox({
+  expanded = false,
+  featureTab,
   todos,
   onAdd,
   onOpen,
@@ -290,9 +362,19 @@ export default function LifeInbox({
   todoContent,
   onPriority,
   onAutoPlan,
+  onQuadrant,
+  onPeriodSelect,
+  onPeriodOpen,
+  calendarPeriod,
   events,
   anchor = dateKey(new Date()),
 }: {
+  expanded?: boolean;
+  featureTab?: string;
+  onQuadrant?: (todo: Todo, period: TaskPeriod, important: boolean) => Promise<void>;
+  onPeriodSelect?: (period: TaskPeriod) => void;
+  onPeriodOpen?: (period: TaskPeriod) => void;
+  calendarPeriod?: TaskPeriod;
   anchor?: string;
   children?: React.ReactNode;
   todoContent?: React.ReactNode;
@@ -308,12 +390,24 @@ export default function LifeInbox({
   onPriority: (todo: Todo, priority: Priority, horizon: string) => void;
   onAutoPlan?: (
     ids: string[],
-    horizon: "week" | "month" | "year",
+    horizon: TaskPeriod,
   ) => Promise<void>;
 }) {
   const namespace = useId();
   const [autoPlanning, setAutoPlanning] = useState(false);
-  const [tab, setTab] = useState("todo"),
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [readingImage, setReadingImage] = useState(false);
+  const [templateTab, setTemplateTab] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<{ category: string; title: string; uses: number }[]>([]);
+  const [templateTitle, setTemplateTitle] = useState("");
+  const refreshTemplates = () => fetch("/api/task-templates").then((r) => { if (!r.ok) throw new Error("Vorlagen konnten nicht geladen werden."); return r.json(); }).then(setTemplates).catch((e) => setError(e.message));
+  useEffect(() => { void refreshTemplates(); }, []);
+  async function remember(category: string, title: string, used: boolean) {
+    const response = await fetch("/api/task-templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category, title: parseAppointmentInput(title).title || title, used }) });
+    if (!response.ok) throw new Error("Vorlage konnte nicht gespeichert werden.");
+    await refreshTemplates();
+  }
+  const [tab, setTab] = useState(featureTab || "todo"),
     [life, setLife] = useState<LifeState | null>(null),
     [items, setItems] = useState<Suggestion[]>([]),
     [error, setError] = useState(""),
@@ -328,7 +422,7 @@ export default function LifeInbox({
     [online, setOnline] = useState(false),
     [links, setLinks] = useState(""),
     [app, setApp] = useState(""),
-    [horizon, setHorizon] = useState("week"),
+    [horizon, setHorizon] = useState("day"),
     [quick, setQuick] = useState(""),
     [mealName, setMealName] = useState(""),
     [calories, setCalories] = useState(""),
@@ -355,6 +449,12 @@ export default function LifeInbox({
     true,
   );
   const today = dateKey(new Date());
+  useEffect(() => { if(calendarPeriod)setHorizon(calendarPeriod); },[calendarPeriod]);
+  useEffect(() => {
+    const home = () => { setTemplateTab(null); setTab("todo"); };
+    window.addEventListener("lifemap-planner-home", home);
+    return () => window.removeEventListener("lifemap-planner-home", home);
+  }, []);
   useEffect(() => {
     fetch("/api/life")
       .then((r) => r.json())
@@ -391,6 +491,7 @@ export default function LifeInbox({
     }
   }
   const tabs = life ? lifeTabs(life) : baseTabs;
+  const entryTabs=tabs.filter(([id]) => !["weather", "goals", "todo"].includes(id));
   useEffect(() => {
     const reorder = (event: Event) => {
       const { active, over, scope } = (event as CustomEvent).detail;
@@ -486,25 +587,28 @@ export default function LifeInbox({
           ]),
         ],
         notes,
-        life?.tabSettings[tab]?.defaultColor || "green",
+        life?.tabSettings[tab]?.defaultColor || categoryColor(tab),
       );
-      setTab("todo");
     } catch (e) {
       setError((e as Error).message);
     }
   }
   const pending = todos.filter(
     (t) =>
-      !t.plannedDate &&
+      (expanded || !t.plannedDate) &&
+      !t.tags.includes("stored") &&
       !t.done &&
-      (t.tags.find((x) => /^h:(week|month|year)$/.test(x)) || "h:week") ===
+      (t.tags.find((x) => /^h:(day|week|month|year)$/.test(x)) || "h:week") ===
         `h:${horizon}`,
   );
+  const gridTasks = todos.filter((t)=>!t.done && !t.tags.includes("stored") && (expanded || !t.time));
+  const autoTasks = gridTasks.filter((t)=>taskPeriod(t)===horizon && !t.time && (horizon!=="day" || taskDay(t)===anchor));
   const weeklyMeals = (life?.meals || []).filter(
     (m) => m.day >= dateKey(monday(parseDate(today))) && m.day <= today,
   );
   return (
-    <div className="life-inbox" ref={inboxRef}>
+    <div className={`life-inbox ${templateTab ? "template-page" : ""} ${expanded ? "planner-wide" : ""}`} ref={inboxRef}>
+      {!featureTab && <>
       <nav className="life-tabs">
         <SortableContext
           items={tabs.map(([id]) => `life-tab:${namespace}:${id}`)}
@@ -556,6 +660,56 @@ export default function LifeInbox({
           ＋
         </button>
       </nav>
+      <div className="inbox-entry-rows">
+        <div className="planner-utilities">{["goals", "weather"].map((id) => { const Icon = categoryIcons[id]; return <button type="button" key={id} style={{ "--category-color": TASK_COLOR_HEX[categoryColor(id)] } as React.CSSProperties} onClick={() => { setTemplateTab(null); setTab(id); }}><Icon size={16} />{id === "goals" ? "Ziele" : "Wetter"}</button>; })}<button type="button" onClick={() => { setTemplateTab(null); setTab("todo"); }}>Alle Aufgaben</button></div>
+        <SortableContext items={entryTabs.map(([id])=>`planner-entry:${namespace}:${id}`)} strategy={rectSortingStrategy}>{entryTabs.map(([id, label]) => {
+          const Icon = categoryIcons[id] || Bookmark;
+          return <SortableEntry key={id} id={id} scope={namespace} label={label}
+            icon={<Icon size={15} />} color={TASK_COLOR_HEX[life?.tabSettings[id]?.defaultColor || categoryColor(id)]}
+            onOpen={()=>{setTemplateTab((current)=>current===id?null:id);setTab("todo");}}
+            onRename={(name)=>life ? save({...life,labels:{...life.labels,[id]:name}}) : Promise.resolve(false)}
+            onSubmit={async (e) => {
+            e.preventDefault();
+            const original=drafts[id]||"";
+            const { title, quadrant } = parseQuadrant(original);
+            if (!title || readingImage) return;
+            setDrafts((d)=>({...d,[id]:""}));
+            let saved=false;
+            try {
+              await onAdd(title, withQuadrant([`h:${horizon}`, `c:${id}`], quadrant), "", life?.tabSettings[id]?.defaultColor || categoryColor(id));
+              saved=true;
+              await remember(id, title, true);
+            } catch (err) { if(!saved)setDrafts((d)=>({...d,[id]:d[id]||original}));setError((err as Error).message); }
+          }}>
+            <datalist id={`${namespace}-${id}-suggestions`}>{templates.filter((t) => t.category === id && t.title.toLocaleLowerCase("de").includes((drafts[id] || "").toLocaleLowerCase("de"))).sort((a,b) => b.uses-a.uses || a.title.localeCompare(b.title,"de")).slice(0,12).map((t) => <option key={t.title} value={t.title} />)}</datalist>
+            <input list={`${namespace}-${id}-suggestions`} aria-label={`${label}: Aufgabe hinzufügen`} placeholder={expanded ? "Aufgabe hinzufügen · Datum / Uhrzeit" : "Aufgabe hinzufügen"} value={drafts[id] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [id]: e.target.value }))} onPaste={async (e) => {
+              if (!Array.from(e.clipboardData.items).some((item) => item.type.startsWith("image/"))) return;
+              e.preventDefault();
+              const data = e.clipboardData;
+              setReadingImage(true);
+              try {
+                const image = await pastedImage(data);
+                if (!image) throw new Error("Screenshot konnte nicht gelesen werden.");
+                const response = await fetch("/api/ocr", { method: "POST", body: await prepareScreenshot(image) });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error);
+                setDrafts((d) => ({ ...d, [id]: [d[id], result.text].filter(Boolean).join(" ") }));
+              } catch (err) { setError((err as Error).message); }
+              finally { setReadingImage(false); }
+            }} />
+          </SortableEntry>;
+        })}</SortableContext>
+        <button type="button" className="new-planner-tab" onClick={() => { setTemplateTab(null); setNewTab(!newTab); }}>+ Reiter</button>
+        {readingImage && <p role="status">Screenshot wird gelesen …</p>}
+      </div>
+      {templateTab && <section className="task-template-page">
+        <button type="button" onClick={() => setTemplateTab(null)}>← Planer</button>
+        <h3>{tabs.find(([id]) => id === templateTab)?.[1]}</h3>
+        <div className="illustrated-suggestions">{(categorySuggestions[templateTab] || []).map((title) => <button key={title} onClick={async () => { try { await onAdd(title,[`c:${templateTab}`,`h:${horizon}`],"",life?.tabSettings[templateTab]?.defaultColor || categoryColor(templateTab)); await remember(templateTab,title,true); } catch(e) { setError((e as Error).message); } }}><img src={taskPicture(title,templateTab)} alt="" /><span>{title}</span></button>)}</div>
+        <form onSubmit={async (e) => { e.preventDefault(); if (!templateTitle.trim()) return; try { await remember(templateTab, templateTitle, false); setTemplateTitle(""); } catch (err) { setError((err as Error).message); } }}><input aria-label="Aufgabenvorlage speichern" placeholder="Aufgabe als Vorlage speichern" value={templateTitle} onChange={(e) => setTemplateTitle(e.target.value)} /><button>Speichern</button></form>
+        {templates.filter((t) => t.category === templateTab).map((t) => <button className="task-template" key={t.title} style={{ "--category-color": TASK_COLOR_HEX[life?.tabSettings[templateTab]?.defaultColor || categoryColor(templateTab)] } as React.CSSProperties} onClick={async () => { try { await onAdd(t.title, [`c:${templateTab}`, `h:${horizon}`], "", life?.tabSettings[templateTab]?.defaultColor || categoryColor(templateTab)); await remember(templateTab,t.title,true); } catch (err) { setError((err as Error).message); } }}>{t.title}<small>{t.uses}× verwendet</small></button>)}
+      </section>}
+      </>}
       {error && (
         <p role="status" className="inline-error">
           {error}
@@ -864,11 +1018,12 @@ export default function LifeInbox({
       {tab === "todo"
         ? todoContent || (
             <>
-              <div className="todo-horizons">
+              {!onQuadrant && <div className="todo-horizons">
                 {[
+                  ["day", "Tag"],
                   ["week", "Woche"],
                   ["month", "Monat"],
-                  ["year", "Jahr"],
+                  ...(expanded ? [["year", "Jahr"]] : []),
                 ].map(([id, l]) => (
                   <HorizonButton
                     key={id}
@@ -878,7 +1033,7 @@ export default function LifeInbox({
                     onClick={() => setHorizon(id)}
                   />
                 ))}
-              </div>
+              </div>}
               <form
                 className="todo-quick"
                 onSubmit={(e) => {
@@ -896,24 +1051,24 @@ export default function LifeInbox({
                   onChange={(e) => setQuick(e.target.value)}
                 />
               </form>
-              <PriorityList
+              {onQuadrant ? <PeriodTaskGrid todos={gridTasks} active={horizon} onSelect={(p)=>{setHorizon(p);onPeriodSelect?.(p);}} onPeriodOpen={onPeriodOpen} onOpen={onOpen} onMove={onQuadrant} onAdd={(title, p, important) => onAdd(title, withQuadrant([`h:${p}`],important ? "1" : "4"), "")} /> : <PriorityList
                 todos={pending}
                 horizon={horizon}
                 onOpen={onOpen}
                 onPriority={onPriority}
-              />
+              />}
               {onAutoPlan && (
                 <button
                   className="auto-plan-button"
-                  disabled={autoPlanning || !pending.length}
+                  disabled={autoPlanning}
                   title="Freie Zeiten zwischen 08 und 22 Uhr finden · 15 Minuten Abstand"
                   onClick={async () => {
                     setAutoPlanning(true);
                     setError("");
                     try {
                       await onAutoPlan(
-                        pending.map((t) => t.id),
-                        horizon as "week" | "month" | "year",
+                        autoTasks.map((t) => t.id),
+                        horizon as TaskPeriod,
                       );
                     } catch (e) {
                       setError((e as Error).message);
@@ -1100,8 +1255,9 @@ export default function LifeInbox({
           {!weather && !error && (
             <p className="muted">Wochenwetter wird geladen …</p>
           )}
-          {weather?.days?.map((d: any) => (
-            <article key={d.day}>
+          {weather?.days?.map((d: {day:string;label:string;min:number;max:number;rain:number;hours?:WeatherHour[]}, index:number) => (
+            <details className="weather-day" key={d.day} open={index===0}>
+              <summary>
               <strong>
                 {parseDate(d.day).toLocaleDateString("de-DE", {
                   weekday: "short",
@@ -1113,7 +1269,9 @@ export default function LifeInbox({
               <span>
                 {d.min}–{d.max} °C · Regen {d.rain}%
               </span>
-            </article>
+              </summary>
+              {!!d.hours?.length && <WeatherHours day={d.day} hours={d.hours}/>}
+            </details>
           ))}
         </section>
       )}

@@ -10,4 +10,6 @@ data/
 *.log
 *.sqlite*
 *.db
+desktop/bin/
+desktop/obj/
 coverage/

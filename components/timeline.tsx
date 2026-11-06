@@ -1,15 +1,21 @@
 "use client";
 import { TaskPersonAvatar } from "./person-avatar";
+import TaskPicture from "./task-picture";
+import TaskImportanceButtons from "./task-importance-buttons";
+import PeriodTask from "./period-task";
+import { taskDay } from "@/lib/planner-day";
 import { useEffect, useRef, useState } from "react";
 import {
   useDraggable,
   useDroppable,
-  useDndContext,
-  useDndMonitor,
 } from "@dnd-kit/core";
 import FitTitle from "./fit-title";
+import { notePeriod } from "@/lib/note-todos";
+import { NoteTodoCheck } from "./note-todo-board";
 import { Check, GripVertical } from "lucide-react";
 import type { Todo, CalendarEvent } from "@/lib/types";
+import { zoneOccurs, type CalendarZone } from "@/lib/calendar-zones";
+import { taskFlag } from "@/lib/task-colors";
 import { eventPresentation, eventBlockTitle } from "@/lib/subjects";
 import { dateKey, addDays } from "@/lib/dates";
 import {
@@ -63,7 +69,8 @@ interface Props {
   onSelection?: (ids: string[]) => void;
   scale?: number;
   onOpen: (id: string) => void;
-  onToggle: (todo: Todo) => void;
+  onToggle: (todo:Todo)=>void;
+  onImportance?: (todo:Todo,important:boolean)=>void;
   onResize: (todo: Todo, change: TimeChange) => Promise<void>;
   onExtend: (todo: Todo, days: string[]) => Promise<void>;
   onCreate: (
@@ -77,6 +84,10 @@ interface Props {
   onDayOpen: (day: string) => void;
   targetSlot: { day: string; time: string } | null;
   onEvent: (event: CalendarEvent) => void;
+  calendarFilters?: React.ReactNode;
+  zoneMode?: boolean;
+  zones?: CalendarZone[];
+  onZoneEdit?: (zone:CalendarZone)=>void;
 }
 export function dragStartMinute(
   active: {
@@ -114,6 +125,7 @@ function TimedTask({
   lanes,
   onOpen,
   onToggle,
+  onImportance,
   onResize,
   onExtend,
   scale = MINUTE_HEIGHT,
@@ -130,6 +142,7 @@ function TimedTask({
   lanes: number;
   onOpen: Props["onOpen"];
   onToggle: Props["onToggle"];
+  onImportance?: Props["onImportance"];
   onResize: Props["onResize"];
   onExtend: Props["onExtend"];
 }) {
@@ -350,15 +363,17 @@ function TimedTask({
   return (
     <article
       ref={setNodeRef}
-      className={`timed-task ${todo.priority === "high" ? "priority-high" : ""} ${selected === todo.id ? "is-selected" : ""} color-${todo.color || "green"} ${todo.done ? "is-done" : ""} ${preview ? "is-resizing" : ""} ${saving ? "is-saving" : ""}`}
+      className={`timed-task ${selected === todo.id ? "is-selected" : ""} color-${todo.color || "green"} ${todo.done ? "is-done" : ""} ${preview ? "is-resizing" : ""} ${saving ? "is-saving" : ""}`}
+      data-task-flag={taskFlag(todo.priority)}
       style={{
         top: gridMinute(displayedStart) * scale,
         height: Math.max(8, (displayedEnd - displayedStart) * scale),
         left: `calc(${(lane / lanes) * 100}% + 2px + ${Math.min(0, extension)}px)`,
         width: `calc(${100 / lanes}% - 5px + ${Math.abs(extension)}px)`,
         zIndex: extension ? 20 : undefined,
-        opacity: isDragging ? 0.25 : 1,
-      }}
+        opacity: isDragging ? 0 : 1,
+        "--calendar-group-color":todo.calendarGroupColor,
+      } as React.CSSProperties}
       data-task-id={todo.id}
       title={`${todo.title}\n${todo.time}–${endText}\n${todo.duration || 60} Minuten · Wegzeit ${(todo.travelBefore || 0) + (todo.travelAfter || 0)} Min. · Gesamt ${(todo.duration || 60) + (todo.travelBefore || 0) + (todo.travelAfter || 0)} Min.`}
     >
@@ -385,14 +400,7 @@ function TimedTask({
       {!segment?.continuesBefore &&
         displayedStart === (segment?.start ?? start) &&
         handle("start")}
-      <button
-        className="timed-check"
-        style={{ top: `calc(${before}% + 5px)` }}
-        aria-label={`${todo.title} ${todo.done ? "wieder öffnen" : "erledigen"}`}
-        onClick={() => onToggle(todo)}
-      >
-        {todo.done ? <Check size={10} /> : null}
-      </button>
+      {notePeriod(todo) && <button type="button" className="timed-check" style={{top:`calc(${before}% + 5px)`}} aria-label={todo.done?"To-do wieder öffnen":"To-do abhaken"} aria-pressed={todo.done} onClick={()=>onToggle(todo)}>{todo.done && <Check size={12}/>}</button>}
       <button
         data-calendar-task={todo.id}
         className="timed-main"
@@ -403,11 +411,13 @@ function TimedTask({
         aria-label={`${todo.title}, ${shown.time}, ${shown.duration || 60} Minuten`}
       >
         <TaskPersonAvatar todo={todo} small />
+        <TaskPicture todo={todo} />
         <FitTitle>
           {segment?.continuesBefore ? "↳ " : ""}
           {todo.title}
         </FitTitle>
       </button>
+      {onImportance && <TaskImportanceButtons onChange={(important)=>onImportance(todo,important)}/>}
       {!segment?.continuesAfter &&
         displayedEnd === (segment?.end ?? end) &&
         handle("end")}
@@ -433,6 +443,7 @@ function TimeColumn({
   onCreate,
   onOpen,
   onToggle,
+  onImportance,
   onResize,
   onExtend,
   onEvent,
@@ -441,17 +452,13 @@ function TimeColumn({
   scale = MINUTE_HEIGHT,
   selected,
   selectedIds,
+  zoneMode,
+  zones,
+  onZoneEdit,
 }: Omit<Props, "days" | "mobileDay" | "renderUnscheduled"> & { day: string }) {
-  const { setNodeRef, isOver } = useDroppable({
+  const { setNodeRef } = useDroppable({
     id: `timegrid:${day}`,
     data: { kind: "timegrid", day },
-  });
-  const grid = useRef<HTMLDivElement | null>(null);
-  const { active, activatorEvent } = useDndContext();
-  const [delta, setDelta] = useState({ x: 0, y: 0 });
-  useDndMonitor({
-    onDragMove: (e) => setDelta(e.delta),
-    onDragEnd: () => setDelta({ x: 0, y: 0 }),
   });
   const items: {
     id: string;
@@ -459,8 +466,11 @@ function TimeColumn({
     end: number;
     todo?: Todo;
     event?: CalendarEvent;
+    unscheduled?: Todo[];
     offset?: number;
   }[] = [];
+  const unscheduled=todos.filter((todo)=>!todo.time && taskDay(todo)===day).sort((a,b)=>a.position-b.position);
+  if(unscheduled.length)items.push({id:`untimed:${day}`,start:360,end:360+Math.ceil(Math.min(150,unscheduled.length*28+4)/scale),unscheduled});
   for (const todo of todos) {
     const seg = taskSegment(todo, day);
     if (seg)
@@ -497,35 +507,26 @@ function TimeColumn({
         : [item],
     ),
   );
-  const hover =
-    isOver && active && grid.current
-      ? scheduleAt(
-          dragStartMinute(
-            active,
-            activatorEvent,
-            delta,
-            grid.current.getBoundingClientRect().top,
-            scale,
-          ),
-        ).time
-      : null;
   return (
     <div
       className="time-column"
       data-day-grid={day}
       data-minute-height={scale}
-      ref={(el) => {
-        grid.current = el;
-        setNodeRef(el);
-      }}
+      ref={setNodeRef}
       style={{ height: 1140 * scale }}
       onDoubleClick={(e) => {
-        if ((e.target as HTMLElement).closest("button,article")) return;
+        if (zoneMode || (e.target as HTMLElement).closest("button,article")) return;
         const minutes =
           (e.clientY - e.currentTarget.getBoundingClientRect().top) / scale;
         onCreate(day, scheduleAt(clockMinute(minutes)).time);
       }}
     >
+      {zones?.filter((zone)=>zoneOccurs(zone,day)).flatMap((zone)=>splitAtSix(zone.start,zone.end).map((part)=>{
+        const night=part.start<360;
+        const top=night?1080+part.start/6:part.start-360;
+        const height=(part.end-part.start)/(night?6:1);
+        return <ZoneBlock key={`${zone.id}:${part.start}`} zone={zone} day={day} night={night} top={top*scale} height={height*scale} onEdit={onZoneEdit}/>;
+      }))}
       {Array.from({ length: 18 }, (_, i) => {
         const hour = (i + 6) % 24;
         return (
@@ -567,16 +568,20 @@ function TimeColumn({
             return seg && seg.start < 360;
           })
           .map((t) => (
+            <div className="night-task-wrap" data-task-id={t.id} key={t.id}>
+            {notePeriod(t) && <button type="button" className="calendar-note-check" aria-label={`${t.title} abhaken`} aria-pressed={t.done} onClick={()=>onToggle(t)}><NoteTodoCheck done={t.done}/></button>}
             <button
-              key={t.id}
               data-calendar-task={t.id}
-              className={`night-task color-${t.color || "green"} ${t.priority === "high" ? "priority-high" : ""}`}
+              className={`night-task color-${t.color || "green"}`}
+              data-task-flag={taskFlag(t.priority)}
+              style={{"--calendar-group-color":t.calendarGroupColor} as React.CSSProperties}
               onClick={() => onOpen(t.id)}
               title={`${t.time} · ${t.title}`}
             >
               <TaskPersonAvatar todo={t} small />
+              <TaskPicture todo={t} />
               {t.title}
-            </button>
+            </button>{onImportance && <TaskImportanceButtons onChange={(important)=>onImportance(t,important)}/>}</div>
           ))}
         {events
           .filter(
@@ -590,6 +595,7 @@ function TimeColumn({
               className="night-task"
               key={e.id}
               data-calendar-event={e.id}
+              data-task-id={e.id}
               onClick={() => onEvent(e)}
               title={`${e.title}\n${new Date(e.start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}–${new Date(e.end).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}\n${e.location}`}
             >
@@ -598,7 +604,7 @@ function TimeColumn({
           ))}
       </div>
       {layout.map((item) =>
-        item.todo ? (
+        item.unscheduled ? <div key={item.id} className="untimed-calendar-stack" aria-label="Tagesaufgaben ohne Uhrzeit" style={{top:gridMinute(item.start)*scale,height:(item.end-item.start)*scale,left:`calc(${(item.lane/item.lanes)*100}% + 2px)`,width:`calc(${100/item.lanes}% - 5px)`}}>{item.unscheduled.map((todo)=><PeriodTask key={todo.id} todo={todo} compact onOpen={onOpen} onToggle={onToggle} onImportance={onImportance?(important)=>onImportance(todo,important):undefined}/>)}</div> : item.todo ? (
           <TimedTask
             key={item.id}
             todo={item.todo}
@@ -610,6 +616,7 @@ function TimeColumn({
             lanes={item.lanes}
             onOpen={onOpen}
             onToggle={onToggle}
+            onImportance={onImportance}
             onResize={onResize}
             onExtend={onExtend}
             scale={scale}
@@ -621,6 +628,7 @@ function TimeColumn({
           <button
             key={item.id}
             data-calendar-event={item.event!.id}
+            data-task-id={item.event!.id}
             className="timed-event"
             style={{
               top: gridMinute(item.start) * scale,
@@ -640,16 +648,23 @@ function TimeColumn({
           </button>
         ),
       )}
-      {hover && (
-        <div
-          className="time-drop-preview"
-          style={{ top: gridMinute(toMinutes(hover)) * scale }}
-        >
-          {hover}
-        </div>
-      )}
     </div>
   );
+}
+
+function ZoneBlock({zone,day,night,top,height,onEdit}:{
+  zone:CalendarZone;day:string;night:boolean;top:number;height:number;onEdit?:Props["onZoneEdit"];
+}) {
+  const drag=useDraggable({id:`calendar-zone:${zone.id}:${day}:${night}`,data:{kind:"calendar-zone",zone,day,night}});
+  const style={
+    top,height,"--zone-color":zone.color,
+    transform:drag.transform ? `translate3d(${drag.transform.x}px,${drag.transform.y}px,0)` : undefined,
+    zIndex:drag.isDragging?9:undefined,
+  } as React.CSSProperties;
+  return <div className={`calendar-zone ${zone.outline?"zone-outline":""}`} style={style}>
+    <button ref={drag.setNodeRef} type="button" className="calendar-zone-label" {...drag.attributes} {...drag.listeners}
+      onClick={()=>onEdit?.(zone)} title={`${zone.name} · Ziehen zum Verschieben · Klick zum Bearbeiten`}>{zone.name}</button>
+  </div>;
 }
 export default function Timeline(props: Props) {
   const scroll = useRef<HTMLDivElement>(null);
@@ -755,12 +770,13 @@ export default function Timeline(props: Props) {
   }, []);
   return (
     <div
-      className={`timeline-scroll ${props.selectionMode ? "selection-mode" : ""}`}
+      className={`timeline-scroll ${props.days.length===1?"timeline-single-day":""} ${props.selectionMode ? "selection-mode" : ""} ${props.zoneMode ? "zone-mode" : ""}`}
+      tabIndex={0}
       ref={scroll}
       aria-label="Wochenkalender mit Stundenraster"
       data-clock-tick={tick}
       onPointerDownCapture={(e) => {
-        if (e.pointerType === "touch") return;
+        if (e.pointerType === "touch" && !props.zoneMode) return;
         if (
           props.selectionMode &&
           e.button === 0 &&
@@ -777,11 +793,12 @@ export default function Timeline(props: Props) {
           updateSelection(e.clientX, e.clientY);
           return;
         }
-        if (e.button !== 0 || !(e.target as HTMLElement).closest(".time-slot"))
-          return;
-        const column = (e.target as HTMLElement).closest<HTMLElement>(
-          "[data-day-grid]",
-        )!;
+        const target=e.target as HTMLElement;
+        const column=target.closest<HTMLElement>("[data-day-grid]");
+        if(e.button!==0 || !column || target.closest(".calendar-zone-label") ||
+          (!props.zoneMode && !target.closest(".time-slot")))return;
+        if(props.zoneMode){e.preventDefault();e.stopPropagation();}
+        e.currentTarget.focus({preventScroll:true});
         const anchor = (e.clientY - column.getBoundingClientRect().top) / scale;
         suppressClick.current = false;
         drawing.current = {
@@ -880,10 +897,11 @@ export default function Timeline(props: Props) {
       )}
       <div className="timeline-head">
         <div className="timeline-gutter-head">
-          <span aria-hidden="true" />
+          {props.calendarFilters}
         </div>
-        {props.days.map((date, i) => {
+        {props.days.map((date) => {
           const day = dateKey(date);
+          const weekday=DAYS[(date.getDay()+6)%7];
           return (
             <section
               key={day}
@@ -893,9 +911,9 @@ export default function Timeline(props: Props) {
                 type="button"
                 className="timeline-date"
                 onClick={() => props.onDayOpen(day)}
-                aria-label={`${DAYS[i]}, ${day} öffnen`}
+                aria-label={`${weekday}, ${day} öffnen`}
               >
-                <span>{DAYS[i]}</span>
+                <span>{weekday}</span>
                 {day === dateKey(new Date()) && <em>Heute</em>}
                 <b>{date.getDate()}</b>
               </button>

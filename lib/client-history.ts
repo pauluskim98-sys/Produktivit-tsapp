@@ -80,6 +80,23 @@ export function installHistory() {
           ? input.href
           : input.url;
     const path = new URL(url, location.href).pathname;
+    if(!running && init?.method==="POST" && new URL(url,location.href).origin===location.origin &&
+      path.startsWith("/api/") && !["/api/life","/api/notes","/api/calendar","/api/whatsapp"].includes(path)){
+      const response=await original(input,init);
+      if(response.ok && response.headers.get("X-Lifemap-History")==="change"){
+        const {historyChange:change}=await response.clone().json();
+        const apply=async(redo:boolean)=>{
+          const result=await original(path,{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({action:"history-change",change,redo}),
+          });
+          if(!result.ok)throw new Error((await result.json()).error);
+        };
+        record({undo:()=>apply(false),redo:()=>apply(true)});
+        return response;
+      }
+      return response;
+    }
     if (!running && init?.method === "POST" && path === "/api/whatsapp") {
       const body = JSON.parse(String(init.body));
       if (["import", "selection", "sync", "link"].includes(body.action)) {
@@ -277,21 +294,21 @@ export function installHistory() {
     const editing = (e.target as HTMLElement).closest(
       "input,textarea,select,[contenteditable]",
     );
+    const titleTarget=(e.target as HTMLElement).getAttribute("data-type-title");
+    const insideTypePicker=(e.target as HTMLElement).closest(".calendar-types");
+    const deleting=["Delete","Backspace"].includes(e.key);
     if (
-      (!editing || (e.key === "Tab" && !e.shiftKey)) &&
+      !editing &&
       !e.metaKey &&
       !e.ctrlKey &&
       !e.altKey &&
-      (e.key === "Tab" ||
-        e.key === "^" ||
+      ((!titleTarget && (e.key === "^" ||
         (e.key === "Dead" && ["Backquote", "IntlBackslash"].includes(e.code)) ||
-        (e.key.toLowerCase() === "a" && e.shiftKey) ||
-        ["Delete", "Backspace"].includes(e.key))
+        (e.key.toLowerCase() === "a" && !e.repeat && !insideTypePicker))) ||
+        (deleting && !insideTypePicker && (!titleTarget || titleTarget==="task" || titleTarget==="event")))
     ) {
       const name =
-        e.key === "Tab"
-          ? "raum-inbox-toggle"
-          : e.key === "^" ||
+        e.key === "^" ||
               (e.key === "Dead" &&
                 ["Backquote", "IntlBackslash"].includes(e.code))
             ? "raum-view-forward"

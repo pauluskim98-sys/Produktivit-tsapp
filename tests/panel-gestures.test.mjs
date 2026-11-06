@@ -20,12 +20,19 @@ function setup(storage = false) {
     cleanup,
     hovered = null;
   class Element {
-    constructor(panel = false) {
+    constructor(panel = false, weather = false, notes = false) {
       this.panel = panel;
+      this.weather = weather;
+      this.notes = notes;
     }
     closest(selector) {
+      if (selector === ".weather-hours") return this.weather ? this : null;
+      if (selector === ".calendar-bottom-notes .note-checklist") return this.notes ? this : null;
+      if (selector === ".timeline-scroll,.calendar-overview-large") return this.panel ? null : this;
       return selector === ".app-shell" ? this : this.panel ? this : null;
     }
+    contains(node) { return node === this; }
+    matches() { return false; }
   }
   const window = {
     innerWidth: 1200,
@@ -84,13 +91,14 @@ function setup(storage = false) {
     setInbox: (open) => actions.push(["inbox", open]),
     openDetail: () => actions.push("detail"),
     navigate: (dir) => actions.push(["calendar", dir]),
+    stepNotes: (dir) => actions.push(["notes", dir]),
   });
   return {
     actions,
     handlers,
     cleanup,
-    hover(panel) {
-      hovered = new Element(panel);
+    hover(panel, weather = false, notes = false) {
+      hovered = new Element(panel, weather, notes);
     },
     wheel(dx, panel = false) {
       handlers.wheel({
@@ -104,6 +112,13 @@ function setup(storage = false) {
         preventDefault() {},
       });
     },
+    vertical(dy, focused=true) {
+      hovered = new Element();
+      context.document.activeElement = focused ? hovered : new Element(true);
+      let prevented=false;
+      handlers.wheel({target:hovered,clientX:600,clientY:400,deltaX:0,deltaY:dy,deltaMode:0,preventDefault(){prevented=true;}});
+      return prevented;
+    },
     settle() {
       for (const fn of [...timers.values()]) fn();
       timers.clear();
@@ -113,10 +128,16 @@ function setup(storage = false) {
     },
   };
 }
+test("vertical scrolling remains native even without calendar focus",()=>{
+  const s=setup();
+  assert.equal(s.vertical(25,false),false);
+  assert.equal(s.vertical(100),false);
+  assert.deepEqual(s.actions,[]);
+});
 test("calendar swipes navigate immediately once, panel swipes retain history", () => {
   const s = setup();
-  s.wheel(-180);
-  s.wheel(-200);
+  s.wheel(-60);
+  s.wheel(-70);
   s.settle();
   assert.deepEqual(s.actions, [["calendar", -1]]);
   s.next();
@@ -124,7 +145,7 @@ test("calendar swipes navigate immediately once, panel swipes retain history", (
   s.settle();
   assert.deepEqual(s.actions, [["calendar", -1], "forward"]);
   s.next();
-  s.wheel(45);
+  s.wheel(85);
   s.settle();
   assert.deepEqual(s.actions, [["calendar", -1], "forward", ["calendar", 1]]);
   s.next();
@@ -158,17 +179,18 @@ test("right edge opens the resource drawer without opening task details", () => 
   assert.deepEqual(s.actions, [["storage", true]]);
 });
 
-test("renewed trackpad impulse responds before a full momentum timeout", () => {
+test("momentum and reversals in one swipe cannot advance multiple times", () => {
   const s = setup();
-  s.wheel(32);
+  s.wheel(85);
   s.next(25);
   s.wheel(14);
   s.next(25);
   s.wheel(4);
   s.next(45);
-  s.wheel(30);
+  s.wheel(140);
+  s.next(40);
+  s.wheel(-160);
   assert.deepEqual(s.actions, [
-    ["calendar", 1],
     ["calendar", 1],
   ]);
 });
@@ -186,7 +208,7 @@ test("bottom screen edge opens planning without opening a side panel", () => {
 test("successive settled swipes need no intervening click or focus change", () => {
   const s = setup();
   for (let i = 0; i < 3; i++) {
-    s.wheel(30);
+    s.wheel(85);
     s.settle();
     s.next(85);
   }
@@ -203,7 +225,7 @@ test("pointer over calendar wins over a latched panel target without a click", (
   s.wheel(40, true);
   s.hover(false);
   s.next(15);
-  s.wheel(30, true);
+  s.wheel(85, true);
   assert.deepEqual(s.actions, [["calendar", 1]]);
   s.settle();
   s.hover(true);
@@ -211,4 +233,44 @@ test("pointer over calendar wins over a latched panel target without a click", (
   s.wheel(30, false);
   s.settle();
   assert.deepEqual(s.actions, [["calendar", 1]]);
+});
+
+test("small horizontal motions do not change the calendar", () => {
+  const s=setup();
+  s.wheel(15);
+  s.wheel(12);
+  s.settle();
+  assert.deepEqual(s.actions,[]);
+});
+test("horizontal scrolling in an hourly weather strip stays native",()=>{
+  const s=setup();
+  s.hover(true,true);
+  s.wheel(260,true);
+  assert.deepEqual(s.actions,[]);
+});
+test("swiping in the notepad steps once without navigating the calendar",()=>{
+  const s=setup();
+  s.hover(false,false,true);
+  s.wheel(40);
+  s.wheel(500);
+  assert.deepEqual(s.actions,[["notes",1]]);
+  s.next();
+  s.wheel(-60);
+  assert.deepEqual(s.actions,[["notes",1],["notes",-1]]);
+});
+test("only an energetic horizontal swipe can advance up to three periods", () => {
+  const gentle=setup();
+  for (let i=0;i<18;i++)gentle.wheel(30);
+  assert.deepEqual(gentle.actions,[["calendar",1]]);
+  const normal=setup();
+  normal.wheel(140);
+  normal.wheel(150);
+  normal.wheel(110);
+  assert.deepEqual(normal.actions,[["calendar",1]]);
+  const strong=setup();
+  strong.wheel(200);
+  strong.wheel(230);
+  strong.wheel(300);
+  strong.wheel(260);
+  assert.deepEqual(strong.actions,[["calendar",1],["calendar",1],["calendar",1]]);
 });

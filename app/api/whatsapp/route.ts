@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import {
   whatsappStatus,
   startWhatsapp,
@@ -11,12 +12,12 @@ import {
 import { sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export function GET() {
+function handleGET() {
   return Response.json(whatsappStatus(), {
     headers: { "Cache-Control": "no-store" },
   });
 }
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const b = await request.json();
@@ -36,3 +37,6 @@ export async function POST(request: Request) {
     return errorResponse(e);
   }
 }
+
+export const GET = accountRoute(handleGET);
+export const POST = accountRoute(handlePOST);

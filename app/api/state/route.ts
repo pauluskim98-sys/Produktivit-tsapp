@@ -1,8 +1,9 @@
+import { accountRoute } from "@/lib/account-route";
 import { getApiKey } from "@/lib/ai-config";
 import { db, getTodos, getConnections, getEvents, USER } from "@/lib/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET() {
+async function handleGET() {
   const notes = db
     .prepare("SELECT date,content FROM DayNote WHERE userId = ?")
     .all(USER) as { date: string; content: string }[];
@@ -17,3 +18,5 @@ export async function GET() {
     { headers: { "Cache-Control": "no-store" } },
   );
 }
+
+export const GET = accountRoute(handleGET);

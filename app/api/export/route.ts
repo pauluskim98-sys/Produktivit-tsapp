@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import {
   db,
   getTodos,
@@ -8,7 +9,7 @@ import {
 } from "@/lib/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET() {
+async function handleGET() {
   const todos = getTodos();
   const data = {
     version: 1,
@@ -36,3 +37,5 @@ export async function GET() {
     },
   });
 }
+
+export const GET = accountRoute(handleGET);

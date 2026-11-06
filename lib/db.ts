@@ -1,6 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { accountConfig, isGoogleSubject } from "./private-account.ts";
+import { applyCalendarRules, type CalendarRule } from "./calendar/overrides.ts";
+import { parseICS } from "./calendar/ics.ts";
 import type {
   Todo,
   CalendarConnection,
@@ -9,10 +14,47 @@ import type {
 } from "./types";
 const file =
   process.env.DATABASE_PATH || join(process.cwd(), "data", "raum.sqlite");
-mkdirSync(dirname(file), { recursive: true });
-const globalDb = globalThis as unknown as { raumDb?: DatabaseSync };
-export const db = globalDb.raumDb ?? new DatabaseSync(file);
-globalDb.raumDb = db;
+type DbContext = { database: DatabaseSync; path: string };
+const globalDb = globalThis as typeof globalThis & { raumDb?: DatabaseSync; lifemapDbContext?: AsyncLocalStorage<DbContext>; lifemapSchemas?: Set<string> };
+const context = globalDb.lifemapDbContext ??= new AsyncLocalStorage<DbContext>();
+const schemas = globalDb.lifemapSchemas ??= new Set<string>();
+export const USER = "local-user";
+export function accountDataPath() {
+  const current = context.getStore();
+  if (current) return dirname(current.path);
+  if (accountConfig().mode !== "local") throw new Error("Kein angemeldeter Datenbereich.");
+  return dirname(file);
+}
+function openDatabase(path: string) {
+  mkdirSync(dirname(path), { recursive: true });
+  const database = new DatabaseSync(path);
+  try {
+    database.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
+    if (!schemas.has(path)) {
+      initialize(database);
+      if (schemas.size >= 256) schemas.delete(schemas.values().next().value!);
+      schemas.add(path);
+    }
+    return database;
+  } catch (error) { database.close(); throw error; }
+}
+export async function withAccountDatabase<T>(subject:string, run:()=>T|Promise<T>) {
+  if (!isGoogleSubject(subject)) throw new Error("Ungültiges Konto.");
+  const key=createHash("sha256").update(subject).digest("hex");
+  const path=join(dirname(file), "accounts",key,"raum.sqlite");
+  const database=openDatabase(path);
+  try { return await context.run({database,path},run); } finally { database.close(); }
+}
+export const db = new Proxy({} as DatabaseSync, {
+  get(_target, prop) {
+    const active = context.getStore()?.database;
+    if (!active && accountConfig().mode !== "local") throw new Error("Kein angemeldeter Datenbereich.");
+    const database = active || (globalDb.raumDb ??= openDatabase(file));
+    const value = Reflect.get(database,prop,database);
+    return typeof value === "function" ? value.bind(database) : value;
+  },
+});
+function initialize(db: DatabaseSync) {
 db.exec(`
 PRAGMA busy_timeout = 5000;
 PRAGMA foreign_keys = ON;
@@ -32,10 +74,20 @@ CREATE TABLE IF NOT EXISTS PlannerMessage (id TEXT PRIMARY KEY, role TEXT NOT NU
 CREATE TABLE IF NOT EXISTS PlannerProposal (id TEXT PRIMARY KEY, items TEXT NOT NULL, accepted INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS DayNote (date TEXT PRIMARY KEY, userId TEXT NOT NULL REFERENCES User(id), content TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS CalendarTitleAlias (userId TEXT NOT NULL, originalTitle TEXT NOT NULL, title TEXT NOT NULL, PRIMARY KEY(userId,originalTitle));
+CREATE TABLE IF NOT EXISTS CalendarHistory (id TEXT PRIMARY KEY, before TEXT NOT NULL, after TEXT NOT NULL, createdAt INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS CalendarRule (connectionId TEXT NOT NULL REFERENCES CalendarConnection(id) ON DELETE CASCADE, kind TEXT NOT NULL, key TEXT NOT NULL, label TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT '', hidden INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(connectionId,kind,key));
+CREATE TABLE IF NOT EXISTS LifeState (id INTEGER PRIMARY KEY, content TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS todo_day ON Todo(userId, plannedDate, position);
 CREATE INDEX IF NOT EXISTS calendar_start ON CalendarEvent(start);
 `);
 // Additive migration preserves existing calendars and tasks.
+if (!(db.prepare("PRAGMA table_info(CalendarEvent)").all() as {name:string}[]).some((c)=>c.name==="seriesId")) {
+  db.exec("ALTER TABLE CalendarEvent ADD COLUMN seriesId TEXT NOT NULL DEFAULT ''");
+  const update=db.prepare("UPDATE CalendarEvent SET seriesId=? WHERE id=? AND connectionId=?");
+  for(const connection of db.prepare("SELECT id,source FROM CalendarConnection WHERE sourceType='file'").all() as {id:string;source:string}[]) {
+    try { for(const event of parseICS(connection.source,connection.id)) if(event.seriesId)update.run(event.seriesId,event.id,connection.id); } catch { /* Keep the original imported events. */ }
+  }
+}
 const calendarColumns = new Set(
   (
     db.prepare("PRAGMA table_info(CalendarConnection)").all() as {
@@ -74,23 +126,11 @@ if (
     "UPDATE Todo SET seriesId=COALESCE((SELECT sourceId FROM RepeatInstance WHERE todoId=Todo.id LIMIT 1), CASE WHEN EXISTS(SELECT 1 FROM RepeatInstance WHERE sourceId=Todo.id) THEN Todo.id ELSE '' END)",
   );
 }
-export const USER = "local-user";
 db.prepare("INSERT OR IGNORE INTO User (id,name,createdAt) VALUES (?,?,?)").run(
   USER,
   "Mein Raum",
   new Date().toISOString(),
 );
-export function transaction<T>(fn: () => T): T {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
-}
 for (const [name, definition] of [
   ["location", "TEXT NOT NULL DEFAULT ''"],
   ["travelMode", "TEXT NOT NULL DEFAULT ''"],
@@ -103,6 +143,18 @@ for (const [name, definition] of [
     )
   )
     db.exec(`ALTER TABLE Todo ADD COLUMN ${name} ${definition}`);
+}
+}
+export function transaction<T>(fn: () => T): T {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 export function getTodos(): Todo[] {
   return (
@@ -189,13 +241,14 @@ export function getConnections(): CalendarConnection[] {
     .all(USER) as unknown as CalendarConnection[];
 }
 export function getEvents(): CalendarEvent[] {
-  return (
+  const events = (
     db
       .prepare(
         "SELECT e.*, e.title AS originalTitle, COALESCE(a.title,e.title) AS title FROM CalendarEvent e LEFT JOIN CalendarTitleAlias a ON a.originalTitle=e.title AND a.userId=? ORDER BY e.start",
       )
       .all(USER) as unknown as CalendarEvent[]
   ).map((e) => ({ ...e, allDay: Boolean(e.allDay) }));
+  return applyCalendarRules(events,db.prepare("SELECT r.* FROM CalendarRule r JOIN CalendarConnection c ON c.id=r.connectionId WHERE c.userId=? ORDER BY r.key").all(USER) as unknown as CalendarRule[]);
 }
 export function getMessages(todoId: string): ChatMessage[] {
   return db

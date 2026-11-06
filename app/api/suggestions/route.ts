@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import { fetchCalendar } from "@/lib/calendar/fetch";
 import { getLife } from "@/lib/life";
 export const runtime = "nodejs";
@@ -32,7 +33,7 @@ const clean = (s: string) =>
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .trim();
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const params = new URL(request.url).searchParams;
   const refresh = params.get("refresh") === "1";
   const excluded = (params.get("exclude") || "")
@@ -268,3 +269,5 @@ export async function GET(request: Request) {
     );
   }
 }
+
+export const GET = accountRoute(handleGET);

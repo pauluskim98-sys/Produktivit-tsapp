@@ -1,7 +1,8 @@
+import { accountRoute } from "@/lib/account-route";
 import { whatsappAvatar } from "@/lib/whatsapp";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export function GET(request: Request) {
+function handleGET(request: Request) {
   const url = new URL(request.url);
   const avatar = whatsappAvatar(
     url.searchParams.get("id"),
@@ -22,3 +23,5 @@ export function GET(request: Request) {
     return new Response(null, { status: 304, headers });
   return new Response(new Uint8Array(avatar.bytes), { headers });
 }
+
+export const GET = accountRoute(handleGET);

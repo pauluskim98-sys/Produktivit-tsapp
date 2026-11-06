@@ -6,6 +6,7 @@ export interface Subtask {
   done: boolean;
 }
 export interface Todo {
+  calendarGroupColor?: string;
   id: string;
   title: string;
   description: string;
@@ -39,6 +40,9 @@ export interface CalendarConnection {
   lastError: string;
 }
 export interface CalendarEvent {
+  seriesId?: string;
+  color?: string;
+  group?: string;
   originalTitle?: string;
   id: string;
   connectionId: string;

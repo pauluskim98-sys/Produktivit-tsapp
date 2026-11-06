@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import { getLife, saveLife } from "@/lib/life";
 import { trackMeals } from "@/lib/meal-tracking";
 import { applyHistoryDelta } from "@/lib/history-delta";
@@ -247,7 +248,7 @@ async function handlePost(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const action = (await request.clone().json()).action;
@@ -274,3 +275,5 @@ export async function POST(request: Request) {
     return errorResponse(e);
   }
 }
+
+export const POST = accountRoute(handlePOST);

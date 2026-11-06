@@ -7,6 +7,9 @@ import {
   Dumbbell,
   CloudSun,
   Bookmark,
+  Palette,
+  GraduationCap,
+  BriefcaseBusiness,
 } from "lucide-react";
 export const categoryIcons: Record<string, typeof Bookmark> = {
   todo: ListTodo,
@@ -16,6 +19,9 @@ export const categoryIcons: Record<string, typeof Bookmark> = {
   social: Heart,
   sport: Dumbbell,
   weather: CloudSun,
+  hobbies: Palette,
+  learning: GraduationCap,
+  work: BriefcaseBusiness,
 };
 export default function CategoryIcon({
   id,

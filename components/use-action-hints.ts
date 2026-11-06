@@ -9,7 +9,7 @@ function shortcutFor(
   if (explicit)
     return { element: explicit, text: explicit.dataset.shortcut || "" };
   const rules: [string, string][] = [
-    ['[aria-label="Inbox öffnen"],[aria-label="Inbox einklappen"]', "Tab"],
+    ['[aria-label="Planer öffnen"],[aria-label="Planer einklappen"]', "Leertaste · klein → groß → schließen"],
     [".today-button", "T"],
     [".search-field", "⌘ K · Ctrl K"],
     ['[aria-label="Aufgabe löschen"]', "⌫ / Delete · ohne Texteingabe"],

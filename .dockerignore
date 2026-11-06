@@ -1,0 +1,9 @@
+.git
+.env*
+data
+node_modules
+.next*
+*.log
+*.tsbuildinfo
+**/*.sqlite*
+**/*.db

@@ -1,9 +1,6 @@
 import { db, USER, transaction } from "./db";
 import { applyHistoryDelta } from "./history-delta";
 import { isDeepStrictEqual } from "node:util";
-db.exec(
-  "CREATE TABLE IF NOT EXISTS CalendarHistory (id TEXT PRIMARY KEY, before TEXT NOT NULL, after TEXT NOT NULL, createdAt INTEGER NOT NULL)",
-);
 export function calendarSnapshot() {
   return {
     connections: db

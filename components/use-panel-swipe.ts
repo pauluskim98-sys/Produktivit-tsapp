@@ -2,13 +2,14 @@
 import { useEffect, useRef } from "react";
 
 type Options = {
-  inboxOpen: boolean;
+  inboxOpen?: boolean;
   detailOpen: boolean;
   blocked: boolean;
-  setInbox: (open: boolean) => void;
+  setInbox?: (open: boolean) => void;
   navigate: (direction: number) => void;
   openDetail: () => void;
   openPlan?: () => void;
+  stepNotes?: (direction:number)=>void;
   storageOpen?: boolean;
   setStorage?: (open: boolean) => void;
 };
@@ -20,10 +21,10 @@ export function usePanelSwipe(options: Options) {
   useEffect(() => {
     let amount = 0,
       lastWheel = 0,
-      committed = false,
-      lastMagnitude = 0,
-      committedAt = 0;
+      steps = 0,
+      peak = 0;
     let inPanel = false;
+    let inNotes = false;
     let edge: "left" | "right" | "bottom" | null = null;
     let origin: { x: number; y: number } | null = null;
     let settleTimer: ReturnType<typeof setTimeout>;
@@ -33,24 +34,28 @@ export function usePanelSwipe(options: Options) {
           '.sidebar,.resource-drawer,.detail-backdrop,.modal-backdrop,.compact-detail,[role="dialog"],[role="menu"]',
         ),
       );
-    const finish = (offset: number, final = false) => {
-      if (committed) return;
-      if (!inPanel && Math.abs(offset) >= 28) {
-        committed = true;
-        committedAt = performance.now();
-        current.current.navigate(offset < 0 ? 1 : -1);
-      } else if (inPanel && Math.abs(offset) >= 160) {
-        committed = true;
+    const finish = (offset: number, impulse: number) => {
+      const distance = Math.abs(offset);
+      if (inNotes) {
+        if (!steps && distance >= 36) {
+          steps=1;
+          current.current.stepNotes?.(offset<0?1:-1);
+        }
+      } else if (!inPanel) {
+        const target = distance >= 720 && impulse >= 195 ? 3
+          : distance >= 420 && impulse >= 150 ? 2
+          : distance >= 36 ? 1 : 0;
+        if (target <= steps) return;
+        current.current.navigate((offset < 0 ? 1 : -1) * (target - steps));
+        steps = target;
+      } else if (!steps && distance >= 160) {
+        steps = 1;
         window.dispatchEvent(
           new CustomEvent("raum-navigation", {
             detail: offset > 0 ? "back" : "forward",
             cancelable: true,
           }),
         );
-      } else if (final && !inPanel && Math.abs(offset) >= 25) {
-        committed = true;
-        committedAt = performance.now();
-        current.current.navigate(offset < 0 ? 1 : -1);
       }
     };
     const wheel = (event: WheelEvent) => {
@@ -61,7 +66,10 @@ export function usePanelSwipe(options: Options) {
       if (
         !(node instanceof Element) ||
         !node.closest(".app-shell") ||
+        node.closest(".weather-hours") ||
+        (!current.current.stepNotes && node.closest(".calendar-bottom-notes")) ||
         event.ctrlKey ||
+        event.buttons ||
         current.current.blocked ||
         Math.abs(event.deltaX) < 0.5 ||
         Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.05
@@ -69,54 +77,60 @@ export function usePanelSwipe(options: Options) {
         return;
       event.preventDefault();
       const now = performance.now();
+      const overNotes=!!current.current.stepNotes && !!node.closest(".calendar-bottom-notes .note-checklist");
       if (
         !lastWheel ||
         inPanel !== isPanel(node) ||
-        now - lastWheel > 120 ||
-        (amount && Math.sign(amount) === Math.sign(event.deltaX)) ||
-        (committed &&
-          now - committedAt > 80 &&
-          Math.abs(event.deltaX) >= 8 &&
-          Math.abs(event.deltaX) > lastMagnitude * 1.8)
+        inNotes !== overNotes ||
+        now - lastWheel > 145
       ) {
         amount = 0;
-        committed = false;
+        steps = 0;
+        peak = 0;
         inPanel = isPanel(node);
+        inNotes = overNotes;
       }
       lastWheel = now;
-      lastMagnitude = Math.abs(event.deltaX);
-      if (!committed) {
-        amount -=
-          event.deltaX *
+      const delta = -event.deltaX *
           (event.deltaMode === 1
             ? 16
             : event.deltaMode === 2
               ? window.innerWidth
               : 1);
-        finish(amount);
+      if (amount && Math.sign(amount) !== Math.sign(delta) && !steps) {
+        amount = 0;
+        peak = 0;
+      }
+      if (!amount || Math.sign(amount) === Math.sign(delta)) {
+        amount += delta;
+        peak = Math.max(peak, Math.abs(delta));
+        finish(amount, peak);
       }
       clearTimeout(settleTimer);
       settleTimer = setTimeout(() => {
-        finish(amount, true);
         amount = 0;
-        committed = false;
+        steps = 0;
+        peak = 0;
         lastWheel = 0;
-        lastMagnitude = 0;
-      }, 80);
+      }, 145);
     };
     const start = (event: TouchEvent) => {
       if (event.touches.length !== 1 || current.current.blocked) return;
       const node = event.target;
+      const overNotes=node instanceof Element && !!current.current.stepNotes &&
+        !!node.closest(".calendar-bottom-notes .note-checklist");
       if (
         !(node instanceof Element) ||
         !node.closest(".app-shell") ||
-        node.closest(
-          "input,textarea,select,[contenteditable],.timed-task,.task-card,.overview-task",
-        )
+        (!current.current.stepNotes && node.closest(".calendar-bottom-notes")) ||
+        (!overNotes && node.closest(
+          "input,textarea,select,[contenteditable],.timed-task,.task-card,.overview-task,.weather-hours",
+        ))
       )
         return;
       inPanel = isPanel(node);
-      committed = false;
+      inNotes = overNotes;
+      steps = 0;
       origin = { x: event.touches[0].clientX, y: event.touches[0].clientY };
     };
     const move = (event: TouchEvent) => {
@@ -125,14 +139,14 @@ export function usePanelSwipe(options: Options) {
         dy = event.touches[0].clientY - origin.y;
       if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.35) {
         event.preventDefault();
-        finish(dx);
+        finish(dx, Math.abs(dx));
       }
     };
     const end = (event: TouchEvent) => {
       if (!origin || !event.changedTouches.length) return;
       const dx = event.changedTouches[0].clientX - origin.x,
         dy = event.changedTouches[0].clientY - origin.y;
-      if (Math.abs(dx) > Math.abs(dy) * 1.35) finish(dx, true);
+      if (Math.abs(dx) > Math.abs(dy) * 1.35) finish(dx, Math.abs(dx));
       origin = null;
     };
     const hover = (event: PointerEvent) => {
@@ -170,13 +184,13 @@ export function usePanelSwipe(options: Options) {
         return;
       }
       if (next === "left" && !current.current.inboxOpen)
-        current.current.setInbox(true);
+        current.current.setInbox?.(true);
       if (next === "right" && !current.current.storageOpen)
         current.current.setStorage?.(true);
     };
     const cancel = () => {
       origin = null;
-      committed = false;
+      steps = 0;
     };
     window.addEventListener("wheel", wheel, { passive: false, capture: true });
     window.addEventListener("touchstart", start, { passive: true });

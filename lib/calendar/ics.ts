@@ -119,6 +119,7 @@ export function parseICS(
           )
           .digest("hex"),
         connectionId,
+        ...(event.isRecurring() && event.uid ? {seriesId:createHash("sha256").update(`${connectionId}:${event.uid}`).digest("hex")} : {}),
         title: item.summary || "Ohne Titel",
         start,
         end,

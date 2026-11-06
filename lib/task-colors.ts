@@ -11,6 +11,9 @@ export const TASK_COLORS = {
   slate: "Schiefer",
 } as const;
 export type TaskColor = keyof typeof TASK_COLORS;
+export function taskFlag(priority:string) {
+  return priority==="high" ? "red" : priority==="medium" ? "yellow" : undefined;
+}
 export const TASK_COLOR_VALUES: TaskColor[] = Object.keys(
   TASK_COLORS,
 ) as TaskColor[];

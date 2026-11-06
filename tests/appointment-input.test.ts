@@ -1,8 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseAppointmentInput } from "../lib/appointment-input.ts";
+import { parseAppointmentInput, parseRecurringAppointmentInput } from "../lib/appointment-input.ts";
 import { normalizeClockNotation } from "../lib/clock-notation.ts";
 const base = "2026-10-12";
+test("short hours after um are recognized without interpreting bare numbers",()=>{
+  assert.equal(parseAppointmentInput("Arzt um 11",base).time,"11:00");
+  assert.equal(parseAppointmentInput("Arzt um 11",base).title,"Arzt");
+  assert.equal(parseAppointmentInput("Kurs um 11 bis 13",base).duration,120);
+  assert.equal(parseAppointmentInput("Kapitel 11",base).time,undefined);
+});
+test("natural German recurrence keeps the first matching date and cleans the saved title",()=>{
+  const weekly=parseRecurringAppointmentInput("Lernen jeden Montag und Mittwoch um 11","2026-10-13");
+  assert.deepEqual([weekly.title,weekly.plannedDate,weekly.time,weekly.repeatDays],["Lernen","2026-10-14","11:00",[0,2]]);
+  assert.deepEqual(parseRecurringAppointmentInput("Sport dienstags und freitags um 9",base).repeatDays,[1,4]);
+  assert.deepEqual(parseRecurringAppointmentInput("Sport immer Mo/Mi/Fr um 9",base).repeatDays,[0,2,4]);
+  assert.equal(parseRecurringAppointmentInput("Lesen jeden Tag um 8",base).repeatDays.length,7);
+  assert.equal(parseRecurringAppointmentInput("Das gilt für immer",base).repeatDays.length,0);
+});
+test("weekday abbreviations work with or without a clock time", () => {
+  const monday = parseAppointmentInput("Lernen mo 16:00", "2026-11-05");
+  assert.equal(monday.title, "Lernen");
+  assert.equal(monday.plannedDate, "2026-11-09");
+  assert.equal(monday.time, "16:00");
+  assert.equal(parseAppointmentInput("Arzt Mi. 8 Uhr", base).plannedDate, "2026-10-14");
+  assert.equal(parseAppointmentInput("Training fr", base).plannedDate, "2026-10-16");
+  assert.equal(parseAppointmentInput("so schnell wie möglich", base).title, "so schnell wie möglich");
+});
 test("extract date and time range while keeping a clean title", () => {
   const result = parseAppointmentInput(
     "Yoga am 15.10.2026 um 18:30–20:00",

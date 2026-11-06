@@ -4,7 +4,13 @@ import { useId, useRef, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Todo } from "@/lib/types";
 import { calendarTitle } from "@/lib/calendar-title";
+import CategoryIcon from "./category-icon";
+import TaskPicture from "./task-picture";
+import { taskFlag } from "@/lib/task-colors";
+import TaskImportanceButtons from "./task-importance-buttons";
 import { addDays, dateKey, parseDate } from "@/lib/dates";
+import { notePeriod } from "@/lib/note-todos";
+import { NoteTodoCheck } from "./note-todo-board";
 export default function PeriodTask({
   todo,
   onOpen,
@@ -13,6 +19,8 @@ export default function PeriodTask({
   abbreviated = false,
   detail,
   selectionIds,
+  onImportance,
+  onToggle,
 }: {
   todo: Todo;
   onOpen: (id: string) => void;
@@ -21,6 +29,8 @@ export default function PeriodTask({
   abbreviated?: boolean;
   detail?: string;
   selectionIds?: string[];
+  onImportance?: (important: boolean) => void;
+  onToggle?: (todo:Todo) => void;
 }) {
   const scope = useId();
   const drag = useDraggable({
@@ -46,11 +56,12 @@ export default function PeriodTask({
   return (
     <div
       data-task-id={todo.id}
+      data-task-flag={taskFlag(todo.priority)}
       data-task-ids={selectionIds ? JSON.stringify(selectionIds) : undefined}
-      data-priority={todo.priority}
       className={`period-task-row color-${todo.color || "green"} ${compact ? "compact" : ""}`}
-      style={{ opacity: drag.isDragging ? 0.3 : 1 }}
+      style={{ opacity: drag.isDragging ? 0.3 : 1,"--calendar-group-color":todo.calendarGroupColor } as React.CSSProperties}
     >
+      {onToggle && notePeriod(todo) && <button type="button" className="calendar-note-check" aria-label={`${todo.title} abhaken`} aria-pressed={todo.done} onClick={()=>onToggle(todo)}><NoteTodoCheck done={todo.done}/></button>}
       <button
         ref={drag.setNodeRef}
         {...drag.attributes}
@@ -65,10 +76,13 @@ export default function PeriodTask({
         }}
       >
         <TaskPersonAvatar todo={todo} small />
+        <TaskPicture todo={todo} />
         <i className="entry-dot" />
+        {todo.tags.find((tag) => tag.startsWith("c:")) && <CategoryIcon id={todo.tags.find((tag) => tag.startsWith("c:"))!.slice(2)} />}
         <strong>{abbreviated ? calendarTitle(todo.title) : todo.title}</strong>
         {!compact && <small>{todo.plannedDate}</small>}
       </button>
+      {onImportance && <TaskImportanceButtons onChange={onImportance} />}
       {onExtend && todo.plannedDate && (
         <button
           className="period-extend"

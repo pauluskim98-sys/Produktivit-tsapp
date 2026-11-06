@@ -1,10 +1,11 @@
+import { accountRoute } from "@/lib/account-route";
 import { getApiKey } from "@/lib/ai-config";
 import { addMessage, getMessages, getTodos, transaction } from "@/lib/db";
 import { sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const pending = new Set<string>();
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const id = new URL(request.url).searchParams.get("todoId") || "";
   if (!getTodos().some((t) => t.id === id))
     return Response.json({ error: "Aufgabe nicht gefunden." }, { status: 404 });
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
     { headers: { "Cache-Control": "no-store" } },
   );
 }
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let lockId: string | undefined;
   try {
     sameOrigin(request);
@@ -162,3 +163,6 @@ export async function POST(request: Request) {
     if (lockId) pending.delete(lockId);
   }
 }
+
+export const GET = accountRoute(handleGET);
+export const POST = accountRoute(handlePOST);

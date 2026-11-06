@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import {
   lookupPlaces,
   proposalFromPlace,
@@ -8,7 +9,7 @@ import { sameOrigin, errorResponse } from "@/lib/validation";
 import { getLife } from "@/lib/life";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const { queries, autocomplete } = await request.json();
@@ -66,3 +67,5 @@ export async function POST(request: Request) {
     return errorResponse(e);
   }
 }
+
+export const POST = accountRoute(handlePOST);

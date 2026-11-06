@@ -25,7 +25,7 @@ export function replaceEvents(connectionId: string, events: CalendarEvent[]) {
     connectionId,
   );
   const insert = db.prepare(
-    "INSERT INTO CalendarEvent (id,connectionId,title,start,end,allDay,location,description) VALUES (?,?,?,?,?,?,?,?)",
+    "INSERT INTO CalendarEvent (id,connectionId,title,start,end,allDay,location,description,seriesId) VALUES (?,?,?,?,?,?,?,?,?)",
   );
   for (const e of events)
     insert.run(
@@ -37,6 +37,7 @@ export function replaceEvents(connectionId: string, events: CalendarEvent[]) {
       Number(e.allDay),
       e.location,
       e.description,
+      e.seriesId || "",
     );
 }
 export async function syncConnection(

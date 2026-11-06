@@ -27,6 +27,7 @@ const subjects: [RegExp, string, string][] = [
   ],
 ];
 export function eventPresentation(event: CalendarEvent, fallback = "#708078") {
+  if (event.color) return {label:event.group || "", color:event.color};
   // Course titles take precedence: descriptions often mention other disciplines.
   const specific = subjects.filter(
     ([, label]) => label !== "Lehrveranstaltung",

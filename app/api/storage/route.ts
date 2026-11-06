@@ -1,9 +1,11 @@
+import { accountRoute } from "@/lib/account-route";
+import { accountConfig } from "@/lib/private-account";
 import { db, transaction } from "@/lib/db";
 import { storageReady, storageItems, checkStorageParent } from "@/lib/storage";
 import { sameOrigin, errorResponse } from "@/lib/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   storageReady();
   const id = new URL(request.url).searchParams.get("file");
   if (!id)
@@ -71,7 +73,7 @@ export async function GET(request: Request) {
     headers: { ...headers, "Content-Length": String(size) },
   });
 }
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     storageReady();
@@ -122,6 +124,10 @@ export async function POST(request: Request) {
         })),
       );
       transaction(() => {
+        if (accountConfig().mode === "private") {
+          const bytes = Number(db.prepare("SELECT COALESCE(SUM(size),0) AS bytes FROM StorageItem WHERE kind='file'").get()?.bytes || 0);
+          if (bytes + entries.reduce((sum, e) => sum + e.size, 0) > 250_000_000) throw new Error("Dein Dateispeicher ist voll (250 MB)." );
+        }
         for (const e of entries)
           db.prepare(
             "INSERT INTO StorageItem(id,parentId,name,kind,mime,size,createdAt,content) VALUES(?,?,?,'file',?,?,?,?)",
@@ -177,3 +183,6 @@ export async function POST(request: Request) {
     return errorResponse(e);
   }
 }
+
+export const GET = accountRoute(handleGET);
+export const POST = accountRoute(handlePOST);

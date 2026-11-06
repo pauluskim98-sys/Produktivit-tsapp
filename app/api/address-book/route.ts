@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import { db } from "@/lib/db";
 import { validAddress } from "@/lib/address-book";
 import { sameOrigin, errorResponse } from "@/lib/validation";
@@ -15,14 +16,14 @@ const entries = () =>
       "SELECT id,name,address FROM AddressBook ORDER BY name COLLATE NOCASE",
     )
     .all();
-export async function GET() {
+async function handleGET() {
   ready();
   return Response.json(
     { entries: entries() },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     ready();
@@ -61,3 +62,6 @@ export async function POST(request: Request) {
     return errorResponse(e);
   }
 }
+
+export const GET = accountRoute(handleGET);
+export const POST = accountRoute(handlePOST);

@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import { eventsForDay } from "@/lib/day-assessment";
 import { db, getTodos, getEvents } from "@/lib/db";
 import { getApiKey } from "@/lib/ai-config";
@@ -13,7 +14,7 @@ function messages(date: string) {
     )
     .all(date);
 }
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const date = new URL(request.url).searchParams.get("date");
   if (!periodRange(date))
     return Response.json({ error: "Ungültiger Tag." }, { status: 400 });
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
     { headers: { "Cache-Control": "no-store" } },
   );
 }
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let lockDate: string | undefined;
   try {
     sameOrigin(request);
@@ -154,3 +155,6 @@ export async function POST(request: Request) {
     if (lockDate) pending.delete(lockDate);
   }
 }
+
+export const GET = accountRoute(handleGET);
+export const POST = accountRoute(handlePOST);

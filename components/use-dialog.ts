@@ -14,9 +14,9 @@ export function useDialog(active: boolean, identity = "") {
         ) || [],
       ).filter((el) => el.offsetParent !== null);
     (
-      dialog?.querySelector<HTMLElement>(
+      (dialog?.matches("[data-initial-focus]") ? dialog : dialog?.querySelector<HTMLElement>(
         '[data-initial-focus], input:not([disabled]):not([type="file"]), textarea',
-      ) || focusable()[0]
+      )) || focusable()[0]
     )?.focus();
     const trap = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;

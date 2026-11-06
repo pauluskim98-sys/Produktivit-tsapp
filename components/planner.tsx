@@ -14,14 +14,31 @@ import {
 } from "@/lib/client-history";
 import ReminderSetup from "./reminder-setup";
 import LifeInbox from "./life-inbox";
-import { autoSchedule } from "@/lib/auto-schedule";
+import CalendarTabs from "./calendar-tabs";
+import ZoneEditor from "./zone-editor";
+import { RepeatPicker, RepeatDays, RepeatWeeks } from "./repeat-picker";
+import type { CalendarZone } from "@/lib/calendar-zones";
+import { parseQuadrant } from "@/lib/eisenhower";
+import { quadrantOf, withQuadrant } from "@/lib/eisenhower";
+import { hasMatchingCalendarTitle, nativeCalendarDefaults, nativeGroupColor, type NativeCalendarConfig } from "@/lib/calendar/overrides";
+import { taskImportant, type TaskPeriod } from "./period-task-grid";
+import NotebookNavigation, { notebookTitle } from "./notebook-navigation";
+import { notebookFolder } from "@/lib/notebook";
+import { autoSchedule, scheduleUntimedOnSave } from "@/lib/auto-schedule";
 import { goalRange } from "@/lib/goals";
-import StorageShelf from "./storage-shelf";
-import InboxReturnDrop from "./inbox-return-drop";
 import ResourceDrawer from "./resource-drawer";
 import InboxNotes from "./inbox-notes";
+import NoteTodoBoard from "./note-todo-board";
+import NoteSettings from "./note-settings";
+import { defaultNotePreferences, noteFonts, notePeriods, notePeriod, waitingNoteTodo, putInNoteTodo, type NotePeriod, type NotePreferences } from "@/lib/note-todos";
+import PlannerNotepad, { noteWithTasks, readNoteLines } from "./planner-notepad";
+import { CalendarEventEditor, CalendarOptions } from "./calendar-editor";
+import { useAutosaveText } from "./use-autosave-text";
+import TaskImportanceButtons from "./task-importance-buttons";
+import { taskDay, plannerPeriodTags, parkTask, restoreParkedTask, isFlexibleTask } from "@/lib/planner-day";
 import ColorPicker from "./task-color-picker";
 import TaskDescription from "./task-description";
+import TaskPicture from "./task-picture";
 import AddressInput from "./address-input";
 import { mapsDirections } from "@/lib/maps-directions";
 import { placeQueries, type PlaceProposal } from "@/lib/place-search";
@@ -31,11 +48,10 @@ import {
   ShortcutWelcome,
   ShortcutSettings,
 } from "./shortcut-hints";
-import { taskColorForKey } from "@/lib/task-colors";
+import { taskColorForKey, type TaskColor } from "@/lib/task-colors";
 import ScheduleFields from "./schedule-fields";
 import TimeInput from "./time-input";
 import TodoistSettings from "./todoist-settings";
-import { openWeekCount } from "@/lib/week-tasks";
 import {
   addressFromText,
   mapsAddress,
@@ -51,7 +67,8 @@ import {
   type ScreenshotEvent,
   type ScreenshotImport,
 } from "@/lib/screenshot-import";
-import { parseAppointmentInput } from "@/lib/appointment-input";
+import { parseAppointmentInput, parseRecurringAppointmentInput } from "@/lib/appointment-input";
+import { repeatDates } from "@/lib/repeat";
 import { usePanelSwipe } from "./use-panel-swipe";
 import DayPanel from "./day-panel";
 import { CalendarOverview } from "./calendar-overview";
@@ -91,10 +108,10 @@ import {
   CalendarClock,
   Check,
   ChevronDown,
+  Flag,
   Circle,
   Bell,
   Clock3,
-  Flag,
   GripVertical,
   Inbox,
   Layers2,
@@ -109,8 +126,6 @@ import {
   Trash2,
   Undo2,
   X,
-  PanelLeftClose,
-  PanelLeft,
   FileText,
   ExternalLink,
   RefreshCw,
@@ -119,8 +134,10 @@ import {
   CheckCheck,
 } from "lucide-react";
 import Timeline, { dragStartMinute, type TimeChange } from "./timeline";
-import { scheduleAt } from "@/lib/schedule";
+import { gridMinute, scheduleAt, toMinutes } from "@/lib/schedule";
+import CategoryIcon from "./category-icon";
 import { useDialog } from "./use-dialog";
+import { isTitleKey, typeTitle } from "./type-title";
 import type { AppState, Todo, ChatMessage, CalendarEvent } from "@/lib/types";
 import { addDays, dateKey, monday, parseDate, weekNumber } from "@/lib/dates";
 const DAYS = [
@@ -210,11 +227,13 @@ function TaskCard({
   onOpen,
   onToggle,
   overlay = false,
+  onImportance,
 }: {
   todo: Todo;
   onOpen: (id: string) => void;
   onToggle: (todo: Todo) => void;
   overlay?: boolean;
+  onImportance?: (todo:Todo,important:boolean)=>void;
 }) {
   const {
     attributes,
@@ -276,9 +295,6 @@ function TaskCard({
                 {todo.subtasks.length}
               </span>
             )}
-            {todo.priority === "high" && (
-              <Flag size={11} className="high-priority" />
-            )}
           </span>
         )}
         {todo.deadline && (
@@ -293,6 +309,7 @@ function TaskCard({
           </span>
         )}
       </button>
+      {onImportance && <TaskImportanceButtons onChange={(important)=>onImportance(todo,important)} />}
       <button
         className="drag-handle"
         aria-label={`${todo.title} verschieben`}
@@ -310,12 +327,14 @@ function TaskList({
   onOpen,
   onToggle,
   children,
+  onImportance,
 }: {
   id: string;
   todos: Todo[];
   onOpen: (id: string) => void;
   onToggle: (todo: Todo) => void;
   children?: React.ReactNode;
+  onImportance?: (todo:Todo,important:boolean)=>void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
@@ -333,6 +352,7 @@ function TaskList({
             todo={todo}
             onOpen={onOpen}
             onToggle={onToggle}
+            onImportance={onImportance}
           />
         ))}
       </SortableContext>
@@ -439,6 +459,7 @@ export default function Planner() {
   const clipboard = useRef<Todo | null>(null);
   const groupClipboard = useRef<Todo[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
+  const [selectionMenu, setSelectionMenu] = useState<{ x:number; y:number } | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   type Change = {
     id: string;
@@ -509,7 +530,31 @@ export default function Planner() {
     await travel();
   };
   const [datePreview, setDatePreview] = useState<string | null>(null);
-  const [overview, setOverview] = useState<"month" | "week" | "year" | null>(
+  const [zones,setZones]=useState<CalendarZone[]>([]);
+  const [zoneMode,setZoneMode]=useState(false);
+  const [zoneEdit,setZoneEdit]=useState<CalendarZone|null>(null);
+  useEffect(()=>{
+    const refresh=()=>void api("/api/zones").then(setZones).catch(()=>setToast({text:"Kalenderzonen konnten nicht geladen werden."}));
+    refresh();
+    window.addEventListener("raum-data-changed",refresh);
+    return ()=>window.removeEventListener("raum-data-changed",refresh);
+  },[]);
+  const [calendarEventEdit,setCalendarEventEdit]=useState<CalendarEvent|null>(null);
+  const [calendarDeleteOnly,setCalendarDeleteOnly]=useState(false);
+  const [hiddenCalendars,setHiddenCalendars]=useState<string[]>([]);
+  useEffect(()=>{try{const stored=JSON.parse(localStorage.getItem("lifemap-hidden-calendars")||"[]");if(Array.isArray(stored))setHiddenCalendars(stored.filter((id)=>typeof id==="string"));}catch{}},[]);
+  function toggleCalendar(id:string){
+    let before=hiddenCalendars;
+    try{
+      const stored=JSON.parse(localStorage.getItem("lifemap-hidden-calendars") || "[]");
+      if(Array.isArray(stored))before=stored.filter((key)=>typeof key==="string");
+    }catch{}
+    const after=before.includes(id)?before.filter((key)=>key!==id):[...before,id];
+    const apply=async(next:string[])=>{localStorage.setItem("lifemap-hidden-calendars",JSON.stringify(next));setHiddenCalendars(next);};
+    void apply(after);
+    record({undo:()=>apply(before),redo:()=>apply(after)});
+  }
+  const [overview, setOverview] = useState<"day" | "month" | "week" | "year" | null>(
     null,
   );
   const [planning, setPlanning] = useState(false),
@@ -519,36 +564,41 @@ export default function Planner() {
     [query, setQuery] = useState(""),
     [tagFilter, setTagFilter] = useState(""),
     [showDone, setShowDone] = useState(true);
-  const [inboxWidth, setInboxWidth] = useState(300);
-  const resizeStart = useRef(300);
-  useEffect(() => {
-    const w = Number(localStorage.getItem("raum-inbox-width"));
-    if (w >= 230 && w <= 650) setInboxWidth(w);
-  }, []);
-  const [inboxOpen, setInboxOpen] = useState(true),
-    [mobileInbox, setMobileInbox] = useState(false),
-    [settings, setSettings] = useState(false),
+  const [settings, setSettings] = useState(false),
     [newOpen, setNewOpen] = useState(false),
     [dark, setDark] = useState(false);
   const [storageOpen, setStorageOpen] = useState(false);
-  const [inboxPinned, setInboxPinned] = useState(false);
+  const plannerNotePeriod:TaskPeriod=overview==="day"?"day":overview==="month" || overview==="year"?"month":"week";
+  const calendarNoteKeys = [anchor, `week:${periodRange(`week:${anchor}`)!.start}`, `month:${periodRange(`month:${anchor}`)!.start}`];
+  const calendarNoteKey = calendarNoteKeys[plannerNotePeriod==="day"?0:plannerNotePeriod==="week"?1:2];
+  const [noteTabs,setNoteTabs]=useState<string[]>([]);
+  const [activeNote,setActiveNote]=useState<string|null>(null);
+  const [freshNote,setFreshNote]=useState<string|null>(null);
+  const [notebookOpen,setNotebookOpen]=useState(false);
+  const [noteTodosCollapsed,setNoteTodosCollapsed]=useState(false);
+  useEffect(()=>setNoteTodosCollapsed(localStorage.getItem("lifemap-note-todos-collapsed")==="true"),[]);
+  const toggleNoteTodos=()=>{
+    const before=noteTodosCollapsed;
+    const apply=async(value:boolean)=>{
+      localStorage.setItem("lifemap-note-todos-collapsed",String(value));
+      setNoteTodosCollapsed(value);
+    };
+    void apply(!before);
+    record({undo:()=>apply(before),redo:()=>apply(!before)});
+  };
+  const availableTabs=noteTabs.filter((key)=>!notebookFolder(key) || !!state.dayNotes[key]);
+  const plannerNoteKey=activeNote && availableTabs.includes(activeNote)?activeNote:calendarNoteKey;
+  const visibleNoteTabs=[...new Set([calendarNoteKey,...availableTabs])];
+  const openNote=(key:string)=>{
+    setNoteTabs((current)=>current.includes(key)?current:[...current,key]);
+    setActiveNote(key);
+    setFreshNote(null);
+  };
+  const closeNote=(key:string)=>{
+    if(key===plannerNoteKey)setActiveNote(null);
+    setNoteTabs((current)=>current.filter((item)=>item!==key));
+  };
   const [storagePinned, setStoragePinned] = useState(false);
-  const closeInbox = () => {
-    setInboxPinned(false);
-    setInboxOpen(false);
-    setMobileInbox(false);
-  };
-  const closeTransientInbox = () => {
-    if (!inboxPinned) closeInbox();
-  };
-  const toggleInbox = () => {
-    if ((inboxOpen || mobileInbox) && inboxPinned) closeInbox();
-    else {
-      setInboxPinned(true);
-      setInboxOpen(true);
-      setMobileInbox(true);
-    }
-  };
   const closeStorage = () => {
     setStoragePinned(false);
     setStorageOpen(false);
@@ -560,26 +610,13 @@ export default function Planner() {
       setStorageOpen(true);
     }
   };
-  const [trayRaised, setTrayRaised] = useState(false);
-  const [dragReveal, setDragReveal] = useState(false);
-  const [trayPosition, setTrayPosition] = useState({
-    top: 0,
-    left: 0,
-    width: 0,
-    placeholder: 0,
-  });
-  const floatingInbox = Boolean(
-    (dayPanel || selected || planning || settings || newOpen) &&
-    (inboxOpen || mobileInbox),
-  );
-  const areaSelection = useAreaSelection(selectionMode, selectedIds, (ids) => {
+  const areaSelection = useAreaSelection(selectionMode, selectedIds, (ids, keepMode) => {
     setSelectedIds(ids);
     setPicked(ids[0] || null);
-    setSelectionMode(false);
+    if(!keepMode)setSelectionMode(false);
   });
   const [editGroup, setEditGroup] = useState<string[]>([]);
   const [accent, setAccent] = useState("green");
-  const mainRef = useRef<HTMLElement>(null);
   const backView = useViewHistory(
     {
       anchor,
@@ -590,12 +627,8 @@ export default function Planner() {
       planning,
       settings,
       newOpen,
-      inboxOpen,
-      mobileInbox,
       storageOpen,
-      inboxPinned,
       storagePinned,
-      trayRaised,
     },
     (view) => {
       setAnchor(view.anchor);
@@ -610,12 +643,8 @@ export default function Planner() {
       setPlanning(view.planning);
       setSettings(view.settings);
       setNewOpen(view.newOpen);
-      setInboxOpen(view.inboxOpen);
-      setMobileInbox(view.mobileInbox);
       setStorageOpen(view.storageOpen);
-      setInboxPinned(view.inboxPinned);
       setStoragePinned(view.storagePinned);
-      setTrayRaised(view.trayRaised);
       setPicked(null);
       setSelectedIds([]);
       setSelectionMode(false);
@@ -628,8 +657,6 @@ export default function Planner() {
         "planning",
         "settings",
         "newOpen",
-        "inboxOpen",
-        "mobileInbox",
         "storageOpen",
       ] as const;
       return (
@@ -643,7 +670,10 @@ export default function Planner() {
   useEffect(() => {
     const back = (event: Event) => {
       if (event.defaultPrevented) return;
-      if (selectionMode || selectedIds.length || picked) {
+      if (zoneMode) {
+        setZoneMode(false);
+        event.preventDefault();
+      } else if (selectionMode || selectedIds.length || picked) {
         setSelectionMode(false);
         setSelectedIds([]);
         setPicked(null);
@@ -654,28 +684,19 @@ export default function Planner() {
       } else if (storageOpen) {
         closeStorage();
         event.preventDefault();
-      } else if (trayRaised) {
-        setTrayRaised(false);
-        event.preventDefault();
-      } else if (inboxOpen || mobileInbox) {
-        closeInbox();
-        event.preventDefault();
       } else if (goBackView()) event.preventDefault();
     };
     window.addEventListener("raum-view-back", back);
     return () => window.removeEventListener("raum-view-back", back);
   }, [
     backView,
+    zoneMode,
     selectionMode,
     selectedIds,
     picked,
     query,
-    inboxOpen,
-    mobileInbox,
     storageOpen,
-    inboxPinned,
     storagePinned,
-    trayRaised,
   ]);
   const navigationAnchor = useRef(anchor);
   navigationAnchor.current = anchor;
@@ -685,6 +706,7 @@ export default function Planner() {
     duration?: number;
     days?: string[];
     drawn?: boolean;
+    category?: { id: string; color: TaskColor; suggestions: string[] };
   } | null>(null);
   const [dragged, setDragged] = useState<Todo | null>(null),
     [toast, setToast] = useState<{
@@ -694,58 +716,90 @@ export default function Planner() {
     } | null>(null),
     [busy, setBusy] = useState(false);
   useDialog(
-    Boolean(selected || settings || newOpen || planning || dayPanel),
+    Boolean(selected || settings || newOpen || planning || dayPanel || zoneEdit),
     selected ||
       dayPanel ||
-      (planning ? "planning" : newOpen ? "new" : settings ? "settings" : ""),
+      (zoneEdit ? `zone:${zoneEdit.id}` : planning ? "planning" : newOpen ? "new" : settings ? "settings" : ""),
   );
-  useEffect(() => {
-    if (!trayRaised || !mainRef.current) return;
-    const main = mainRef.current;
-    main
-      .querySelector<HTMLElement>(".period-tray")
-      ?.scrollTo({ top: 0, behavior: "instant" });
-    const axis = main.querySelector<HTMLElement>(".time-axis");
-    const measure = () => {
-      const r = main.getBoundingClientRect(),
-        a = axis?.getBoundingClientRect();
-      const hour18 = main.querySelector<HTMLElement>(
-        '[aria-label$="um 18:00 erstellen"]',
-      );
-      const top = hour18
-        ? hour18.getBoundingClientRect().top
-        : a
-          ? a.top + (a.height * 12) / 19
-          : window.innerHeight * 0.64;
-      setTrayPosition((p) => ({
-        ...p,
-        top: Math.max(110, Math.min(window.innerHeight - 160, top)),
-        left: r.left + 10,
-        width: r.width - 20,
-      }));
+  const [notesPosition, setNotesPosition] = useState<"below" | "open" | "closing">("below");
+  const visibleNotesPosition = newOpen && notesPosition==="open" ? "closing" : notesPosition;
+  const [notePreferences,setNotePreferences]=useState(defaultNotePreferences);
+  const [noteSettingsOpen,setNoteSettingsOpen]=useState(false);
+  const [noteToday,setNoteToday]=useState(()=>dateKey(new Date()));
+  useEffect(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem("lifemap-note-preferences") || "null") as NotePreferences|null;
+      if(saved){
+        const columns=notePeriods.filter((period)=>saved.columns?.includes(period));
+        setNotePreferences({
+          height:Number.isInteger(saved.height) && saved.height>=8 && saved.height<=19?saved.height:14,
+          font:Object.hasOwn(noteFonts,saved.font)?saved.font:"system",
+          size:[12,14,16,18,20,24].includes(saved.size)?saved.size:14,
+          columns:columns.length?columns:[...notePeriods],
+        });
+      }
+    }catch{}
+    const tick=()=>setNoteToday(dateKey(new Date()));
+    const timer=window.setInterval(tick,30000);
+    window.addEventListener("focus",tick);
+    return ()=>{window.clearInterval(timer);window.removeEventListener("focus",tick);};
+  },[]);
+  const saveNotePreferences=(next:NotePreferences)=>{
+    const before=notePreferences;
+    const apply=async(value:NotePreferences)=>{
+      localStorage.setItem("lifemap-note-preferences",JSON.stringify(value));
+      setNotePreferences(value);
     };
-    const observer = new ResizeObserver(measure);
-    observer.observe(main);
-    if (axis) observer.observe(axis);
-    window.addEventListener("resize", measure);
-    main.addEventListener("scroll", measure, { passive: true });
-    measure();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-      main.removeEventListener("scroll", measure);
+    void apply(next);
+    if(JSON.stringify(before)!==JSON.stringify(next))record({undo:()=>apply(before),redo:()=>apply(next)});
+    setNoteSettingsOpen(false);
+  };
+  const workspaceRef=useRef<HTMLDivElement>(null);
+  const notesPanelRef=useRef<HTMLElement>(null);
+  useEffect(()=>{
+    const workspace=workspaceRef.current, panel=notesPanelRef.current;
+    if(!workspace || !panel || visibleNotesPosition==="below")return;
+    if(visibleNotesPosition==="open" && !panel.contains(document.activeElement))panel.focus({preventScroll:true});
+    const setLimit=()=>{
+      const timeline=workspace.querySelector<HTMLElement>(".timeline-scroll");
+      const hour=String(notePreferences.height).padStart(2,"0")+":00";
+      const slot=[...workspace.querySelectorAll<HTMLElement>(`.time-slot[aria-label*="um ${hour}"]`)].find((item)=>item.offsetWidth);
+      const top=timeline?.getBoundingClientRect().top ?? 0;
+      const line=slot?.getBoundingClientRect().top;
+      const edge=line!==undefined && line>=top+65 ? line : Math.max(top+100,window.innerHeight*.42);
+      workspace.style.setProperty("--note-overlay-max",`${Math.max(140,Math.min(window.innerHeight*.72,window.innerHeight-edge))}px`);
     };
-  }, [trayRaised, anchor, overview]);
-  const raiseTray = () => {
-    const main = mainRef.current;
-    if (!main) return;
-    setTrayPosition((p) => ({
-      ...p,
-      placeholder:
-        main.querySelector<HTMLElement>(".period-tray")?.offsetHeight || 260,
-    }));
-    main.scrollTo({ top: 0, behavior: "instant" });
-    setTrayRaised(true);
+    const measure=()=>workspace.style.setProperty("--calendar-note-clearance",`${panel.offsetHeight+12}px`);
+    setLimit();measure();
+    const observer=new ResizeObserver(measure);
+    observer.observe(panel);
+    window.addEventListener("resize",setLimit);
+    return ()=>{observer.disconnect();window.removeEventListener("resize",setLimit);
+      workspace.style.removeProperty("--calendar-note-clearance");workspace.style.removeProperty("--note-overlay-max");};
+  },[visibleNotesPosition,notePreferences.height]);
+  const noteStore = useRef<((tasks:Todo[])=>Promise<void>)|null>(null);
+  const noteLegacyDelete = useRef<((ids:string[])=>Promise<{before:string;after:string}>)|null>(null);
+  const [calendarSettingsId,setCalendarSettingsId]=useState<string|null>(null);
+  const [nativeCalendar,setNativeCalendar]=useState<NativeCalendarConfig>(nativeCalendarDefaults);
+  const refreshNative=useCallback(async()=>setNativeCalendar(await api("/api/calendar-edit?id=lifemap")),[]);
+  useEffect(()=>{
+    const refresh=()=>void refreshNative().catch(()=>{});
+    refresh();window.addEventListener("raum-data-changed",refresh);
+    return ()=>window.removeEventListener("raum-data-changed",refresh);
+  },[refreshNative]);
+  const calendarSettings=calendarSettingsId==="lifemap"?nativeCalendar:state.connections.find((item)=>item.id===calendarSettingsId);
+  useDialog(!!calendarSettings,calendarSettingsId || "");
+  const toggleNotes = () => {
+    setPasteTarget(null);
+    setNotesPosition((position)=>position==="open"?"closing":"open");
+  };
+  const toggleZones = () => {
+    if (!zoneMode && (overview==="month" || overview==="year")) {
+      setOverview(null);
+      setDatePreview(null);
+    }
+    setSelectionMode(false);
+    setZoneMode((current)=>!current);
   };
   const searchRef = useRef<HTMLInputElement>(null);
   const lock = useRef(false);
@@ -768,7 +822,6 @@ export default function Planner() {
   }, []);
   useEffect(() => {
     load();
-    setInboxOpen(window.matchMedia("(min-width: 1101px)").matches);
     const stored = localStorage.getItem("raum-theme");
     setDark(
       stored
@@ -827,7 +880,6 @@ export default function Planner() {
     const key = dateKey(new Date());
     setAnchor(key);
     setMobileDay(key);
-    setMobileInbox(false);
   };
   useEffect(() => {
     function key(e: KeyboardEvent) {
@@ -847,7 +899,7 @@ export default function Planner() {
         !e.ctrlKey &&
         !e.altKey;
       if (
-        !input &&
+        !input && !(e.target as HTMLElement).closest("[data-type-title]") &&
         e.key.toLowerCase() === "a" &&
         !e.metaKey &&
         !e.ctrlKey &&
@@ -863,27 +915,16 @@ export default function Planner() {
         !e.metaKey &&
         !e.ctrlKey &&
         !e.altKey &&
-        selectedIds.length > 1 &&
+        (calendarEventEdit || selectedIds.length > 1 || selectedIds.some((id)=>id.startsWith("note-checkbox:")) || state.events.some((event) => selectedIds.includes(event.id))) &&
         ["Delete", "Backspace"].includes(e.key)
       ) {
         e.preventDefault();
-        void deleteGroup().catch(() => {});
+        if (!calendarDeleteOnly) void deleteGroup(calendarEventEdit ? [calendarEventEdit.id] : selectedIds).catch(handleError);
         return;
       }
-      if (neutral && e.key === "Tab") {
+      if (neutral && e.key.toLowerCase()==="z" && !e.repeat) {
         e.preventDefault();
-        if (inboxOpen || mobileInbox) closeInbox();
-        else toggleInbox();
-        return;
-      }
-      if (neutral && (e.code === "Space" || e.key === " ")) {
-        e.preventDefault();
-        if (e.repeat) return;
-        const main = mainRef.current;
-        if (main) {
-          if (trayRaised) setTrayRaised(false);
-          else raiseTray();
-        }
+        toggleZones();
         return;
       }
       if (
@@ -1086,10 +1127,20 @@ export default function Planner() {
         ).catch(handleError);
       else setToast({ text: "Zuerst eine Stelle im Kalender auswählen." });
     };
+    const notesKey=(event:KeyboardEvent)=>{
+      if((event.code!=="Space" && event.key!==" ") || event.ctrlKey || event.altKey || event.metaKey ||
+        dragged || !(event.target instanceof HTMLElement) ||
+        event.target.closest("input,textarea,select,[contenteditable]") ||
+        document.querySelector('[role="dialog"],[role="menu"]'))return;
+      event.preventDefault();event.stopImmediatePropagation();
+      if(!event.repeat)toggleNotes();
+    };
+    window.addEventListener("keydown", notesKey,true);
     window.addEventListener("keydown", key);
     document.addEventListener("copy", copy);
     document.addEventListener("paste", paste);
     return () => {
+      window.removeEventListener("keydown",notesKey,true);
       window.removeEventListener("keydown", key);
       document.removeEventListener("copy", copy);
       document.removeEventListener("paste", paste);
@@ -1100,6 +1151,11 @@ export default function Planner() {
     newOpen,
     picked,
     state.todos,
+    state.events,
+    calendarEventEdit,
+    calendarDeleteOnly,
+    zoneMode,
+    overview,
     planning,
     dayPanel,
     pasteTarget,
@@ -1107,32 +1163,26 @@ export default function Planner() {
     selectedIds,
     selectionMode,
     anchor,
-    trayRaised,
-    inboxOpen,
-    mobileInbox,
-    inboxPinned,
   ]);
   useEffect(() => {
     const forward = (e: Event) => {
       if (goForwardView()) e.preventDefault();
     };
-    const inbox = (e: Event) => {
-      e.preventDefault();
-      const open = inboxOpen || mobileInbox;
-      if (open) closeInbox();
-      else toggleInbox();
-    };
+    const inbox = (e: Event) => { e.preventDefault(); toggleNotes(); };
     const select = (e: Event) => {
       e.preventDefault();
+      setZoneMode(false);
       setSelectionMode((v) => !v);
     };
     const removeSelection = (e: Event) => {
-      if (selectedIds.length) {
+      if (calendarEventEdit || selectedIds.length) {
         e.preventDefault();
-        if (selectedIds.length === 1) {
+        if (calendarEventEdit) {
+          if (!calendarDeleteOnly) void deleteGroup([calendarEventEdit.id]).catch(handleError);
+        } else if (selectedIds.length === 1 && !selectedIds[0].startsWith("note-checkbox:") && !state.events.some((event)=>event.id===selectedIds[0])) {
           const task = state.todos.find((t) => t.id === selectedIds[0]);
           if (task) void remove(task).catch(handleError);
-        } else void deleteGroup().catch(handleError);
+        } else if (!calendarDeleteOnly) void deleteGroup().catch(handleError);
       }
     };
     window.addEventListener("raum-view-forward", forward);
@@ -1145,16 +1195,17 @@ export default function Planner() {
       window.removeEventListener("raum-selection-toggle", select);
       window.removeEventListener("raum-selection-delete", removeSelection);
     };
-  }, [inboxOpen, mobileInbox, inboxPinned, selectedIds, state.todos]);
+  }, [selectedIds, state.todos, state.events, calendarEventEdit, calendarDeleteOnly]);
   const [seriesQuestion, setSeriesQuestion] = useState<{
     title: string;
     resolve: (all: boolean | null) => void;
   } | null>(null);
-  const [renameBlock, setRenameBlock] = useState<{
-    old: string;
-    title: string;
-  } | null>(null);
   const calendarClick = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const calendarNameClicks = useRef(new Map<string,ReturnType<typeof setTimeout>>());
+  useEffect(()=>{
+    const clicks=calendarNameClicks.current;
+    return ()=>{clicks.forEach(clearTimeout);clicks.clear();};
+  },[]);
   useEffect(
     () => () => {
       if (calendarClick.current) clearTimeout(calendarClick.current);
@@ -1261,6 +1312,7 @@ export default function Planner() {
   const save = async (todo: Todo) => {
     await mutate({ action: "save", todo });
   };
+  const planOnSave = (tasks:Todo[]) => scheduleUntimedOnSave(tasks,state.todos,state.events,new Date(),zones);
   const add = async (
     title: string,
     day: string | null,
@@ -1274,7 +1326,7 @@ export default function Planner() {
       const plannedDate =
         parsed.plannedDate || day || (parsed.time ? dateKey(new Date()) : null);
       const scheduledTime = parsed.time || time;
-      await save({
+      const task:Todo={
         ...newTodo(
           parsed.title || title,
           plannedDate,
@@ -1289,9 +1341,11 @@ export default function Planner() {
         duration: parsed.duration ?? duration ?? (scheduledTime ? 60 : null),
         location: parsed.location || "",
         description: parsed.description,
+        ...(day && plannedDate ? {tags:plannerPeriodTags([],"day",plannedDate)} : {}),
         color,
         notes,
-      });
+      };
+      await save(day ? planOnSave([task])[0] : task);
       setToast({ text: "Aufgabe hinzugefügt" });
     } catch (e) {
       handleError(e);
@@ -1397,12 +1451,15 @@ export default function Planner() {
     }
   };
   const openCalendarTask = (id: string) => {
-    closeTransientInbox();
     setSelected(id);
     setPicked(id);
     setSelectedIds([id]);
   };
-  const batchUpdate = async (todos: Todo[], ids: string[] = []) => {
+  const openNoteTask = (id:string) => {
+    if(calendarClick.current)clearTimeout(calendarClick.current);
+    calendarClick.current=setTimeout(()=>openCalendarTask(id),300);
+  };
+  const batchUpdate = async (todos: Todo[], ids: string[] = [], askSeries = true) => {
     try {
       await mutate({
         action: "batch",
@@ -1418,14 +1475,48 @@ export default function Planner() {
             after: state.todos.find((x) => x.id === id) || null,
           })),
         ],
-      });
+      }, askSeries);
     } catch (e) {
       handleError(e);
       throw e;
     }
   };
-  const deleteGroup = async () => {
-    await batchUpdate([], selectedIds);
+  const storeInNote = async (tasks:Todo[], date:string, write?:()=>Promise<void>) => {
+    if (write) await write();
+    else {
+      const content=noteWithTasks(state.dayNotes[date] || "",tasks,!!notebookFolder(date));
+      await api("/api/notes",{date,content});
+      setState((current)=>({...current,dayNotes:{...current.dayNotes,[date]:content}}));
+    }
+    await batchUpdate(tasks.map((todo)=>parkTask(todo,date)),[],false);
+    setToast({text:"In Notizen abgelegt"});
+  };
+  const returnNoteTask = async (id:string) => {
+    const task=state.todos.find((item)=>item.id===id && item.tags.includes("stored"));
+    if(!task)return;
+    const restored=restoreParkedTask(task,dateKey(new Date()));
+    await batchUpdate([restored],[],false);
+    if(restored.plannedDate){setAnchor(restored.plannedDate);setMobileDay(restored.plannedDate);}
+    setToast({text:"Zurück im Kalender"});
+  };
+  const deleteGroup = async (ids = selectedIds) => {
+    const events = state.events.filter((event) => ids.includes(event.id));
+    const taskIds = state.todos.filter((todo) => ids.includes(todo.id)).map((todo) => todo.id);
+    if (events.length===1 && !taskIds.length && (events[0].seriesId || hasMatchingCalendarTitle(state.events, events[0]))) {
+      setCalendarDeleteOnly(true);
+      setCalendarEventEdit(events[0]);
+      return;
+    }
+    if (taskIds.length) await batchUpdate([], taskIds);
+    const legacyIds=ids.filter((id)=>id.startsWith(`note-checkbox:${plannerNoteKey}:`));
+    if(legacyIds.length && noteLegacyDelete.current){
+      await noteLegacyDelete.current(legacyIds);
+    }
+    for (const event of events) await api("/api/calendar-edit", {action:"event",id:event.connectionId,eventId:event.id,scope:"event",hidden:true});
+    if (events.length) {
+      setCalendarEventEdit(null);
+      await load();
+    }
     setSelectedIds([]);
     setPicked(null);
     setToast({ text: "Auswahl gelöscht" });
@@ -1488,6 +1579,53 @@ export default function Planner() {
   }: DragEndEvent) => {
     setDragged(null);
     if (!over || active.id === over.id) return;
+    if(active.data.current?.kind==="calendar-zone"){
+      const {zone,day,night}=active.data.current as {zone:CalendarZone;day:string;night:boolean};
+      const target=over.data.current?.day as string|undefined;
+      if(!target)return;
+      const grid=document.querySelector<HTMLElement>(`[data-day-grid="${target}"]`);
+      const scale=Number(grid?.dataset.minuteHeight)||0.55;
+      const shift=Math.round((Date.parse(`${target}T00:00Z`)-Date.parse(`${day}T00:00Z`))/86400000);
+      const length=zone.end-zone.start;
+      const start=Math.max(0,Math.min(1440-length,zone.start+Math.round(delta.y/scale*(night?6:1)/15)*15));
+      const advance=(date:string)=>dateKey(addDays(parseDate(date),shift));
+      const {zones:next}=await api("/api/zones",{action:"save",zone:{
+        ...zone,start,end:start+length,days:zone.days.map(advance),until:zone.until?advance(zone.until):"",
+      }});
+      setZones(next);
+      return;
+    }
+    const legacy=active.data.current?.legacyTodo as {id:string;noteDate:string;index:number;title:string;done:boolean}|undefined;
+    if(legacy){
+      const target=over.data.current;
+      if(target?.kind==="legacy-note-row" && target.noteDate===legacy.noteDate){
+        target.onMove(legacy.index);
+        return;
+      }
+      const removeLegacy=noteLegacyDelete.current;
+      if(!removeLegacy || !legacy.title.trim())return;
+      let task={...newTodo(legacy.title.trim(),null,state.todos.length+1),done:legacy.done};
+      let reordered:Todo[]=[];
+      if(target?.kind==="note-todo"){
+        const period=target.period as NotePeriod,important=!!target.important;
+        const bucket=state.todos.filter((todo)=>waitingNoteTodo(todo,noteToday) && notePeriod(todo)===period && (todo.priority==="high")===important).sort((a,b)=>a.position-b.position);
+        const before=bucket.findIndex((todo)=>todo.id===target.before);
+        const position=before<0?bucket.length:before;
+        task=putInNoteTodo(task,period,important,position);
+        reordered=bucket.flatMap((todo,index)=>index>=position?[{...todo,position:index+1}]:[]);
+      } else if(target?.kind==="timegrid" || target?.kind==="periodday"){
+        const day=target.day as string;
+        const period=legacy.noteDate.startsWith("week:")?"week":legacy.noteDate.startsWith("month:")?"month":"day";
+        task={...putInNoteTodo(task,period,false,task.position),plannedDate:day};
+        const grid=target.kind==="timegrid"?document.querySelector<HTMLElement>(`[data-day-grid="${day}"]`):null;
+        if(grid)task={...task,...scheduleAt(dragStartMinute(active,activatorEvent,delta,grid.getBoundingClientRect().top,Number(grid.dataset.minuteHeight)||0.55),task.duration || 60)};
+      } else return;
+      await batchUpdate([task],[],false);
+      try{await removeLegacy([legacy.id]);}catch(error){await batchUpdate([], [task.id], false);throw error;}
+      if(reordered.length)await batchUpdate(reordered,[],false);
+      setSelectedIds((current)=>current.filter((id)=>id!==legacy.id));
+      return;
+    }
     let source = state.todos.find(
       (t) => t.id === (active.data.current?.todoId || active.id),
     );
@@ -1503,6 +1641,54 @@ export default function Planner() {
         await mutate({ action: "save", todo: source });
     }
     if (!source) return;
+    if(over.data.current?.kind==="note-todo"){
+      const {period,important,before}=over.data.current as {period:NotePeriod;important:boolean;before?:string};
+      const selected=selectedIds.includes(source.id)
+        ? state.todos.filter((todo)=>selectedIds.includes(todo.id) && (todo.id===source!.id || notePeriod(todo)))
+        : [source];
+      const ids=new Set(selected.map((todo)=>todo.id));
+      if(before && ids.has(before))return;
+      const bucket=state.todos.filter((todo)=>!ids.has(todo.id) && waitingNoteTodo(todo,noteToday) &&
+        notePeriod(todo)===period && (todo.priority==="high")===important).sort((a,b)=>a.position-b.position);
+      const index=before?bucket.findIndex((todo)=>todo.id===before):-1;
+      const moveDown=selected.length===1 && index>=0 && notePeriod(source)===period &&
+        (source.priority==="high")===important && waitingNoteTodo(source,noteToday) && source.position<bucket[index].position;
+      bucket.splice(index<0?bucket.length:index+Number(moveDown),0,...selected);
+      const updates=bucket.flatMap((todo,position)=>ids.has(todo.id)?[putInNoteTodo(todo,period,important,position)]:
+        todo.position!==position?[{...todo,position}]:[]);
+      if(updates.length)await batchUpdate(updates,[],false);
+      return;
+    }
+    if(waitingNoteTodo(source,noteToday))source={...source,plannedDate:null,time:""};
+
+    if (over.data.current?.kind === "eisenhower") {
+      const moving = selectedIds.includes(source.id) ? state.todos.filter((t) => selectedIds.includes(t.id)) : [source];
+      await batchUpdate(moving.map((todo) => ({ ...todo, tags: withQuadrant(plannerPeriodTags(todo.tags,over.data.current?.period,anchor), over.data.current?.quadrant) })));
+      return;
+    }
+    if (over.data.current?.kind === "note-storage") {
+      const tasks = selectedIds.includes(source.id) ? state.todos.filter((t) => selectedIds.includes(t.id)) : [source];
+      const date=over.data.current.date as string|undefined;
+      if(!date)return;
+      const content=noteWithTasks(over.data.current.value || state.dayNotes[date] || "",tasks,!!notebookFolder(date));
+      if(typeof over.data.current.save!=="function")return;
+      const saveNote=over.data.current.save;
+      await storeInNote(tasks,date,()=>saveNote(content));
+      return;
+    }
+    if(source.tags.includes("stored")) {
+      const data=over.data.current;
+      const target=state.todos.find((todo)=>todo.id===over.id);
+      const day=data?.day || (target ? taskDay(target) : String(over.id).replace(/^tab:/,""));
+      if(typeof day==="string" && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        const grid=data?.kind==="timegrid" ? document.querySelector<HTMLElement>(`[data-day-grid="${day}"]`) : null;
+        const change=grid ? scheduleAt(dragStartMinute(active,activatorEvent,delta,grid.getBoundingClientRect().top,
+          Number(grid.dataset.minuteHeight)||0.55),source.duration || 60) : {time:"",duration:source.duration};
+        await batchUpdate([restoreParkedTask(source,day,{day,...change})],[],false);
+        setToast({text:"Zurück im Kalender"});
+        return;
+      }
+    }
     if (over.data.current?.kind === "goal-category") {
       const category = `c:${over.data.current.categoryId}`;
       const tasks = selectedIds.includes(source.id)
@@ -1654,7 +1840,7 @@ export default function Planner() {
     }
     const target = state.todos.find((t) => t.id === over.id);
     const day = target
-      ? target.plannedDate
+      ? taskDay(target)
       : ["inbox", "tab:inbox"].includes(String(over.id))
         ? null
         : String(over.id).replace(/^tab:/, "");
@@ -1673,7 +1859,7 @@ export default function Planner() {
       return;
     }
     const list = state.todos
-      .filter((t) => t.plannedDate === day && t.id !== source.id)
+      .filter((t) => taskDay(t) === day && t.id !== source.id)
       .sort((a, b) => a.position - b.position);
     let index = target
       ? list.findIndex((t) => t.id === target.id)
@@ -1687,7 +1873,7 @@ export default function Planner() {
     list.splice(Math.max(0, index), 0, { ...source, plannedDate: day });
     const moves = list.map((t, position) => ({
       id: t.id,
-      plannedDate: day,
+      plannedDate: t.id === source.id ? day : t.plannedDate,
       position,
       time: t.id === source.id ? "" : t.time,
     }));
@@ -1725,23 +1911,13 @@ export default function Planner() {
       `${todo.title} ${todo.description} ${todo.tags.join(" ")}`
         .toLowerCase()
         .includes(query.toLowerCase()));
-  const tasksFor = (day: string | null) =>
-    state.todos
-      .filter((t) => t.plannedDate === day && visible(t))
-      .sort((a, b) => a.position - b.position);
-  const weekTodos = state.todos.filter(
-    (t) => t.plannedDate && weekKeys.includes(t.plannedDate),
-  );
-  const done = weekTodos.filter((t) => t.done).length;
-  const weeklyOpen = openWeekCount(state.todos, weekKeys);
-  const tags = [
-    ...new Set(
-      state.todos.flatMap((t) => t.tags.filter((x) => !/^(k|r|h|c):/.test(x))),
-    ),
-  ].sort();
-  const current = state.todos.find((t) => t.id === selected);
+  const calendarEvents = state.events.filter((event)=>!hiddenCalendars.includes(event.connectionId));
+  const calendarTodos = hiddenCalendars.includes("lifemap") ? [] : state.todos.filter((todo)=>visible(todo) && !todo.tags.includes("stored") && !waitingNoteTodo(todo,noteToday))
+    .map((todo)=>({...todo,calendarGroupColor:nativeGroupColor(todo.title,nativeCalendar.rules)}));
+  const tags = [...new Set(state.todos.flatMap((todo)=>todo.tags))].filter((tag)=>!/^[chdnq]:|^note-origin:/.test(tag) && !["stored","auto:day"].includes(tag) && !tag.startsWith("note-todo:")).sort();
+  const current = state.todos.find((todo)=>todo.id===selected);
   const eventsFor = (day: string) =>
-    state.events.filter((e) =>
+    calendarEvents.filter((e) =>
       e.allDay
         ? e.start.slice(0, 10) <= day && e.end.slice(0, 10) > day
         : new Date(e.start) <
@@ -1755,7 +1931,7 @@ export default function Planner() {
       if (overview === "year") next.setMonth(0, 1);
       if (overview === "year") next.setFullYear(next.getFullYear() + direction);
       else if (overview === "month") next.setMonth(next.getMonth() + direction);
-      else next.setDate(next.getDate() + direction * 7);
+      else next.setDate(next.getDate() + direction * (overview==="day"?1:7));
       navigationAnchor.current = dateKey(next);
       setAnchor(dateKey(next));
       setMobileDay(dateKey(next));
@@ -1769,75 +1945,99 @@ export default function Planner() {
     notes,
     color,
   ) => {
-    const parsed = parseAppointmentInput(title);
+    const daily = /\b(jeden\s+tag|täglich|taeglich|immer)\b/i.test(title);
+    const todayKey=dateKey(new Date());
+    const parsed = parseAppointmentInput(title.replace(/\b(jeden\s+tag|täglich|taeglich|immer)\b/gi, " "), todayKey, todayKey);
     const task = {
       ...newTodo(
         parsed.title || title,
-        parsed.plannedDate || (parsed.time ? dateKey(new Date()) : null),
+        parsed.plannedDate || todayKey,
         state.todos.length + 1,
       ),
       time: parsed.time || "",
       duration: parsed.duration ?? (parsed.time ? 60 : null),
       location: parsed.location || "",
       description: parsed.description,
-      tags,
+      tags: tags.includes("h:day") ? plannerPeriodTags(tags,"day",parsed.plannedDate || todayKey) : tags,
       notes,
       color: color || "green",
     };
     await mutate({ action: "save", todo: task });
+    if (daily) {
+      const base = parseDate(task.plannedDate || dateKey(new Date()));
+      await batchUpdate(Array.from({ length: 365 }, (_, index) => ({ ...task, id: crypto.randomUUID(), plannedDate: dateKey(addDays(base, index + 1)) })));
+      setToast({ text: "Tägliche Wiederholung für die nächsten 366 Tage angelegt." });
+    }
   };
-  const autoPlanInbox: NonNullable<
-    React.ComponentProps<typeof LifeInbox>["onAutoPlan"]
-  > = async (ids, horizon) => {
-    const tasks = state.todos.filter(
-      (t) => ids.includes(t.id) && !t.done && !t.time,
-    );
-    const result = autoSchedule(
+  const [autoPlanning,setAutoPlanning]=useState(false);
+  const [autoPlanError,setAutoPlanError]=useState("");
+  const autoPlanNotes = async () => {
+    const range = plannerNotePeriod === "day" ? {start:anchor,end:anchor} : goalRange(anchor,plannerNotePeriod);
+    const tasks = state.todos.filter((todo)=>{
+      const day = taskDay(todo);
+      return !todo.done && !todo.time && !todo.tags.includes("stored") && !waitingNoteTodo(todo,noteToday) && (isFlexibleTask(todo) || !day || (day>=range.start && day<=range.end));
+    }).map((todo)=>({...todo,priority:todo.priority==="high" || quadrantOf(todo.tags)==="1" ? "high" as const : taskImportant(todo) ? "medium" as const : "low" as const}));
+    if (!tasks.length) throw new Error(state.todos.some((todo)=>!todo.done && todo.tags.includes("stored"))
+      ? "Aufgaben im Notizfeld werden ausgelassen. Doppelklicke eine Aufgabe, um sie zurück in den Kalender zu holen."
+      : "Für diesen Zeitraum gibt es keine offenen Aufgaben ohne Uhrzeit.");
+    const now=new Date();
+    let result = autoSchedule(
       tasks,
       state.todos,
       state.events,
-      goalRange(anchor, horizon),
+      range,
+      now,
+      zones,
     );
+    const flexible=result.skipped.filter(isFlexibleTask);
+    if(flexible.length){
+      const today=dateKey(now);
+      const nextStart=range.end<today?today:dateKey(addDays(parseDate(range.end),1));
+      const nextEnd=dateKey(addDays(parseDate(nextStart),6));
+      const next=autoSchedule(flexible,[...state.todos,...result.scheduled],state.events,{start:nextStart,end:nextEnd},now,zones);
+      const added=new Set(next.scheduled.map((todo)=>todo.id));
+      result={scheduled:[...result.scheduled,...next.scheduled],skipped:result.skipped.filter((todo)=>!added.has(todo.id))};
+    }
     if (!result.scheduled.length)
       throw new Error(
-        "Im gewählten Zeitraum ist kein ausreichend freier Platz zwischen 08 und 22 Uhr vorhanden.",
+        "Im gewählten Zeitraum ist kein freier Platz in den passenden Zonen oder regulären Planungszeiten verfügbar.",
       );
-    await batchUpdate(result.scheduled);
+    await batchUpdate(result.scheduled.map((t) => ({ ...t, priority: state.todos.find((original) => original.id === t.id)?.priority || t.priority })), [], false);
     setSelectedIds([]);
     setPicked(null);
     setToast({
-      text: `${result.scheduled.length} Aufgaben eingeplant${result.skipped.length ? ` · ${result.skipped.length} bleiben in der Inbox` : ""}`,
+      text: `${result.scheduled.length} Aufgaben eingeplant${result.skipped.length ? ` · ${result.skipped.length} bleiben ohne Uhrzeit` : ""}`,
     });
   };
-  const inboxPriority: React.ComponentProps<typeof LifeInbox>["onPriority"] = (
-    todo,
-    priority,
-    horizon,
-  ) => {
-    const ranks = { high: 0, medium: 1, low: 2, none: 2 };
-    const first = state.todos
-      .filter(
-        (t) =>
-          t.id !== todo.id &&
-          !t.plannedDate &&
-          !t.done &&
-          (t.tags.find((tag) => /^h:/.test(tag)) || "h:week") ===
-            `h:${horizon}` &&
-          ranks[t.priority] >= ranks[priority],
-      )
-      .sort(
-        (a, b) =>
-          ranks[a.priority] - ranks[b.priority] || a.position - b.position,
-      )[0];
-    void batchUpdate(
-      priorityOrder(state.todos, todo, first?.id || null, priority, horizon),
-    ).catch(handleError);
-  };
+  const calendarFilters = (
+    <div className="calendar-quick-filters" aria-label="Sichtbare Kalender">
+      {[nativeCalendar,...state.connections].map((calendar)=>(
+        <div className="calendar-visibility-row" key={calendar.id} title={calendar.name}>
+          <button className="calendar-visibility-name" type="button"
+            title="Klick zum Ein- oder Ausblenden · Doppelklick für Einstellungen"
+            onClick={(event)=>{
+              if(event.detail===0){toggleCalendar(calendar.id);return;}
+              clearTimeout(calendarNameClicks.current.get(calendar.id));
+              if(event.detail===1)calendarNameClicks.current.set(calendar.id,setTimeout(()=>{
+                calendarNameClicks.current.delete(calendar.id);
+                toggleCalendar(calendar.id);
+              },350));
+            }}
+            onDoubleClick={()=>{
+              clearTimeout(calendarNameClicks.current.get(calendar.id));
+              calendarNameClicks.current.delete(calendar.id);
+              setSelectionMode(false);
+              setCalendarSettingsId(calendar.id);
+            }}>{calendar.name}</button>
+          <input type="checkbox" aria-label={`${calendar.name} anzeigen`} checked={!hiddenCalendars.includes(calendar.id)} onChange={()=>toggleCalendar(calendar.id)} style={{accentColor:calendar.color}}/>
+        </div>
+      ))}
+    </div>
+  );
   useActionHints(shortcutHints.enabled);
 
   usePanelSwipe({
     navigate,
-    openPlan: raiseTray,
     openDetail: () => {
       if (picked && state.todos.some((todo) => todo.id === picked))
         setSelected(picked);
@@ -1848,23 +2048,47 @@ export default function Planner() {
     },
     storageOpen,
     setStorage: setStorageOpen,
-    inboxOpen: inboxOpen || mobileInbox,
     detailOpen: Boolean(selected || newOpen),
-    blocked: Boolean(dragged || selectionMode),
-    setInbox: (open) => {
-      if ((inboxOpen || mobileInbox) === open) return;
-      setInboxOpen(open);
-      setMobileInbox(open);
-    },
+    blocked: Boolean(dragged || selected || dayPanel || planning || settings || newOpen || calendarEventEdit || calendarSettings || zoneEdit),
   });
 
   return (
     <div
-      className={`app-shell ${selectionMode ? "area-selection-mode" : ""} ${floatingInbox ? "floating-inbox-open" : ""} ${dragReveal ? "task-drag-reveal" : ""}`}
+      className={`app-shell ${selectionMode ? "area-selection-mode" : ""}`}
       {...areaSelection.bind}
+      onContextMenu={(event) => {
+        if (event.defaultPrevented) return;
+        const target = event.target as Element;
+        if (target.closest("input,textarea,select,[contenteditable],[role=dialog],[role=menu]") &&
+            !target.closest(".legacy-note-todo.group-selected")) return;
+        if (target.closest(".timeline-scroll,.calendar-overview-large")) {
+          event.preventDefault();
+          today();
+          setOverview(null);
+          setDatePreview(null);
+          setPasteTarget(null);
+          setPicked(null);
+          setSelectedIds([]);
+          setSelectionMode(false);
+          setSelectionMenu(null);
+        } else if (selectedIds.length) {
+          event.preventDefault();
+          setSelectionMenu({ x:event.clientX, y:event.clientY });
+        }
+      }}
       onClickCapture={(event) => {
+        const target=event.target as Element;
+        const notePanel=target.closest(".calendar-bottom-notes");
+        const blankNoteArea=notePanel && !target.closest("button,a,input,textarea,select,label,summary,[contenteditable],[role=separator],[data-task-id],.selection-toolbar,.note-text-column,.notebook-sidebar");
+        if(blankNoteArea && visibleNotesPosition==="below"){
+          toggleNotes();
+          return;
+        }
         areaSelection.bind.onClickCapture(event);
         if (event.isPropagationStopped()) return;
+        if (blankNoteArea || target.matches(".main-content,.planner-toolbar,.calendar-toolbar-leading,.calendar-category-bar,.calendar-category-zone,.timeline-scroll,.timeline-head,.timeline-body,.timeline-gutter-head,.time-axis,.time-axis span,.calendar-overview-large")) {
+          setNotesPosition((position)=>position==="open"?"closing":position);
+        }
         const node = (event.target as Element).closest<HTMLElement>(
           "[data-calendar-task],[data-calendar-event]",
         );
@@ -1880,18 +2104,27 @@ export default function Planner() {
         if (event.detail > 1) return;
         const id = node.dataset.calendarTask,
           eventId = node.dataset.calendarEvent;
-        const open = () => {
-          if (id) {
-            openCalendarTask(id);
-          } else {
-            const item = state.events.find((e) => e.id === eventId);
-            if (item) setToast({ text: item.title });
-          }
-        };
+        if (eventId) {
+          const imported = state.events.find((item) => item.id === eventId);
+          if (!imported) return;
+                setSelected(null);
+          setPicked(eventId);
+          setSelectedIds([eventId]);
+          setCalendarEventEdit(imported);
+          return;
+        }
+        const open = () => { if(id)openCalendarTask(id); };
         if (event.detail === 0) open();
         else calendarClick.current = setTimeout(open, 300);
       }}
       onDoubleClickCapture={(event) => {
+        const noteTask=(event.target as Element).closest<HTMLElement>("[data-note-task]");
+        if(noteTask?.dataset.noteTask){
+          event.preventDefault();event.stopPropagation();
+          if(calendarClick.current)clearTimeout(calendarClick.current);
+          void returnNoteTask(noteTask.dataset.noteTask).catch(handleError);
+          return;
+        }
         const node = (event.target as Element).closest<HTMLElement>(
           "[data-calendar-task],[data-calendar-event]",
         );
@@ -1905,10 +2138,15 @@ export default function Planner() {
         event.preventDefault();
         event.stopPropagation();
         if (calendarClick.current) clearTimeout(calendarClick.current);
-        const item = node.dataset.calendarTask
-          ? state.todos.find((t) => t.id === node.dataset.calendarTask)
-          : state.events.find((e) => e.id === node.dataset.calendarEvent);
-        if (item) setRenameBlock({ old: item.title, title: item.title });
+        if (node.dataset.calendarEvent) {const imported=state.events.find((e)=>e.id===node.dataset.calendarEvent);if(imported)setCalendarEventEdit(imported);}
+        else {
+          const task=state.todos.find((todo)=>todo.id===node.dataset.calendarTask);
+          if(task){
+            const write=noteStore.current;
+            void storeInNote([task],plannerNoteKey,write?()=>write([task]):undefined)
+              .then(()=>setNotesPosition("open")).catch(handleError);
+          }
+        }
       }}
     >
       <ResourceDrawer
@@ -1927,15 +2165,20 @@ export default function Planner() {
           style={areaSelection.rect}
         />
       )}
+      {selectionMenu && <div role="menu" className="planner-selection-menu selection-toolbar" style={{ position:"fixed", top:selectionMenu.y, left:selectionMenu.x, zIndex:1000 }}><button role="menuitem" onClick={() => { setSelectionMenu(null); void deleteGroup().catch(handleError); }}>Auswahl löschen</button><button role="menuitem" onClick={() => setSelectionMenu(null)}>Abbrechen</button></div>}
       <DndContext
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
         sensors={sensors}
         collisionDetection={(args) => {
+          if(args.active.data.current?.kind==="calendar-zone"){
+            const scoped={...args,droppableContainers:args.droppableContainers.filter((item)=>item.data.current?.kind==="timegrid")};
+            return args.pointerCoordinates?pointerWithin(scoped):closestCorners(scoped);
+          }
           if (args.active.data.current?.kind === "life-tab") {
             const filtered = {
               ...args,
               droppableContainers: args.droppableContainers.filter(
-                (c) => c.data.current?.kind === "life-tab",
+                (c) => c.data.current?.kind === "life-tab" && c.data.current.scope===args.active.data.current?.scope,
               ),
             };
             const tabHits = pointerWithin(filtered);
@@ -1943,24 +2186,11 @@ export default function Planner() {
           }
           const scoped = {
             ...args,
-            droppableContainers:
-              dayPanel || selected || settings || planning || newOpen
-                ? args.droppableContainers.filter((c) =>
-                    c.node.current?.closest(
-                      dayPanel
-                        ? '.day-panel[role="dialog"],.sidebar'
-                        : ".sidebar",
-                    ),
-                  )
-                : args.droppableContainers.filter(
-                    (c) =>
-                      !dragReveal ||
-                      !c.node.current?.closest(".sidebar,.period-tray"),
-                  ),
+            droppableContainers: dayPanel
+              ? args.droppableContainers.filter((container)=>container.node.current?.closest('.day-panel[role="dialog"]'))
+              : args.droppableContainers,
           };
           const hits = pointerWithin(scoped);
-          const inboxReturn = hits.find((hit) => hit.id === "inbox-return");
-          if (inboxReturn) return [inboxReturn];
           if (hits.length)
             return [...hits].sort(
               (a, b) =>
@@ -1993,7 +2223,9 @@ export default function Planner() {
             state.todos.find(
               (t) => t.id === (e.active.data.current?.todoId || e.active.id),
             ) ||
-              (e.active.data.current?.suggestion
+              (e.active.data.current?.legacyTodo
+                ? newTodo(e.active.data.current.legacyTodo.title,null,0)
+                : e.active.data.current?.suggestion
                 ? {
                     ...newTodo(e.active.data.current.suggestion.title, null, 0),
                     color: e.active.data.current.suggestion.color || "green",
@@ -2001,36 +2233,8 @@ export default function Planner() {
                 : null),
           )
         }
-        onDragMove={({ activatorEvent, delta, active }) => {
-          if (
-            active.data.current?.kind === "life-tab" ||
-            !("clientX" in activatorEvent)
-          )
-            return;
-          const x = Number(activatorEvent.clientX) + delta.x,
-            y = Number((activatorEvent as MouseEvent).clientY) + delta.y;
-          if (x <= 26) {
-            setInboxOpen(true);
-            setMobileInbox(true);
-            setDragReveal(false);
-            return;
-          }
-          const calendar = mainRef.current?.querySelector<HTMLElement>(
-            ".timeline-scroll,.calendar-overview-large",
-          );
-          const r = calendar?.getBoundingClientRect();
-          setDragReveal(
-            Boolean(
-              r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom,
-            ),
-          );
-        }}
-        onDragCancel={() => {
-          setDragged(null);
-          setDragReveal(false);
-        }}
-        onDragEnd={(event) => {
-          setDragReveal(false);
+        onDragCancel={()=>setDragged(null)}
+        onDragEnd={(event)=>{
           if (event.active.data.current?.kind === "life-tab") {
             if (event.over?.data.current?.kind === "life-tab")
               window.dispatchEvent(
@@ -2047,168 +2251,11 @@ export default function Planner() {
           void move(event).catch(handleError);
         }}
       >
-        <div
-          style={{ "--inbox-width": `${inboxWidth}px` } as React.CSSProperties}
-          className={`workspace ${!inboxOpen ? "inbox-collapsed" : ""} ${mobileInbox ? "show-mobile-inbox" : ""}`}
-        >
-          <aside
-            className="sidebar"
-            onMouseLeave={(event) => {
-              if (inboxPinned || event.buttons || dragged || selectionMode)
-                return;
-              const next = event.relatedTarget;
-              if (
-                next instanceof Element &&
-                next.closest('[role="menu"], [role="dialog"]')
-              )
-                return;
-              setInboxOpen(false);
-              setMobileInbox(false);
-            }}
-            data-escape-layer={floatingInbox ? "" : undefined}
-            data-escape-modal={floatingInbox ? "" : undefined}
-          >
-            <div
-              className="inbox-resize"
-              role="separator"
-              aria-label="Inboxbreite"
-              aria-orientation="vertical"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                resizeStart.current = inboxWidth;
-                e.currentTarget.setPointerCapture(e.pointerId);
-              }}
-              onPointerMove={(e) => {
-                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                  const width = Math.max(
-                    230,
-                    Math.min(
-                      650,
-                      e.clientX -
-                        e.currentTarget.parentElement!.getBoundingClientRect()
-                          .left,
-                    ),
-                  );
-                  setInboxWidth(width);
-                  localStorage.setItem("raum-inbox-width", String(width));
-                }
-              }}
-              onPointerUp={(e) => {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-                const before = resizeStart.current,
-                  after = inboxWidth;
-                const apply = async (w: number) => {
-                  setInboxWidth(w);
-                  localStorage.setItem("raum-inbox-width", String(w));
-                };
-                if (before !== after)
-                  record({
-                    undo: () => apply(before),
-                    redo: () => apply(after),
-                  });
-              }}
-            />
-
-            <div className="sidebar-heading">
-              <button
-                className="inbox-heading-toggle"
-                onClick={toggleInbox}
-                aria-label={
-                  inboxPinned ? "Inbox schließen" : "Inbox geöffnet lassen"
-                }
-                aria-expanded={inboxOpen || mobileInbox}
-              >
-                <Inbox size={18} />
-                Inbox <small>{weeklyOpen}</small>
-              </button>
-              <IconButton title="Inbox einklappen" onClick={closeInbox}>
-                <PanelLeftClose size={15} />
-              </IconButton>
-            </div>
-            <InboxReturnDrop todos={state.todos} />
-            <LifeInbox
-              anchor={anchor}
-              events={state.events}
-              todos={state.todos}
-              onAdd={inboxAdd}
-              onOpen={setSelected}
-              onPriority={inboxPriority}
-              onAutoPlan={autoPlanInbox}
-            >
-              <p className="sidebar-caption">Erst sammeln. Später einplanen.</p>
-              <QuickAdd day={null} onAdd={add} />
-              <TaskList
-                id="inbox"
-                todos={tasksFor(null)}
-                onOpen={setSelected}
-                onToggle={toggle}
-              >
-                {tasksFor(null).length === 0 && (
-                  <div className="inbox-empty">
-                    <Inbox size={27} strokeWidth={1.2} />
-                    <strong>Platz für deine Gedanken</strong>
-                    <p>
-                      Was möchtest du erledigen?
-                      <br />
-                      Sammle es hier in deiner Inbox.
-                    </p>
-                  </div>
-                )}
-              </TaskList>
-              <div className="sidebar-footer">
-                <span className="eyebrow">DEINE KALENDER</span>
-                {state.connections.length === 0 ? (
-                  <p>Noch kein Kalender verbunden</p>
-                ) : (
-                  state.connections.map((c) => (
-                    <div className="calendar-label" key={c.id}>
-                      <i style={{ background: c.color }} />
-                      {c.name}
-                    </div>
-                  ))
-                )}
-                <button
-                  className="text-button"
-                  onClick={() => setSettings(true)}
-                >
-                  <Plus size={14} />
-                  Kalender verbinden
-                </button>
-                {shortcutHints.enabled && (
-                  <span className="keyboard-hint">
-                    <kbd>N</kbd> Neue Aufgabe <kbd>T</kbd> Heute
-                  </span>
-                )}
-              </div>
-            </LifeInbox>
-            <InboxNotes
-              value={state.dayNotes.inbox || ""}
-              onSave={async (content) => {
-                await api("/api/notes", { date: "inbox", content });
-                setState((s) => ({
-                  ...s,
-                  dayNotes: { ...s.dayNotes, inbox: content },
-                }));
-              }}
-            />
-          </aside>
-          <main ref={mainRef} className="main-content">
+        <div ref={workspaceRef} className={`workspace calendar-workspace ${visibleNotesPosition==="open"?"notes-overlay-active":""}`}>
+          <main className="main-content">
             <div className="planner-toolbar">
+              <div className="calendar-toolbar-leading">
               <div className="week-nav">
-                <IconButton
-                  title={
-                    inboxPinned && (inboxOpen || mobileInbox)
-                      ? "Inbox schließen"
-                      : "Inbox öffnen"
-                  }
-                  className="inbox-week-button"
-                  onClick={toggleInbox}
-                >
-                  <PanelLeft size={17} />
-                  <span className="inbox-week-count" aria-hidden="true">
-                    {weeklyOpen}
-                  </span>
-                </IconButton>
                 <h2
                   className="overview-nav date-navigation"
                   onMouseLeave={() => {
@@ -2225,7 +2272,7 @@ export default function Planner() {
                       setDatePreview(`month:${anchor.slice(0, 7)}-01`)
                     }
                   >
-                    {start.getDate()}.–{end.getDate()}.
+                    {overview==="day"?`${parseDate(anchor).getDate()}.`:`${start.getDate()}.–${end.getDate()}.`}
                   </button>
                   <button
                     aria-label="Monatsübersicht öffnen"
@@ -2267,9 +2314,10 @@ export default function Planner() {
                         Schließen
                       </button>
                       <CalendarOverview
+                        onToggle={toggle}
                         period={datePreview}
-                        todos={state.todos}
-                        events={state.events}
+                        todos={calendarTodos}
+                        events={calendarEvents}
                         connections={state.connections}
                         onPick={(day) => {
                           setPasteTarget({ day, time: "" });
@@ -2295,6 +2343,15 @@ export default function Planner() {
                   Heute
                 </button>
               </div>
+            <CalendarTabs onCreate={(id,color,suggestions)=>{
+              setNewSlot({day:dateKey(new Date()),time:"",category:{id,color,suggestions}});
+              setNewOpen(true);
+            }} onAdd={(title,id,color)=>{
+              const entry=parseQuadrant(title);
+              return inboxAdd(entry.title,withQuadrant(["h:day",`c:${id}`],entry.quadrant),"",color);
+            }} renderFeature={(id,close)=><LifeInbox key={id} featureTab={id} todos={state.todos} events={state.events}
+              anchor={anchor} onAdd={inboxAdd} onOpen={(taskId)=>{close();setSelected(taskId);}} onPriority={()=>{}}/>}/>
+              </div>
               <label className="search-field">
                 <Search size={15} />
                 <input
@@ -2315,24 +2372,6 @@ export default function Planner() {
                   <kbd>⌘ K</kbd>
                 )}
               </label>
-              <form
-                className="planning-bar"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setPlanning(true);
-                }}
-              >
-                <Sparkles size={15} />
-                <input
-                  aria-label={`${overview === "year" ? "Jahr" : overview === "month" ? "Monat" : "Woche"} mit KI planen`}
-                  placeholder={`${overview === "year" ? "Jahr" : overview === "month" ? "Monat" : "Woche"} planen, Ziele besprechen …`}
-                  value={planningInput}
-                  onChange={(e) => setPlanningInput(e.target.value)}
-                />
-                <button type="submit" aria-label="KI-Planung öffnen">
-                  <ArrowRight size={14} />
-                </button>
-              </form>
               <select
                 aria-label="Nach Tag filtern"
                 value={tagFilter}
@@ -2370,24 +2409,20 @@ export default function Planner() {
               >
                 <Settings2 size={16} />
               </IconButton>
+              <button type="button" className="today-button zone-mode-toggle" aria-pressed={zoneMode} title="Zonenmodus (Z)" onClick={toggleZones}>Zonen</button>
               <span className="save-indicator" aria-live="polite">
                 {busy ? "Speichert …" : ""}
               </span>
             </div>
             <nav className="mobile-tabs">
-              <MobileDay day={null} active={mobileInbox} onClick={toggleInbox}>
-                <Inbox size={16} />
-                Inbox
-              </MobileDay>
               {days.map((day, i) => (
                 <MobileDay
                   key={dateKey(day)}
                   day={dateKey(day)}
-                  active={!mobileInbox && dateKey(day) === mobileDay}
+                  active={dateKey(day) === mobileDay}
                   onClick={() => {
                     setMobileDay(dateKey(day));
-                    setMobileInbox(false);
-                  }}
+                                  }}
                 >
                   {DAYS[i].slice(0, 2)}
                   <b>{day.getDate()}</b>
@@ -2404,13 +2439,15 @@ export default function Planner() {
                 <Loader2 className="spin" />
                 Deine Woche wird geladen …
               </div>
-            ) : overview && overview !== "week" ? (
+            ) : overview === "month" || overview === "year" ? (
+              <>
+              {calendarFilters}
               <CalendarOverview
+                onToggle={toggle}
                 large
                 onExtend={extendAcross}
                 onCreate={(day) => {
-                  closeTransientInbox();
-                  setNewSlot({ day, time: "", drawn: false });
+                                setNewSlot({ day, time: "", drawn: false });
                   setNewOpen(true);
                 }}
                 onOpen={(id) => {
@@ -2418,8 +2455,8 @@ export default function Planner() {
                   openCalendarTask(id);
                 }}
                 period={`${overview}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : anchor.slice(0, 7) + "-01"}`}
-                todos={state.todos.filter(visible)}
-                events={state.events}
+                todos={calendarTodos}
+                events={calendarEvents}
                 connections={state.connections}
                 onPick={(day) => {
                   setPasteTarget({ day, time: "" });
@@ -2433,12 +2470,17 @@ export default function Planner() {
                   setOverview(period.view);
                 }}
               />
+              </>
             ) : (
               <Timeline
-                days={days}
+                calendarFilters={calendarFilters}
+                zoneMode={zoneMode}
+                zones={zones}
+                onZoneEdit={setZoneEdit}
+                days={overview==="day"?[parseDate(anchor)]:days}
                 mobileDay={mobileDay}
-                todos={state.todos.filter(visible)}
-                events={state.events}
+                todos={calendarTodos}
+                events={calendarEvents}
                 colors={Object.fromEntries(
                   state.connections.map((c) => [c.id, c.color]),
                 )}
@@ -2488,12 +2530,19 @@ export default function Planner() {
                 }}
                 onDayOpen={setDayPanel}
                 onCreate={(day, time, duration, days, drawn) => {
-                  closeTransientInbox();
-                  setPasteTarget({ day, time });
+                  if (zoneMode) {
+                    const start=toMinutes(time);
+                    setZoneEdit({id:crypto.randomUUID(),name:"",color:"#47866d",outline:false,start,
+                      end:Math.min(1440,start+(duration || 60)),days:days?.length?days:[day],
+                      repeat:"none",until:"",categories:[]});
+                    setZoneMode(false);
+                    return;
+                  }
+                                setPasteTarget({ day, time });
                   setNewSlot({ day, time, duration, days, drawn });
                   setNewOpen(true);
                 }}
-                onEvent={(event) => setToast({ text: event.title })}
+                onEvent={setCalendarEventEdit}
                 renderUnscheduled={(key) => (
                   <>
                     {eventsFor(key)
@@ -2512,24 +2561,24 @@ export default function Planner() {
                             } as React.CSSProperties
                           }
                           key={event.id}
-                          onClick={() =>
-                            setToast({
-                              text: `${event.title} · Ganztägig (schreibgeschützt)`,
-                            })
-                          }
+                          data-calendar-event={event.id}
+                          data-task-id={event.id}
                         >
                           {event.title}
                         </button>
                       ))}
                     <TaskList
                       id={key}
-                      todos={tasksFor(key).filter((t) => !t.time)}
+                      todos={[]}
                       onOpen={setSelected}
                       onToggle={toggle}
-                    >
+                          >
                       <QuickAdd day={key} onAdd={add} />
                     </TaskList>
                     <DayNote
+                      preferences={notePreferences}
+                      tasks={state.todos}
+                      onTaskOpen={openNoteTask}
                       day={key}
                       value={state.dayNotes[key] || ""}
                       onSave={async (content) => {
@@ -2548,107 +2597,124 @@ export default function Planner() {
                 )}
               />
             )}
-            <div
-              className="period-tray-anchor"
-              style={
-                trayRaised ? { minHeight: trayPosition.placeholder } : undefined
-              }
-            >
-              <div
-                className={`period-tray ${trayRaised ? "is-raised" : ""}`}
-                style={
-                  trayRaised
-                    ? {
-                        top: trayPosition.top,
-                        left: trayPosition.left,
-                        width: trayPosition.width,
-                      }
-                    : undefined
-                }
+            <section ref={notesPanelRef} tabIndex={-1} className={`calendar-bottom-notes notes-${visibleNotesPosition}`} aria-label="Kalendernotizen" inert={visibleNotesPosition==="closing"}
+              onAnimationEnd={(event)=>{
+                if(!newOpen && event.target===event.currentTarget && event.animationName==="notes-slide-out")
+                  setNotesPosition((position)=>position==="closing"?"below":position);
+              }}>
+              <div className={`notebook-workspace${notebookOpen?" notebook-sidebar-open":""}${noteTodosCollapsed?" todos-folded":""}`}>
+              <NotebookNavigation open={notebookOpen && visibleNotesPosition!=="below"} onToggle={()=>{
+                  if(visibleNotesPosition==="below"){setNotebookOpen(true);toggleNotes();}
+                  else setNotebookOpen((open)=>!open);
+                }}
+                values={state.dayNotes} calendarKeys={calendarNoteKeys} pinned={calendarNoteKey} tabs={visibleNoteTabs} active={plannerNoteKey}
+                onOpen={(key)=>{openNote(key);if(visibleNotesPosition==="below")toggleNotes();}} onClose={closeNote}
+                onFolder={async(name)=>{
+                  const date=`note-folder:${crypto.randomUUID()}`;
+                  await api("/api/notes",{date,content:name});
+                  setState((current)=>({...current,dayNotes:{...current.dayNotes,[date]:name}}));
+                }}
+                onCreate={(folder="root")=>{void (async()=>{
+                  const date=`note:${folder}:${crypto.randomUUID()}`;
+                  const content="Neue Notiz\n";
+                  await api("/api/notes",{date,content});
+                  setState((current)=>({...current,dayNotes:{...current.dayNotes,[date]:content}}));
+                  openNote(date);
+                  setFreshNote(date);
+                  setNotesPosition("open");
+                })().catch(handleError);}}
+              />
+              <InboxNotes
+                key={plannerNoteKey}
+                label={notebookTitle(plannerNoteKey,state.dayNotes[plannerNoteKey] || "")}
+                titled={!!notebookFolder(plannerNoteKey)}
+                focusTitle={freshNote===plannerNoteKey}
+                noteDate={plannerNoteKey}
+                tasks={state.todos}
+                onTaskOpen={openNoteTask}
+                preferences={notePreferences}
+                todoPanel={<NoteTodoBoard todos={state.todos} today={noteToday} columns={notePreferences.columns} selected={selectedIds}
+                  onToggle={(todo)=>void toggle(todo)} onOpen={openCalendarTask}
+                  onAdd={async(title,period,important)=>{
+                    const position=Math.max(-1,...state.todos.filter((todo)=>notePeriod(todo)===period).map((todo)=>todo.position))+1;
+                    await save(putInNoteTodo(newTodo(title,null,position),period,important,position));
+                  }}/>}
+                registerStore={(store)=>{noteStore.current=store;}}
+                registerLegacyDelete={(remove)=>{noteLegacyDelete.current=remove;}}
+                value={state.dayNotes[plannerNoteKey] || ""}
+                onSave={async(content)=>{
+                  await api("/api/notes",{date:plannerNoteKey,content});
+                  setState((current)=>({...current,dayNotes:{...current.dayNotes,[plannerNoteKey]:content}}));
+                }}
+                actions={<>
+              <button type="button" className="secondary-button" aria-label="Notizfeld-Einstellungen" onClick={()=>setNoteSettingsOpen(true)}><Settings2 size={15}/></button>
+              <button type="button" className="secondary-button auto-plan-button" disabled={autoPlanning}
+                onClick={async()=>{
+                  setAutoPlanning(true);setAutoPlanError("");
+                  try{await autoPlanNotes();}catch(error){setAutoPlanError((error as Error).message);}finally{setAutoPlanning(false);}
+                }}><CalendarClock size={16}/>{autoPlanning?"Wird eingeplant …":"Auto planen"}</button>
+              <form
+                className="planning-bar"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setPlanning(true);
+                }}
               >
-                <DayPanel
-                  inline
-                  shelf={
-                    <StorageShelf
-                      onOpenDocuments={() => {
-                        setStoragePinned(true);
-                        setStorageOpen(true);
-                      }}
-                    />
-                  }
-                  renderTasks={() => (
-                    <LifeInbox
-                      todos={state.todos}
-                      events={state.events}
-                      onAdd={inboxAdd}
-                      onOpen={setSelected}
-                      onPriority={inboxPriority}
-                      onAutoPlan={autoPlanInbox}
-                      anchor={anchor}
-                    />
-                  )}
-                  key="bottom-storage"
-                  day={`${overview || "week"}:${overview === "year" ? anchor.slice(0, 4) + "-01-01" : overview === "month" ? anchor.slice(0, 7) + "-01" : dateKey(start)}`}
-                  state={state}
-                  onClose={() => {}}
-                  onOpen={(id) => {
-                    setSelected(id);
-                    setPicked(id);
-                  }}
-                  onAdd={async (title) => {
-                    const task = {
-                      ...newTodo(title, null, state.todos.length + 1),
-                      tags: [`h:${overview || "week"}`],
-                    };
-                    await save(task);
-                  }}
-                  onNote={async (content) => {
-                    const date = "storage";
-                    await api("/api/notes", { date, content });
-                    setState((s) => ({
-                      ...s,
-                      dayNotes: { ...s.dayNotes, [date]: content },
-                    }));
-                  }}
-                  onConnected={() =>
-                    setState((s) => ({ ...s, aiAvailable: true }))
-                  }
-                  onDay={(day) => {
-                    setAnchor(day);
-                    setMobileDay(day);
-                    setOverview(null);
-                  }}
-                  onExtend={extendAcross}
+                <Sparkles size={15} />
+                <input
+                  aria-label={`${overview === "year" ? "Jahr" : overview === "month" ? "Monat" : "Woche"} mit KI planen`}
+                  placeholder={`${overview === "year" ? "Jahr" : overview === "month" ? "Monat" : "Woche"} planen, Ziele besprechen …`}
+                  value={planningInput}
+                  onChange={(e) => setPlanningInput(e.target.value)}
                 />
-                <Statistics
-                  state={state}
-                  anchor={anchor}
-                  kind={overview || "week"}
-                />
+                <button type="submit" aria-label="KI-Planung öffnen">
+                  <ArrowRight size={14} />
+                </button>
+              </form>
+                </>}
+              />
+              <button type="button" className="notebook-todo-rail" aria-label={visibleNotesPosition==="below"?"Notepad öffnen · To-do-Liste":noteTodosCollapsed?"To-do-Liste ausklappen":"To-do-Liste einklappen"} aria-expanded={visibleNotesPosition!=="below" && !noteTodosCollapsed}
+                onClick={visibleNotesPosition==="below"?toggleNotes:toggleNoteTodos}>
+                {visibleNotesPosition==="below"?<strong>To-do-Liste</strong>:noteTodosCollapsed?<ArrowLeft size={14}/>:<ArrowRight size={14}/>}
+                {(visibleNotesPosition==="below" || noteTodosCollapsed) && (["day","week"] as const).map((period)=>{
+                  const open=state.todos.filter((todo)=>!todo.done && notePeriod(todo)===period && waitingNoteTodo(todo,noteToday));
+                  const important=open.filter((todo)=>todo.priority==="high").length;
+                  const legacy=readNoteLines(state.dayNotes[calendarNoteKeys[period==="day"?0:1]] || "")
+                    .filter((line)=>line.box && !line.done && !line.taskId && line.text.trim()).length;
+                  const normal=open.length-important+legacy;
+                  return (important>0 || normal>0) && <span key={period} className="notebook-todo-badges">
+                    <strong>{period==="day"?"T":"W"}</strong>
+                    {important>0 && <span className="todo-rail-important" title={`${important} offene wichtige To-dos`}>{important}</span>}
+                    {normal>0 && <span className="todo-rail-normal" title={`${normal} offene normale To-dos`}>{normal}</span>}
+                  </span>;
+                })}
+              </button>
               </div>
-            </div>
+              {autoPlanError && <p role="alert">{autoPlanError}</p>}
+            </section>
             {query && (
               <div className="search-outside">
                 {state.todos
                   .filter(
                     (t) =>
-                      t.plannedDate &&
-                      !weekKeys.includes(t.plannedDate) &&
-                      visible(t),
+                      (!taskDay(t) || !weekKeys.includes(taskDay(t)!)) && visible(t),
                   )
                   .map((t) => (
                     <button
                       key={t.id}
                       onClick={() => {
-                        setAnchor(t.plannedDate!);
-                        setMobileDay(t.plannedDate!);
+                        const day = taskDay(t);
+                        if (day) {
+                          setAnchor(day);
+                          setMobileDay(day);
+                        }
                         setSelected(t.id);
                       }}
                     >
                       <Search size={13} />
                       {t.title}
                       <span>
-                        {parseDate(t.plannedDate!).toLocaleDateString("de-DE")}
+                        {taskDay(t) ? parseDate(taskDay(t)!).toLocaleDateString("de-DE") : "Ohne Kalendertag"}
                       </span>
                       <ArrowRight size={13} />
                     </button>
@@ -2657,7 +2723,16 @@ export default function Planner() {
             )}
           </main>
         </div>
-        <DragOverlay>
+        <DragOverlay style={{pointerEvents:"none"}} dropAnimation={null} modifiers={[(args)=>{
+          const {active,over,activeNodeRect,activatorEvent,transform}=args;
+          if(!active || !over || !activeNodeRect || over.data.current?.kind!=="timegrid")return transform;
+          const grid=document.querySelector<HTMLElement>(`[data-day-grid="${over.data.current.day}"]`);
+          if(!grid)return transform;
+          const rect=grid.getBoundingClientRect(), scale=Number(grid.dataset.minuteHeight)||.55;
+          const {time}=scheduleAt(dragStartMinute(active,activatorEvent,transform,rect.top,scale));
+          const minute=toMinutes(time);
+          return {...transform,x:rect.left+3-activeNodeRect.left,y:rect.top+(minute<360?1080:gridMinute(minute))*scale-activeNodeRect.top};
+        }]}>
           {dragged ? (
             <div
               className="task-drag-group"
@@ -2672,7 +2747,7 @@ export default function Planner() {
                   key={todo.id}
                   className={`drag-group-item color-${todo.color || "green"}`}
                 >
-                  <span>{todo.title}</span>
+                  <CategoryIcon id={todo.tags.find((tag)=>tag.startsWith("c:"))?.slice(2) || "todo"} size={14} /><span>{todo.title}</span>
                 </div>
               ))}
             </div>
@@ -2739,7 +2814,7 @@ export default function Planner() {
                 ? anchor.slice(0, 7) + "-01"
                 : dateKey(start)
           }
-          period={overview || "week"}
+          period={overview === "month" || overview === "year" ? overview : "week"}
           initialMessage={planningInput}
           available={state.aiAvailable}
           onConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
@@ -2763,7 +2838,7 @@ export default function Planner() {
             setSelected(null);
             setEditGroup([]);
           }}
-          onSave={async (draft, imported) => {
+          onSave={async (draft, imported, recurrence) => {
             if (imported) {
               const tasks = screenshotTasks(
                 draft,
@@ -2776,6 +2851,18 @@ export default function Planner() {
                 setToast({
                   text: `${tasks.length} Screenshot-Termine gespeichert`,
                 });
+              return;
+            }
+            if(recurrence && draft.plannedDate){
+              const seriesId=draft.seriesId || draft.id;
+              const existing=new Set(state.todos.filter((task)=>task.seriesId===seriesId).map((task)=>task.plannedDate));
+              const dates=repeatDates(draft.plannedDate,recurrence.days,recurrence.weeks).filter((day)=>!existing.has(day));
+              const source={...draft,seriesId};
+              if(!dates.length){await save(source);return;}
+              const todos=dates.map((day)=>({...source,id:crypto.randomUUID(),plannedDate:day,
+                subtasks:source.subtasks.map((item)=>({...item,id:crypto.randomUUID()})),
+              }));
+              await mutate({action:"createMany",source,todos},false);
               return;
             }
             if (editGroup.length > 1 && editGroup.includes(draft.id)) {
@@ -2794,7 +2881,9 @@ export default function Planner() {
                     reminder: draft.reminder,
                   })),
               );
-            } else await save(draft);
+            } else await save(draft.plannedDate && draft.tags.includes("stored") ? restoreParkedTask(draft,draft.plannedDate,{
+              day:draft.plannedDate,time:draft.time,duration:draft.duration,
+            }) : draft);
           }}
           onDelete={() => remove(current)}
           onRepeat={async (weekdays, weeks, source) => {
@@ -2816,28 +2905,14 @@ export default function Planner() {
       {newOpen && (
         <Detail
           isNew
-          onAutoPlan={(task) => {
-            const today = dateKey(new Date());
-            const from = task.plannedDate || today;
-            const range = {
-              start: from,
-              end: task.plannedDate || dateKey(addDays(parseDate(today), 13)),
-            };
-            const result = autoSchedule(
-              [task],
-              state.todos,
-              state.events,
-              range,
-            );
-            if (!result.scheduled.length)
-              throw new Error(
-                "An diesem Tag ist kein ausreichend freier Platz zwischen 08 und 22 Uhr vorhanden.",
-              );
-            return result.scheduled[0];
-          }}
+          titleSuggestions={newSlot?.category?.suggestions}
           showSchedule={!newSlot?.drawn}
           todo={{
             ...newTodo("", newSlot?.day || null, state.todos.length + 1),
+            ...(newSlot?.category ? {
+              tags: plannerPeriodTags([`c:${newSlot.category.id}`,"auto:day"],"day",newSlot.day),
+              color: newSlot.category.color,
+            } : {}),
             time: newSlot?.time || "",
             duration: newSlot?.time ? newSlot.duration || 60 : null,
           }}
@@ -2866,12 +2941,12 @@ export default function Planner() {
           aiAvailable={state.aiAvailable}
           onAiConnected={() => setState((s) => ({ ...s, aiAvailable: true }))}
           onError={handleError}
-          onSave={async (draft, imported) => {
+          onSave={async (draft, imported, recurrence) => {
             if (imported) {
               const tasks = screenshotTasks(draft, imported, () =>
-                crypto.randomUUID(),
+                crypto.randomUUID(),true,
               );
-              await mutate({ action: "createMany", todos: tasks });
+              await mutate({ action: "createMany", todos: planOnSave(tasks) });
               setToast({
                 text:
                   tasks.length > 1
@@ -2880,30 +2955,44 @@ export default function Planner() {
               });
               return;
             }
-            const dates =
-              (newSlot?.days?.length || 0) > 1
-                ? newSlot!.days!
-                : [draft.plannedDate];
-            const todos = dates.map((day) => ({
+            const dates = recurrence && draft.plannedDate
+              ? [draft.plannedDate,...repeatDates(draft.plannedDate,recurrence.days,recurrence.weeks)]
+              : (newSlot?.days?.length || 0) > 1 ? newSlot!.days! : [draft.plannedDate];
+            const todos = dates.map((day,index) => ({
               ...draft,
-              id: crypto.randomUUID(),
+              id: index===0 ? draft.id : crypto.randomUUID(),
               seriesId: dates.length > 1 ? draft.id : "",
               plannedDate: day,
+              tags:dates.length>1?draft.tags.filter((tag)=>tag!=="auto:day"):draft.tags,
               subtasks: draft.subtasks.map((t) => ({
                 ...t,
                 id: crypto.randomUUID(),
               })),
             }));
-            await mutate({ action: "createMany", todos });
+            const planned=planOnSave(todos);
+            await mutate({ action: "createMany", todos:planned });
+            if (newSlot?.category) {
+              void api("/api/task-templates",{category:newSlot.category.id,title:draft.title,used:true})
+                .then(()=>window.dispatchEvent(new Event("lifemap-templates-changed")))
+                .catch(handleError);
+            }
             setToast({
               text:
                 todos.length > 1
-                  ? `${todos.length} Termine erstellt`
-                  : "Aufgabe erstellt",
+                  ? `${todos.length} Termine erstellt${planned.some((task)=>!task.time)?" · Einige bleiben ohne Uhrzeit":""}`
+                  : planned[0].time ? "Aufgabe erstellt" : "Aufgabe erstellt · Kein freier Zeitraum gefunden",
             });
           }}
         />
       )}
+      {noteSettingsOpen && <NoteSettings value={notePreferences} onSave={saveNotePreferences} onClose={()=>setNoteSettingsOpen(false)}/>}
+      {zoneEdit && <ZoneEditor key={zoneEdit.id} zone={zoneEdit} existing={zones.some((zone)=>zone.id===zoneEdit.id)}
+        onClose={()=>setZoneEdit(null)}
+        onSave={async(zone)=>setZones((await api("/api/zones",{action:"save",zone})).zones)}
+        onDelete={async()=>setZones((await api("/api/zones",{action:"delete",id:zoneEdit.id})).zones)}/>}
+      {calendarSettings && <CalendarOptions key={calendarSettings.id} connection={calendarSettings}
+        onRefresh={async()=>{await Promise.all([load(),refreshNative()]);}} onClose={()=>setCalendarSettingsId(null)}/>}
+      {calendarEventEdit && <CalendarEventEditor key={`${calendarEventEdit.id}:${calendarDeleteOnly}`} event={calendarEventEdit} deleteOnly={calendarDeleteOnly} matchingTitle={hasMatchingCalendarTitle(state.events, calendarEventEdit)} connection={state.connections.find((c)=>c.id===calendarEventEdit.connectionId)} onRefresh={async()=>{await load();setSelectedIds([]);setPicked(null);}} onClose={()=>{setCalendarEventEdit(null);setCalendarDeleteOnly(false);}}/>}
       {settings && (
         <Settings
           state={state}
@@ -2959,66 +3048,6 @@ export default function Planner() {
               </button>
             ))}
           </section>
-        </div>
-      )}
-      {renameBlock && (
-        <div className="detail-backdrop" style={{ zIndex: 160 }}>
-          <form
-            role="dialog"
-            aria-modal="true"
-            aria-label="Themenname bearbeiten"
-            className="series-delete"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (!renameBlock.title.trim()) return;
-              try {
-                const result = await api("/api/block-names", {
-                  action: "rename",
-                  from: renameBlock.old,
-                  to: renameBlock.title.trim(),
-                });
-                const apply = async (snapshot: unknown, expected: unknown) => {
-                  await api("/api/block-names", {
-                    action: "restore",
-                    snapshot,
-                    expected,
-                  });
-                  await load();
-                };
-                record({
-                  undo: () => apply(result.before, result.after),
-                  redo: () => apply(result.after, result.before),
-                });
-                await load();
-                setRenameBlock(null);
-                setToast({ text: "Gleichnamige Blöcke umbenannt" });
-              } catch (e) {
-                handleError(e);
-              }
-            }}
-          >
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Namensbearbeitung schließen"
-              onClick={() => setRenameBlock(null)}
-            >
-              <X size={18} />
-            </button>
-            <h3>Themenname</h3>
-            <input
-              autoFocus
-              aria-label="Neuer Themenname"
-              value={renameBlock.title}
-              onChange={(e) =>
-                setRenameBlock({ ...renameBlock, title: e.target.value })
-              }
-            />
-            <p>Für alle Blöcke mit diesem Namen.</p>
-            <button className="primary-button" type="submit">
-              Übernehmen
-            </button>
-          </form>
         </div>
       )}
       {deleteSeries && (
@@ -3103,26 +3132,38 @@ export default function Planner() {
   );
 }
 function DayNote({
+  preferences,
+  tasks,
+  onTaskOpen,
   day,
   value,
   onSave,
 }: {
+  preferences:NotePreferences;
+  tasks: Todo[];
+  onTaskOpen: (id:string)=>void;
   day: string;
   value: string;
   onSave: (v: string) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(Boolean(value)),
-    [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  const [open, setOpen] = useState(false);
+  const {text:draft,setText:setDraft,flush}=useAutosaveText(value,onSave);
+  const wrapper=useRef<HTMLDivElement>(null);
+  useEffect(()=>{if(!open)return;const outside=(event:PointerEvent)=>{if(event.target instanceof Node && !wrapper.current?.contains(event.target)){void flush();setOpen(false);}};document.addEventListener("pointerdown",outside,true);return()=>document.removeEventListener("pointerdown",outside,true);},[open,flush]);
+  const preview=readNoteLines(draft).flatMap((line)=>{
+    if(!line.taskId)return line.text.trim()?[line]:[];
+    const task=tasks.find((todo)=>todo.id===line.taskId && todo.tags.includes("stored") && todo.tags.includes(`n:${day}`));
+    return task?[{...line,text:task.title}]:[];
+  });
   return (
-    <div className="day-note" data-escape-layer={open ? "" : undefined}>
+    <div ref={wrapper} className="day-note" data-escape-layer={open ? "" : undefined}>
       {open && (
         <button
           hidden
           data-close
           type="button"
           onClick={() => {
-            if (draft !== value) onSave(draft);
+            void flush();
             setOpen(false);
           }}
         >
@@ -3132,26 +3173,29 @@ function DayNote({
       {open ? (
         <div className="day-note-entry">
           <FileText size={12} aria-hidden="true" />
-          <textarea
+          <PlannerNotepad
             autoFocus
-            aria-label={`Tagesnotiz ${day}`}
-            placeholder=""
+            compact
+            preferences={preferences}
+            noteDate={day}
+            tasks={tasks}
+            onTaskOpen={onTaskOpen}
+            label={`Tagesnotiz ${day}`}
             value={draft}
-            maxLength={10000}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => {
-              if (draft !== value) onSave(draft);
-              if (!draft) setOpen(false);
-            }}
+            onChange={setDraft}
+            onBlur={flush}
           />
+          <button type="button" className="day-note-done" onClick={()=>{void flush();setOpen(false);}}>Fertig</button>
         </div>
       ) : (
         <button
           aria-label={`Tagesnotiz ${day} bearbeiten`}
           title="Tagesnotiz"
+          className="day-note-preview"
           onClick={() => setOpen(true)}
         >
           <FileText size={12} aria-hidden="true" />
+          {preview.length>0 && <span>{preview.slice(0,2).map((line,i)=><span key={i}>{line.box ? (line.done?"☑ ":"☐ "):""}{line.text}</span>)}{preview.length>2 && <small>+{preview.length-2}</small>}</span>}
         </button>
       )}
     </div>
@@ -3159,6 +3203,7 @@ function DayNote({
 }
 function Detail({
   isNew = false,
+  titleSuggestions,
   editSchedule = false,
   showSchedule = true,
   groupCount = 1,
@@ -3171,22 +3216,21 @@ function Detail({
   onError,
   onRepeat,
   onAiConnected,
-  onAutoPlan,
 }: {
   isNew?: boolean;
+  titleSuggestions?: string[];
   editSchedule?: boolean;
   showSchedule?: boolean;
   groupCount?: number;
   onNavigate?: (key: string) => void;
   todo: Todo;
   onClose: () => void;
-  onSave: (todo: Todo, imported?: ScreenshotEvent[]) => Promise<void>;
+  onSave: (todo: Todo, imported?: ScreenshotEvent[], recurrence?: {days:number[];weeks:number}) => Promise<void>;
   onDelete: () => void;
   onRepeat: (days: number[], weeks: number, source: Todo) => Promise<void>;
   onAiConnected: () => void;
   aiAvailable: boolean;
   onError: (e: unknown) => void;
-  onAutoPlan?: (todo: Todo) => Todo;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const closeTimer = useRef<number | null>(null);
@@ -3260,7 +3304,6 @@ function Detail({
     [repeating, setRepeating] = useState(false);
   const [screenshot, setScreenshot] = useState<ScreenshotImport | null>(null);
   const [importedFields, setImportedFields] = useState<string[]>([]);
-  const naturalIgnore = useRef<string | null>(null);
   const dirty =
     Boolean(screenshot) || JSON.stringify(draft) !== JSON.stringify(todo);
   type DraftSnapshot = {
@@ -3276,7 +3319,6 @@ function Detail({
     fields: importedFields,
   });
   const restoreDraft = (value: DraftSnapshot) => {
-    naturalIgnore.current = value.todo.title;
     setDraft(value.todo);
     setScreenshot(value.screenshot);
     setImportedFields(value.fields);
@@ -3288,7 +3330,9 @@ function Detail({
   };
   const update = (patch: Partial<Todo>) => {
     rememberDraft();
-    setDraft((t) => ({ ...t, ...patch }));
+    setDraft((t) => ({ ...t, ...patch,
+      ...("plannedDate" in patch ? {tags:(patch.tags || t.tags).filter((tag)=>tag!=="auto:day")} : {}),
+    }));
   };
   const changeScreenshot = (plan: ScreenshotImport) => {
     rememberDraft();
@@ -3296,15 +3340,22 @@ function Detail({
   };
   const imported = (field: string) =>
     importedFields.includes(field) ? true : undefined;
+  const readTitle = (raw=draft.title) => {
+    const text=titleSuggestions ? parseQuadrant(raw).title : raw;
+    if(!isNew && raw===todo.title)return {
+      title:raw,description:"",plannedDate:undefined,time:undefined,duration:undefined,location:undefined,repeatDays:[] as number[],
+    };
+    return parseRecurringAppointmentInput(text,draft.plannedDate || dateKey(new Date()),dateKey(new Date()));
+  };
+  const recognized=readTitle();
   const extractTitle = (raw = draft.title) => {
-    const parsed = parseAppointmentInput(
-      raw,
-      draft.plannedDate || dateKey(new Date()),
-      dateKey(new Date()),
-    );
+    const categoryEntry = titleSuggestions ? parseQuadrant(raw) : undefined;
+    const parsed = readTitle(raw);
+    const tags=parsed.plannedDate ? draft.tags.filter((tag)=>tag!=="auto:day") : draft.tags;
     return {
       ...draft,
       title: parsed.title,
+      tags: categoryEntry?.quadrant ? withQuadrant(tags,categoryEntry.quadrant) : tags,
       location:
         parsed.location ||
         draft.location ||
@@ -3328,44 +3379,6 @@ function Detail({
         (parsed.time ? draft.duration || 60 : draft.duration),
     };
   };
-  const applyTitle = (raw = draft.title) => {
-    if (raw === naturalIgnore.current) return;
-    const parsed = parseAppointmentInput(
-      raw,
-      draft.plannedDate || dateKey(new Date()),
-      dateKey(new Date()),
-    );
-    const next = extractTitle(raw);
-    if (JSON.stringify(next) !== JSON.stringify(draft)) {
-      rememberDraft();
-      setDraft(next);
-      setImportedFields((prev) => [
-        ...new Set([
-          ...prev,
-          ...(parsed.title !== raw ? ["title"] : []),
-          ...(parsed.plannedDate ? ["plannedDate"] : []),
-          ...(parsed.time ? ["time"] : []),
-          ...(parsed.duration ? ["duration"] : []),
-          ...(parsed.location ? ["location"] : []),
-        ]),
-      ]);
-    }
-  };
-  useEffect(() => {
-    if (draft.title === naturalIgnore.current) return;
-    const parsed = parseAppointmentInput(
-      draft.title,
-      draft.plannedDate || dateKey(new Date()),
-      dateKey(new Date()),
-    );
-    if (
-      !parsed.title.trim() ||
-      !(parsed.plannedDate || parsed.time || parsed.duration)
-    )
-      return;
-    const timer = window.setTimeout(() => applyTitle(), 550);
-    return () => window.clearTimeout(timer);
-  }, [draft.title]);
   const applyScreenshot = (text: string, before: string, after: string) => {
     const proposal = parseScreenshotImport(
       text,
@@ -3488,6 +3501,7 @@ function Detail({
       await onSave(
         parsed,
         screenshot ? screenshotOccurrences(screenshot, parsed) : undefined,
+        recognized.repeatDays.length ? {days:recognized.repeatDays,weeks:repeatWeeks} : undefined,
       );
       setScreenshot(null);
       setImportedFields([]);
@@ -3519,6 +3533,7 @@ function Detail({
   );
   useEffect(() => {
     const listener = (e: KeyboardEvent) => {
+      if(e.target===panelRef.current && isTitleKey(e))return;
       if (
         (e.metaKey || e.ctrlKey) &&
         ["z", "y"].includes(e.key.toLowerCase()) &&
@@ -3604,6 +3619,8 @@ function Detail({
     >
       <aside
         ref={panelRef}
+        data-initial-focus={isNew?undefined:true}
+        data-type-title="task"
         data-draft-editor
         className="detail-panel compact-detail"
         role="dialog"
@@ -3611,6 +3628,7 @@ function Detail({
         aria-label={isNew ? "Neue Aufgabe" : "Aufgabendetails"}
         tabIndex={-1}
         onKeyDown={(e) => {
+          if(typeTitle(e,(title)=>update({title})))return;
           if (
             e.key !== "Enter" ||
             e.defaultPrevented ||
@@ -3654,7 +3672,6 @@ function Detail({
             type="button"
             className="icon-button"
             aria-label="Details schließen und speichern"
-            data-initial-focus={isNew ? undefined : true}
             onClick={close}
           >
             <X size={19} />
@@ -3662,27 +3679,19 @@ function Detail({
         </div>
         <div className="detail-scroll">
           <div className="detail-title">
+            {notePeriod(draft) && <input type="checkbox" aria-label="To-do abhaken" checked={draft.done} onChange={()=>update({done:!draft.done})}/> }
+            <TaskPicture todo={draft} editable />
             <TaskPersonAvatar todo={draft} />
-            <button
-              className={`task-check ${draft.done ? "checked" : ""}`}
-              aria-label="Status ändern"
-              onClick={() => update({ done: !draft.done })}
-            >
-              {draft.done && <Check size={13} />}
-            </button>
             <textarea
               data-initial-focus={isNew ? true : undefined}
+              data-title-field
               placeholder="Was möchtest du erledigen?"
               data-shortcut="Enter → Termin erstellen / speichern · Shift Enter → neue Zeile"
               aria-label="Aufgabentitel"
               data-imported={imported("title")}
               value={draft.title}
               maxLength={500}
-              onChange={(e) => {
-                naturalIgnore.current = null;
-                update({ title: e.target.value });
-              }}
-              onBlur={() => applyTitle()}
+              onChange={(e) => update({title:e.target.value})}
               onKeyDown={(e) => {
                 if (
                   e.key !== "Enter" ||
@@ -3727,7 +3736,7 @@ function Detail({
                       throw new Error(
                         "Das Bild wurde von der Zwischenablage nicht übergeben. Bitte den Screenshot erneut in die Zwischenablage kopieren und einfügen.",
                       );
-                    if (text) applyTitle(before + text + after);
+                    if (text) update({title:(before+text+after).slice(0,500)});
                     return;
                   }
                   setReadingImage(true);
@@ -3749,34 +3758,25 @@ function Detail({
               }}
             />
           </div>
+          {(recognized.time || recognized.plannedDate || recognized.duration || recognized.repeatDays.length>0) && (
+            <div className="recognized-appointment" aria-label="Erkannte Terminangaben">
+              {recognized.plannedDate && <span>{parseDate(recognized.plannedDate).toLocaleDateString("de-DE")}</span>}
+              {recognized.time && <span>{recognized.time} Uhr</span>}
+              {recognized.duration && <span>{recognized.duration} Min.</span>}
+              {recognized.repeatDays.length>0 && <span>{recognized.repeatDays.length===7?"Täglich":recognized.repeatDays.map((day)=>DAYS[day].slice(0,2)).join(", ")} · {repeatWeeks} Wochen</span>}
+            </div>
+          )}
+          {titleSuggestions && titleSuggestions.some((title)=>title.toLocaleLowerCase("de").includes(draft.title.toLocaleLowerCase("de"))) && (
+            <select aria-label="Gespeicherte Aufgabenvorschläge" value="" onChange={(event)=>update({title:event.target.value})}>
+              <option value="" disabled>Gespeicherte Vorschläge …</option>
+              {titleSuggestions.filter((title)=>title.toLocaleLowerCase("de").includes(draft.title.toLocaleLowerCase("de"))).slice(0,12).map((title)=><option key={title}>{title}</option>)}
+            </select>
+          )}
           {readingImage && (
             <p role="status" className="assessment-label">
               Screenshot wird gelesen …
             </p>
           )}
-          <TaskDescription
-            value={draft.description}
-            subtasks={draft.subtasks}
-            imported={imported("description")}
-            onChange={(patch) => {
-              if (patch.description === undefined) {
-                update(patch);
-                return;
-              }
-              const location =
-                addressFromText(patch.description) ||
-                addressFromText(draft.title);
-              const changed = location !== (draft.location || "");
-              if (changed) setTravelOptions([]);
-              update({
-                ...patch,
-                location,
-                ...(changed
-                  ? { travelBefore: 0, travelAfter: 0, travelMode: "" as const }
-                  : {}),
-              });
-            }}
-          />
           {destination && (
             <a
               className="address-link"
@@ -3837,35 +3837,6 @@ function Detail({
             </div>
           )}
           <div className="detail-fields">
-            {onAutoPlan && (
-              <button
-                type="button"
-                className="auto-plan-button detail-auto-plan"
-                disabled={
-                  saving ||
-                  saved ||
-                  readingImage ||
-                  travelBusy ||
-                  Boolean(screenshot) ||
-                  !draft.title.trim()
-                }
-                onClick={() => {
-                  try {
-                    const next = onAutoPlan(extractTitle());
-                    rememberDraft();
-                    setDraft(next);
-                    setImportedFields((prev) => [
-                      ...new Set([...prev, "plannedDate", "time", "duration"]),
-                    ]);
-                  } catch (e) {
-                    onError(e);
-                  }
-                }}
-              >
-                <CalendarClock size={14} />
-                Auto planen
-              </button>
-            )}
             {!(
               (isNew && showSchedule) ||
               screenshot ||
@@ -3944,6 +3915,7 @@ function Detail({
                   }
                 />
               )}
+            <div className="detail-schedule-options">
             <details
               className="travel-settings"
               onToggle={(e) => {
@@ -4185,9 +4157,7 @@ function Detail({
               </div>
             </details>
             {!screenshot && (
-              <details className="repeat-details">
-                <summary>Wiederholen</summary>
-                <fieldset className="repeat-picker">
+              <RepeatPicker legend="Wöchentlich wiederholen">
                   <label>
                     Uhrzeit{" "}
                     <TimeInput
@@ -4198,38 +4168,8 @@ function Detail({
                       }
                     />
                   </label>
-                  <legend>Wöchentlich wiederholen</legend>
-                  <div className="repeat-days">
-                    {DAYS.map((day, i) => (
-                      <button
-                        type="button"
-                        key={day}
-                        aria-pressed={repeatDays.includes(i)}
-                        onClick={() =>
-                          setRepeatDays((d) =>
-                            d.includes(i)
-                              ? d.filter((x) => x !== i)
-                              : [...d, i],
-                          )
-                        }
-                      >
-                        {day.slice(0, 2)}
-                      </button>
-                    ))}
-                  </div>
-                  <label>
-                    Zeitraum
-                    <select
-                      value={repeatWeeks}
-                      onChange={(e) => setRepeatWeeks(Number(e.target.value))}
-                    >
-                      {[4, 8, 12, 26, 52].map((n) => (
-                        <option key={n} value={n}>
-                          {n} Wochen
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <RepeatDays selected={repeatDays} onChange={setRepeatDays}/>
+                  <RepeatWeeks value={repeatWeeks} onChange={setRepeatWeeks}/>
                   <button
                     type="button"
                     className="secondary-button"
@@ -4250,9 +4190,9 @@ function Detail({
                   >
                     {repeating ? "Wird angelegt …" : "Wiederholungen anlegen"}
                   </button>
-                </fieldset>
-              </details>
+              </RepeatPicker>
             )}
+            </div>
             <div className="detail-reminder-colors">
               <button
                 type="button"
@@ -4274,31 +4214,13 @@ function Detail({
             </div>
             <div className="detail-classification">
               <fieldset className="priority-picker">
-                <legend className="visually-hidden">Priorität</legend>
-                {(
-                  [
-                    ["high", "Hoch", "#df5b50"],
-                    ["medium", "Mittel", "#d3a63a"],
-                    ["low", "Niedrig", "#5b9c72"],
-                  ] as const
-                ).map(([value, label, color]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-label={`${value === "high" ? "Hohe" : value === "medium" ? "Mittlere" : "Niedrige"} Priorität`}
-                    aria-pressed={draft.priority === value}
-                    className="priority-flag"
-                    style={{ "--flag-color": color } as React.CSSProperties}
-                    onClick={() =>
-                      update({
-                        priority: draft.priority === value ? "none" : value,
-                      })
-                    }
-                  >
-                    <Flag size={16} fill="currentColor" />
-                    <span className="visually-hidden">{label}</span>
-                  </button>
-                ))}
+                <legend className="visually-hidden">Wichtigkeit</legend>
+                {(["medium","high"] as const).map((priority)=><button key={priority} type="button"
+                  className={`task-flag-button flag-${priority==="high"?"red":"yellow"}`}
+                  aria-label={priority==="high"?"Rote Flagge":"Gelbe Flagge"} aria-pressed={draft.priority===priority}
+                  onClick={()=>update({priority:draft.priority===priority?"none":priority,tags:withQuadrant(draft.tags)})}>
+                  <Flag size={16} fill={draft.priority===priority?"currentColor":"none"}/>
+                </button>)}
               </fieldset>
               <label className="detail-tags">
                 <span>
@@ -4308,12 +4230,12 @@ function Detail({
                   aria-label="Tags, mit Komma getrennt"
                   placeholder="Studium, Privat …"
                   value={draft.tags
-                    .filter((x) => !/^(k|r|h|c):/.test(x))
+                    .filter((x) => x!=="auto:day" && !/^(k|r|h|c|q|d|note-origin|note-todo):/.test(x))
                     .join(", ")}
                   onChange={(e) =>
                     update({
                       tags: [
-                        ...draft.tags.filter((x) => /^(k|r|h|c):/.test(x)),
+                        ...draft.tags.filter((x) => x==="auto:day" || /^(k|r|h|c|q|d|note-origin|note-todo):/.test(x)),
                         ...e.target.value.split(",").map((t) => t.trimStart()),
                       ],
                     })
@@ -4344,6 +4266,29 @@ function Detail({
                 Schließen
               </button>
             )}
+          <TaskDescription
+            value={draft.description}
+            subtasks={draft.subtasks}
+            imported={imported("description")}
+            onChange={(patch) => {
+              if (patch.description === undefined) {
+                update(patch);
+                return;
+              }
+              const location =
+                addressFromText(patch.description) ||
+                addressFromText(draft.title);
+              const changed = location !== (draft.location || "");
+              if (changed) setTravelOptions([]);
+              update({
+                ...patch,
+                location,
+                ...(changed
+                  ? { travelBefore: 0, travelAfter: 0, travelMode: "" as const }
+                  : {}),
+              });
+            }}
+          />
             <button
               className="assistant-heading"
               disabled={Boolean(screenshot)}
@@ -4625,14 +4570,12 @@ function Settings({
         aria-label="Kalender und Einstellungen"
       >
         <div className="modal-heading">
-          <h2>Dein Raum. Deine Kalender.</h2>
+          <h2>Einstellungen</h2>
           <IconButton title="Einstellungen schließen" onClick={onClose}>
             <X size={18} />
           </IconButton>
         </div>
-        <p className="modal-caption">
-          Termine neben deinen Aufgaben. Ganz ohne Hin und Her.
-        </p>
+        <h3>Kalender</h3>
         <div className="connection-list">
           {state.connections.map((c) => (
             <div className="connection" key={c.id}>
@@ -4641,26 +4584,14 @@ function Settings({
               </span>
               <div>
                 <strong>{c.name}</strong>
-                <small>
-                  {c.sourceType === "file"
-                    ? "ICS-Datei"
-                    : "Kalender-Abonnement"}{" "}
-                  · Aktualisiert{" "}
-                  {new Date(c.lastSynced).toLocaleString("de-DE", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  {c.sourceType === "url" && " · Automatisch alle 15 Min."}
-                </small>
+                <CalendarOptions connection={c} onRefresh={onRefresh} />
                 {c.lastError && (
                   <small className="sync-error" role="status">
                     {c.lastError}
                   </small>
                 )}
               </div>
-              {c.sourceType === "url" && (
+              {(
                 <button
                   className="icon-button"
                   disabled={busy}
@@ -4683,17 +4614,12 @@ function Settings({
             </div>
           ))}
         </div>
-        <TodoistSettings onRefresh={onRefresh} />
-        <ShortcutSettings
-          preference={shortcutHints.preference}
-          enabled={shortcutHints.enabled}
-          onChange={shortcutHints.configure}
-        />
-        <div className="settings-section">
+        <details className="settings-section"><summary>Verbindungen und Tastenkürzel</summary>
+          <TodoistSettings onRefresh={onRefresh} />
+          <ShortcutSettings preference={shortcutHints.preference} enabled={shortcutHints.enabled} onChange={shortcutHints.configure}/>
           <ReminderSetup />
-        </div>
-        <div className="settings-section">
-          <h3>Designfarbe</h3>
+        </details>
+        <details className="settings-section"><summary>Designfarbe</summary>
           <fieldset className="theme-picker">
             <legend>Gesamtdesign</legend>
             {[
@@ -4715,13 +4641,8 @@ function Settings({
               </button>
             ))}
           </fieldset>
-        </div>
-        <div className="settings-section">
-          <h3>Kalender verbinden</h3>
-          <p>
-            Verwende eine iCal-/ICS-Adresse von deinem Kalenderanbieter oder
-            importiere eine Datei.
-          </p>
+        </details>
+        <details className="settings-section"><summary>Kalender importieren</summary>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -4785,26 +4706,13 @@ function Settings({
             </label>
           </div>
           {status && <p className="success-message">{status}</p>}
-          <small>
-            Importierte Termine sind schreibgeschützt. URL-Kalender werden
-            automatisch alle 15 Minuten aktualisiert, solange der Raum-Server
-            läuft – auch bei geschlossenem Browser. Über ↻ kannst du jederzeit
-            sofort aktualisieren. ICS-Dateien werden einmalig importiert.
-            Wiederholungen werden für ein Jahr zurück und zwei Jahre im Voraus
-            importiert.
-          </small>
-        </div>
-        <div className="settings-section">
-          <h3>Deine Daten</h3>
-          <p>
-            Aufgaben und Chats werden auf diesem Rechner in SQLite gespeichert.
-            Diese Version verwendet ein lokales Profil.
-          </p>
+        </details>
+        <details className="settings-section"><summary>Datensicherung</summary>
           <a className="secondary-button" href="/api/export" download>
             <Download size={15} />
             Datensicherung herunterladen
           </a>
-        </div>
+        </details>
         <div className="settings-section">
           <h3>Als App verwenden</h3>
           <p>

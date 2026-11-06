@@ -1,6 +1,7 @@
 import { TASK_COLOR_VALUES } from "./task-colors.ts";
 import type { Todo } from "./types";
 import { isDateKey } from "./dates.ts";
+import { accountConfig } from "./private-account.ts";
 export function validTodo(value: unknown): Todo {
   if (!value || typeof value !== "object")
     throw new Error("Ungültige Aufgabe.");
@@ -99,6 +100,11 @@ export function validTodo(value: unknown): Todo {
 }
 export function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
+  const config=accountConfig();
+  if(config.mode!=="local") {
+    if(config.mode!=="private" || origin!==config.origin) throw new Error("Diese Anfrage ist nicht erlaubt.");
+    return;
+  }
   if (
     origin &&
     new URL(origin).host !==

@@ -1,3 +1,4 @@
+import { accountRoute } from "@/lib/account-route";
 import { db, getTodos, getEvents, putTodo, transaction } from "@/lib/db";
 import { getApiKey } from "@/lib/ai-config";
 import { sameOrigin, errorResponse, validTodo } from "@/lib/validation";
@@ -23,10 +24,10 @@ function state() {
       })),
   };
 }
-export async function GET() {
+async function handleGET() {
   return Response.json(state(), { headers: { "Cache-Control": "no-store" } });
 }
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let locked = false;
   try {
     sameOrigin(request);
@@ -220,3 +221,6 @@ export async function POST(request: Request) {
     if (locked) pending = false;
   }
 }
+
+export const GET = accountRoute(handleGET);
+export const POST = accountRoute(handlePOST);
