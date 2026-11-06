@@ -7722,7 +7722,8 @@ button[hidden] {
 .calendar-tab-dialog .tab-title-edit:hover { text-decoration:underline; }
 .calendar-tab-actions { position:fixed; z-index:70; display:grid; width:180px; padding:5px; gap:2px; border:1px solid var(--line); border-radius:8px; background:var(--surface); box-shadow:0 8px 24px #18282126; }
 .calendar-tab-actions button:not([hidden]) { display:flex; align-items:center; gap:6px; text-align:left; }
-.calendar-workspace .timeline-scroll { flex:0 0 max(420px,calc(100dvh - 154px)); min-height:min(420px,58dvh); overscroll-behavior-y:auto; }
+.calendar-workspace .timeline-scroll { flex:0 0 var(--calendar-before-notes,max(420px,calc(100dvh - 154px))); min-height:180px; overscroll-behavior-y:auto; }
+.calendar-workspace .calendar-overview-large { flex:0 0 var(--calendar-before-notes,calc(100dvh - 118px)); min-height:180px; overflow:auto; }
 .calendar-bottom-notes { flex:none; scroll-margin-top:84px; margin-block:12px 30px; padding:16px; border:1px solid var(--line); border-radius:14px; background:var(--surface); }
 .calendar-bottom-notes:is(.notes-open,.notes-closing) { position:fixed; z-index:35; inset:auto 10px 0; max-height:58dvh; overflow:auto; margin:0; border-radius:14px 14px 0 0; box-shadow:0 -12px 36px #18282130; }
 .calendar-bottom-notes.notes-open { animation:notes-slide-in 250ms cubic-bezier(.2,.8,.3,1) both; }
@@ -7790,7 +7791,6 @@ button[hidden] {
 .note-checklist.note-split { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:12px; align-items:start; }
 .note-text-column,.note-todo-column { min-width:0; }
 .note-todo-column { min-height:100%; padding-left:12px; border-left:1px solid var(--line); }
-.note-todo-column h4 { margin:2px 0 6px; font-size:12px; color:var(--secondary); }
 .note-line:not(:has(input[type=checkbox])) > textarea { grid-column:1/-1; }
 @media(max-width:560px) {
   .note-checklist.note-split { grid-template-columns:minmax(0,1fr); }
@@ -7854,13 +7854,13 @@ button[hidden] {
 .tab-emoji-options button[aria-pressed=true] { box-shadow:inset 0 0 0 2px #77a88e; }
 .notebook-workspace {
   display:grid; flex:1 1 auto; min-height:0; min-width:0; gap:6px;
-  grid-template-columns:24px minmax(0,1fr) 29px;
+  grid-template-columns:24px minmax(0,1fr) auto 29px;
   grid-template-rows:auto minmax(0,1fr);
-  grid-template-areas:"rail tabs todos" "rail editor todos";
+  grid-template-areas:"rail tabs todo-head todos" "rail editor editor todos";
 }
 .notebook-workspace.notebook-sidebar-open {
-  grid-template-columns:24px clamp(144px,20vw,260px) minmax(0,1fr) 29px;
-  grid-template-areas:"rail sidebar tabs todos" "rail sidebar editor todos";
+  grid-template-columns:24px clamp(144px,20vw,260px) minmax(0,1fr) auto 29px;
+  grid-template-areas:"rail sidebar tabs todo-head todos" "rail sidebar editor editor todos";
 }
 .notebook-workspace > .inbox-notes { grid-area:editor; min-width:0; }
 .notebook-rail,.notebook-todo-rail {
@@ -7895,14 +7895,15 @@ button[hidden] {
 .notebook-tab[data-active],.notebook-entry[aria-current],.notebook-entry:hover,.notebook-tabs button:hover { background:var(--green-soft); }
 .notes-below .notebook-workspace {
   grid-template-columns:24px minmax(0,1fr) auto;
-  grid-template-areas:"rail tabs todos" "rail editor editor";
+  grid-template-areas:"rail tabs todo-head" "rail editor editor";
 }
 .notes-below .notebook-workspace.notebook-sidebar-open {
   grid-template-columns:24px clamp(144px,20vw,260px) minmax(0,1fr) auto;
-  grid-template-areas:"rail sidebar tabs todos" "rail sidebar editor editor";
+  grid-template-areas:"rail tabs tabs todo-head" "rail sidebar editor editor";
 }
-.notes-below .notebook-todo-rail { flex-direction:row; min-height:29px; padding:3px 7px; font-size:12px; }
-.notes-below .notebook-todo-badges { flex-direction:row; }
+.notebook-todo-heading { grid-area:todo-head; display:flex; align-items:center; gap:6px; padding-inline:7px; font-size:12px; color:var(--green); }
+.notebook-todo-heading button { border:0; border-radius:5px; background:var(--green-soft); color:inherit; font:inherit; font-weight:650; padding:5px 7px; }
+.notebook-todo-heading .notebook-todo-badges { flex-direction:row; }
 .calendar-bottom-notes .note-text-column { align-self:stretch; min-height:140px; cursor:text; }
 .notebook-title { display:block; width:100%; border:0; background:transparent; color:inherit; font-size:1.25rem; font-weight:700; padding:5px 6px; }
 .planner-notepad :is(.rich-note-field,.notebook-title,.note-line > textarea):focus { outline:none; box-shadow:none; }

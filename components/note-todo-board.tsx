@@ -53,7 +53,6 @@ export default function NoteTodoBoard({todos,today,columns,onAdd,onToggle,onOpen
 }){
   const pending=todos.filter((todo)=>waitingNoteTodo(todo,today)).sort((a,b)=>a.position-b.position);
   return <section className="note-todo-board" aria-label="To-do-Liste">
-    <h4>To-do-Liste</h4>
     <div className="note-todo-grid" style={{gridTemplateColumns:`repeat(${columns.length},minmax(0,1fr))`}}>
       {columns.map((period)=><strong key={period}>{notePeriodNames[period]}</strong>)}
       {[true,false].map((important)=><div className="note-todo-band" key={String(important)}>

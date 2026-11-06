@@ -757,6 +757,26 @@ export default function Planner() {
   const workspaceRef=useRef<HTMLDivElement>(null);
   const notesPanelRef=useRef<HTMLElement>(null);
   useEffect(()=>{
+    const panel=notesPanelRef.current;
+    const main=panel?.closest("main");
+    if(!panel || !main || visibleNotesPosition!=="below")return;
+    const calendar=main.querySelector<HTMLElement>(".timeline-scroll,.calendar-overview-large");
+    const editor=panel.querySelector<HTMLElement>(".inbox-notes");
+    if(!calendar || !editor)return;
+    const fit=()=>{
+      const viewportTop=main.getBoundingClientRect().top+main.clientTop;
+      const overhead=editor.getBoundingClientRect().top-viewportTop+main.scrollTop-calendar.getBoundingClientRect().height;
+      main.style.setProperty("--calendar-before-notes",`${Math.max(180,Math.ceil(main.clientHeight-overhead))}px`);
+    };
+    fit();
+    const observer=new ResizeObserver(fit);
+    observer.observe(main);
+    for(const item of [main.querySelector(".planner-toolbar"),panel.querySelector(".notebook-tabs"),panel.querySelector(".notebook-todo-heading")]){
+      if(item)observer.observe(item);
+    }
+    return ()=>observer.disconnect();
+  },[overview,visibleNotesPosition]);
+  useEffect(()=>{
     const workspace=workspaceRef.current, panel=notesPanelRef.current;
     if(!workspace || !panel || visibleNotesPosition==="below")return;
     if(visibleNotesPosition==="open" && !panel.contains(document.activeElement))panel.focus({preventScroll:true});
@@ -2676,9 +2696,10 @@ export default function Planner() {
               </form>
                 </>}
               />
-              <button type="button" className="notebook-todo-rail" aria-label={visibleNotesPosition==="below"?"Notepad öffnen · To-do-Liste":noteTodosCollapsed?"To-do-Liste ausklappen":"To-do-Liste einklappen"} aria-expanded={visibleNotesPosition!=="below" && !noteTodosCollapsed}
-                onClick={visibleNotesPosition==="below"?toggleNotes:toggleNoteTodos}>
-                {visibleNotesPosition==="below"?<strong>To-do-Liste</strong>:noteTodosCollapsed?<ArrowLeft size={14}/>:<ArrowRight size={14}/>}
+              <div className="notebook-todo-heading">
+                {visibleNotesPosition==="below"?
+                  <button type="button" onClick={toggleNotes} aria-label="Notepad öffnen · To-do-Liste">To-do-Liste</button>:
+                  <strong>To-do-Liste</strong>}
                 {(visibleNotesPosition==="below" || noteTodosCollapsed) && (["day","week"] as const).map((period)=>{
                   const open=state.todos.filter((todo)=>!todo.done && notePeriod(todo)===period && waitingNoteTodo(todo,noteToday));
                   const important=open.filter((todo)=>todo.priority==="high").length;
@@ -2691,7 +2712,11 @@ export default function Planner() {
                     {normal>0 && <span className="todo-rail-normal" title={`${normal} offene normale To-dos`}>{normal}</span>}
                   </span>;
                 })}
-              </button>
+              </div>
+              {visibleNotesPosition!=="below" && <button type="button" className="notebook-todo-rail"
+                aria-label={noteTodosCollapsed?"To-do-Liste ausklappen":"To-do-Liste einklappen"} aria-expanded={!noteTodosCollapsed} onClick={toggleNoteTodos}>
+                {noteTodosCollapsed?<ArrowLeft size={14}/>:<ArrowRight size={14}/>}
+              </button>}
               </div>
               {autoPlanError && <p role="alert">{autoPlanError}</p>}
             </section>
