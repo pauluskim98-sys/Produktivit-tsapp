@@ -2603,12 +2603,15 @@ export default function Planner() {
                   setNotesPosition((position)=>position==="closing"?"below":position);
               }}>
               <div className={`notebook-workspace${notebookOpen?" notebook-sidebar-open":""}${noteTodosCollapsed?" todos-folded":""}`}>
-              <NotebookNavigation open={notebookOpen && visibleNotesPosition!=="below"} onToggle={()=>{
-                  if(visibleNotesPosition==="below"){setNotebookOpen(true);toggleNotes();}
-                  else setNotebookOpen((open)=>!open);
+              <NotebookNavigation open={notebookOpen} onToggle={()=>{
+                  setNotebookOpen((open)=>!open);
+                  if(!notebookOpen && visibleNotesPosition==="below" && !notesPanelRef.current?.closest("main")?.scrollTop)toggleNotes();
                 }}
                 values={state.dayNotes} calendarKeys={calendarNoteKeys} pinned={calendarNoteKey} tabs={visibleNoteTabs} active={plannerNoteKey}
-                onOpen={(key)=>{openNote(key);if(visibleNotesPosition==="below")toggleNotes();}} onClose={closeNote}
+                onOpen={(key)=>{
+                  openNote(key);
+                  if(visibleNotesPosition==="below" && !notesPanelRef.current?.closest("main")?.scrollTop)toggleNotes();
+                }} onClose={closeNote}
                 onFolder={async(name)=>{
                   const date=`note-folder:${crypto.randomUUID()}`;
                   await api("/api/notes",{date,content:name});
