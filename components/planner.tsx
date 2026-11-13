@@ -2362,6 +2362,7 @@ export default function Planner() {
                 <button className="today-button" onClick={today}>
                   Heute
                 </button>
+                <a className="today-button" href="/lifemap/board" style={{textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6}} title="Freie LifeMap öffnen">◇ LifeMap</a>
               </div>
             <CalendarTabs onCreate={(id,color,suggestions)=>{
               setNewSlot({day:dateKey(new Date()),time:"",category:{id,color,suggestions}});
