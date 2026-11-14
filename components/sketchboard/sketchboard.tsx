@@ -59,6 +59,9 @@ import {
   Settings,
   PenTool,
   ImagePlus,
+  Pentagon,
+  Shapes,
+  Pin,
 } from "lucide-react";
 import {
   emptyBoard,
@@ -86,7 +89,8 @@ import { listenForViewSwipe } from "@/lib/lifemap-swipe";
 import "@xyflow/react/dist/style.css";
 import "./sketchboard.css";
 
-type Tool = "write" | "paint" | "select" | "hand" | "connect" | ShapeKind;
+type Tool =
+  "symbols" | "write" | "paint" | "select" | "hand" | "connect" | ShapeKind;
 const initialPoints: [number, number][] = [
   [12, 12],
   [88, 12],
@@ -123,7 +127,8 @@ const defaults = {
 const tools = [
   { id: "write", label: "Schreiben und verschieben", Icon: Type },
   { id: "ink", label: "Stift", Icon: PenTool },
-  { id: "polygon", label: "Freie Form", Icon: Diamond },
+  { id: "polygon", label: "Freie Form erstellen", Icon: Pentagon },
+  { id: "symbols", label: "Symbole", Icon: Shapes },
   { id: "paint", label: "Färber", Icon: Palette },
   { id: "select", label: "Auswahl (A)", Icon: MousePointer2 },
   { id: "hand", label: "Verschieben (H)", Icon: Hand },
@@ -305,11 +310,15 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   return (
     <div
       className={`lm-shape lm-${data.kind}${selected ? " lm-selected" : ""}`}
+      data-paper={data.paper ?? "plain"}
       onDoubleClick={(e) => {
         e.stopPropagation();
         if (!["image", "ink", "media"].includes(data.kind)) edit.begin(id);
       }}
     >
+      {data.kind === "sticky" && (
+        <Pin className="lm-sticky-pin" size={18} fill="#aa4251" />
+      )}
       <NodeResizer
         isVisible={selected && !editing}
         minWidth={60}
@@ -1357,6 +1366,8 @@ function BoardEditor() {
     a.click();
     URL.revokeObjectURL(url);
   }
+  const [symbol, setSymbol] = useState("★");
+  const embedded = new URLSearchParams(location.search).has("notebookEmbed");
   const shapeTool = !["write", "paint", "select", "hand", "connect"].includes(
     tool,
   );
@@ -1682,7 +1693,7 @@ function BoardEditor() {
           </button>
         </nav>
       </header>
-      {
+      {!embedded && (
         <aside
           className="lm-notepad"
           inert={!notes}
@@ -1694,7 +1705,7 @@ function BoardEditor() {
         >
           <iframe title="Kalender-Notepad" src="/lifemap?boardNotes=1" />
         </aside>
-      }
+      )}
       {settings && (
         <StoredPanel
           name="general"
@@ -2243,6 +2254,23 @@ function BoardEditor() {
                     strokePoints.current.some(
                       ([x, y]) => Math.hypot(x - start.x, y - start.y) > 8,
                     ));
+              if (tool === "symbols" && !drag && !leavingText.current) {
+                add(
+                  "text",
+                  e.clientX,
+                  e.clientY,
+                  65 / board.viewport.zoom,
+                  55 / board.viewport.zoom,
+                  {
+                    text: symbol,
+                    align: "center",
+                    fontSize: 34 / board.viewport.zoom,
+                  },
+                );
+                drawing.current = null;
+                setDraft(null);
+                return;
+              }
               if (!drag || (leavingText.current && tool !== "ink")) {
                 if (!leavingText.current) setTool("hand");
                 drawing.current = null;
@@ -2714,6 +2742,21 @@ function BoardEditor() {
                   onChange={(e) => format({ opacity: +e.target.value })}
                 />
               </label>
+              {data.kind === "sticky" && (
+                <label>
+                  Papier{" "}
+                  <select
+                    value={data.paper ?? "plain"}
+                    onChange={(e) =>
+                      format({ paper: e.target.value as ShapeData["paper"] })
+                    }
+                  >
+                    <option value="plain">Glatt</option>
+                    <option value="lines">Liniert</option>
+                    <option value="grid">Kariert</option>
+                  </select>
+                </label>
+              )}
               <div className="lm-format-row">
                 <label>
                   Rand
@@ -3270,6 +3313,22 @@ function BoardEditor() {
                 </label>
               </>
             )}
+            {toolMenu === "symbols" && (
+              <div className="lm-symbol-picker">
+                {Array.from(
+                  "★☆♥♡✓✕⚑⚠☀☁☂☕♫♪✉☎⌚⌛⚙⚡☘✿❄☾☻☺♟♞♜♣♠♦◆◇●○■□▲△▼▽⬟⬢←→↑↓↔↕∞πΩλ×÷≈≠≤≥⊕⊗✦✧✪✎✂❖✚⊙☮☯",
+                ).map((value) => (
+                  <button
+                    type="button"
+                    key={value}
+                    aria-pressed={symbol === value}
+                    onClick={() => setSymbol(value)}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            )}
             {toolMenu === "image" && (
               <div className="lm-media-menu">
                 <button onClick={() => void pickMedia("image")}>
@@ -3352,6 +3411,7 @@ function BoardEditor() {
                 !hiddenTools.includes(id) &&
                 (id === "image" ||
                   id === "polygon" ||
+                  id === "symbols" ||
                   !preferences.hidden.includes(id)),
             )
             .sort(

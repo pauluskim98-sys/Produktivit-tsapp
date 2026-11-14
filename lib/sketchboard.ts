@@ -23,6 +23,7 @@ export type ShapeData = {
   strokeWidth: number;
   radius: number;
   opacity?: number;
+  paper?: "plain" | "lines" | "grid";
   inkStyle?: string;
   color: string;
   fontSize: number;
@@ -227,6 +228,9 @@ export function validateBoard(input: unknown): Board {
       zIndex: number(n.zIndex, -100000, 100000) ? n.zIndex : 0,
       data: {
         kind: d.kind,
+        ...(["plain", "lines", "grid"].includes(d.paper ?? "")
+          ? { paper: d.paper }
+          : {}),
         text: d.text,
         fill: d.fill,
         stroke: d.stroke,

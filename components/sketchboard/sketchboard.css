@@ -1051,3 +1051,46 @@
   border-radius: 3px;
   box-decoration-break: clone;
 }
+.lm-sticky .lm-shape-bg {
+  box-shadow:
+    0 8px 16px #291f3433,
+    0 2px 4px #291f3422;
+}
+.lm-sticky-pin {
+  position: absolute;
+  top: -6px;
+  left: calc(50% - 9px);
+  z-index: 2;
+  transform: rotate(24deg);
+  color: #823944;
+  filter: drop-shadow(1px 2px 1px #0004);
+  pointer-events: none;
+}
+.lm-sticky[data-paper="lines"] .lm-shape-bg {
+  background-image: repeating-linear-gradient(
+    transparent 0 23px,
+    #65598329 23px 24px
+  ) !important;
+}
+.lm-sticky[data-paper="grid"] .lm-shape-bg {
+  background-image:
+    linear-gradient(#65598329 1px, transparent 1px),
+    linear-gradient(90deg, #65598329 1px, transparent 1px) !important;
+  background-size: 16px 16px !important;
+}
+.lm-symbol-picker {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  padding: 5px;
+  max-width: 80vw;
+  max-height: 42vh;
+  overflow: auto;
+}
+.lm-symbol-picker button {
+  min-width: 24px;
+  font-size: 19px;
+}
+.lm-symbol-picker button[aria-pressed="true"] {
+  background: var(--lm-accent);
+  color: white;
+}
