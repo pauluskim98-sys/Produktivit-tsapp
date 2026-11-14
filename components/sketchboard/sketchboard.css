@@ -1268,3 +1268,34 @@
 .lm-edge-link {
   display: none !important;
 }
+.lm-compact-format {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 2px 0;
+}
+.lm-compact-format .line-options {
+  padding: 1px;
+  gap: 0;
+}
+.lm-compact-format button:not(.color-dot):not(.color-more) {
+  min-height: 23px;
+  padding: 2px 3px;
+}
+.lm-compact-format [aria-pressed="true"]:not(.color-dot) {
+  background: var(--lm-active);
+  color: var(--lm-accent);
+}
+.lm-compact-text select:first-child {
+  min-width: 0;
+  max-width: 112px;
+}
+.lm-more-format {
+  font-size: 11px;
+  color: var(--lm-muted);
+  margin-top: 4px;
+}
+.lm-more-format summary {
+  cursor: pointer;
+}

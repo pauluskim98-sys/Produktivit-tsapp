@@ -1,4 +1,5 @@
 import type { Node, Edge, Viewport } from "@xyflow/react";
+export const minimumBoardZoom = 0.000001;
 
 export const shapeKinds = [
   "rectangle",
@@ -30,6 +31,7 @@ export type ShapeData = {
   fontSize: number;
   bold: boolean;
   italic: boolean;
+  underline?: boolean;
   align: "left" | "center" | "right";
   font?: string;
   image?: string;
@@ -187,7 +189,7 @@ export function validateBoard(input: unknown): Board {
     !b.viewport ||
     !number(b.viewport.x, -1e7, 1e7) ||
     !number(b.viewport.y, -1e7, 1e7) ||
-    !number(b.viewport.zoom, 0.1, 4)
+    !number(b.viewport.zoom, minimumBoardZoom, 4)
   )
     throw new Error("Ungültige Zeichenfläche.");
   const ids = new Set<string>();
@@ -199,10 +201,10 @@ export function validateBoard(input: unknown): Board {
       ids.has(n.id) ||
       n.type !== "shape" ||
       !n.position ||
-      !number(n.position.x, -1e7, 1e7) ||
-      !number(n.position.y, -1e7, 1e7) ||
-      !number(n.width, 10, 10000) ||
-      !number(n.height, 10, 10000) ||
+      !number(n.position.x, -1e12, 1e12) ||
+      !number(n.position.y, -1e12, 1e12) ||
+      !number(n.width, 10, 1e10) ||
+      !number(n.height, 10, 1e10) ||
       !d ||
       !shapeKinds.includes(d.kind) ||
       typeof d.text !== "string" ||
@@ -212,7 +214,7 @@ export function validateBoard(input: unknown): Board {
       !color(d.color) ||
       !number(d.strokeWidth, 0, 12) ||
       !number(d.radius, 0, 200) ||
-      !number(d.fontSize, 2, 1200) ||
+      !number(d.fontSize, 2, 1e9) ||
       typeof d.bold !== "boolean" ||
       typeof d.italic !== "boolean" ||
       !["left", "center", "right"].includes(d.align)
@@ -249,6 +251,7 @@ export function validateBoard(input: unknown): Board {
         fontSize: d.fontSize,
         bold: d.bold,
         italic: d.italic,
+        ...(d.underline === true ? { underline: true } : {}),
         align: d.align,
         ...(color(d.textBackground)
           ? { textBackground: d.textBackground }

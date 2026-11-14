@@ -33,11 +33,13 @@ export default function ColorSwatches({
   value,
   onChange,
   presets = defaults,
+  compactBackground = false,
 }: {
   name: string;
   value?: string;
   onChange: (event: { target: { value: string } }) => void;
   presets?: string[];
+  compactBackground?: boolean;
 }) {
   const key = "lifemap-color-presets:" + name;
   const [favorites, setFavorites] = useState(presets.slice(0, 5));
@@ -93,33 +95,36 @@ export default function ColorSwatches({
   };
   return (
     <span className="color-swatches" role="group" aria-label={name}>
-      {favorites.map((color, i) => (
-        <button
-          type="button"
-          key={i}
-          className="color-dot"
-          style={{ background: color }}
-          title={color + " · Doppelklick zum Ändern"}
-          aria-label={name + " " + color}
-          aria-pressed={value === color}
-          onClick={() => onChange({ target: { value: color } })}
-          onDoubleClick={(e) => open(e.currentTarget, i)}
-        />
-      ))}
+      {!compactBackground &&
+        favorites.map((color, i) => (
+          <button
+            type="button"
+            key={i}
+            className="color-dot"
+            style={{ background: color }}
+            title={color + " · Doppelklick zum Ändern"}
+            aria-label={name + " " + color}
+            aria-pressed={value === color}
+            onClick={() => onChange({ target: { value: color } })}
+            onDoubleClick={(e) => open(e.currentTarget, i)}
+          />
+        ))}
       <button
         type="button"
         className="color-more"
-        title="Weitere Farben"
+        title={compactBackground ? name : "Weitere Farben"}
         aria-label={name + " – weitere Farben"}
         aria-expanded={!!panel}
         style={
-          value && !favorites.includes(value)
-            ? { boxShadow: "inset 0 0 0 2px " + value }
-            : undefined
+          compactBackground
+            ? { background: value || "transparent" }
+            : value && !favorites.includes(value)
+              ? { boxShadow: "inset 0 0 0 2px " + value }
+              : undefined
         }
         onClick={(e) => open(e.currentTarget, null)}
       >
-        +
+        {compactBackground ? "A" : "+"}
       </button>
       {panel &&
         createPortal(
@@ -150,6 +155,17 @@ export default function ColorSwatches({
                 />
               ))}
             </span>
+            {compactBackground && (
+              <button
+                type="button"
+                onClick={() => {
+                  choose("transparent");
+                  setPanel(null);
+                }}
+              >
+                Transparent
+              </button>
+            )}
             {custom ? (
               <input
                 type="color"

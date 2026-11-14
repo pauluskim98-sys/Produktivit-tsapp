@@ -43,8 +43,7 @@ import {
   Plus,
   Scan,
   Grid2X2,
-  Copy,
-  Trash2,
+  Underline,
   Bold,
   Italic,
   AlignLeft,
@@ -66,6 +65,7 @@ import {
 } from "lucide-react";
 import {
   emptyBoard,
+  minimumBoardZoom,
   validateBoard,
   emptyLineLabel,
   type LineLabel,
@@ -544,6 +544,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           fontSize: data.fontSize,
           fontWeight: data.bold ? 700 : 400,
           fontStyle: data.italic ? "italic" : "normal",
+          textDecoration: data.underline ? "underline" : undefined,
           textAlign: data.align,
           justifyContent:
             data.kind === "sticky" || data.kind === "text"
@@ -743,7 +744,7 @@ function BoardEditor() {
       event.stopPropagation();
       const current = flow.getViewport();
       const next = Math.max(
-        0.1,
+        minimumBoardZoom,
         Math.min(4, current.zoom * Math.exp(-event.deltaY * 0.006)),
       );
       const pane = document
@@ -2362,7 +2363,7 @@ function BoardEditor() {
               zoomOnPinch
               zoomOnDoubleClick={false}
               zoomActivationKeyCode="Control"
-              minZoom={0.1}
+              minZoom={minimumBoardZoom}
               maxZoom={4}
               deleteKeyCode={null}
               colorMode={dark ? "dark" : "light"}
@@ -2941,17 +2942,6 @@ function BoardEditor() {
           >
             <span>{selected.length + selectedEdges.length} ausgewählt</span>
             <button
-              title="Duplizieren"
-              aria-label="Duplizieren"
-              disabled={!selected.length}
-              onClick={() => paste({ nodes: selected, edges: board.edges })}
-            >
-              <Copy size={16} />
-            </button>
-            <button title="Löschen" aria-label="Löschen" onClick={remove}>
-              <Trash2 size={16} />
-            </button>
-            <button
               title="Auswahl aufheben"
               aria-label="Auswahl aufheben"
               onClick={() =>
@@ -2967,140 +2957,152 @@ function BoardEditor() {
           </div>
           {data && (
             <>
-              <ColorSwatches
-                name="Formfüllung"
-                value={data.fill}
-                onChange={(e) => format({ fill: e.target.value })}
-                presets={palette}
-              />
-              <label>
-                Schrifthintergrund{" "}
+              <div className="lm-compact-format">
                 <ColorSwatches
+                  name="Formfüllung"
+                  value={data.fill}
+                  onChange={(e) => format({ fill: e.target.value })}
+                  presets={palette}
+                />
+                <ColorSwatches
+                  compactBackground
                   name="Schrifthintergrund"
-                  value={
-                    data.textBackground && data.textBackground !== "transparent"
-                      ? data.textBackground
-                      : "#ffffff"
-                  }
+                  value={data.textBackground}
                   onChange={(e) => format({ textBackground: e.target.value })}
                 />
-                <button
-                  onClick={() => format({ textBackground: "transparent" })}
-                >
-                  Transparent
-                </button>
-              </label>
-              <label>
-                Deckkraft{" "}
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={data.opacity ?? 1}
-                  onChange={(e) => format({ opacity: +e.target.value })}
-                />
-              </label>
-              {data.kind === "sticky" && (
-                <label>
-                  Papier{" "}
-                  <select
-                    value={data.paper ?? "plain"}
-                    onChange={(e) =>
-                      format({ paper: e.target.value as ShapeData["paper"] })
-                    }
-                  >
-                    <option value="plain">Glatt</option>
-                    <option value="lines">Liniert</option>
-                    <option value="grid">Kariert</option>
-                  </select>
-                </label>
-              )}
-              <div className="lm-format-row">
-                <label>
-                  Rand
-                  <ColorSwatches
-                    name="Formrand"
-                    value={
-                      data.stroke === "transparent" ? "#ffffff" : data.stroke
-                    }
-                    onChange={(e) => format({ stroke: e.target.value })}
-                  />
-                </label>
-                <label>
-                  Stärke
-                  <FormatSamples
-                    name="Randstärke"
-                    value={data.strokeWidth}
-                    onChange={(strokeWidth) => format({ strokeWidth })}
-                  />
-                </label>
-                <label>
-                  Schrift{" "}
-                  <select
-                    value={data.font ?? "System"}
-                    onChange={(e) => format({ font: e.target.value })}
-                  >
-                    {boardFonts.map((font) => (
-                      <option key={font} style={{ fontFamily: font }}>
-                        {font}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Rundung
-                  <FormatSamples
-                    name="Rundung"
-                    rounded
-                    value={data.radius}
-                    onChange={(radius) => format({ radius })}
-                  />
-                </label>
               </div>
-              <div className="lm-format-row">
-                <ColorSwatches
-                  name="Formtext"
-                  value={data.color}
-                  onChange={(e) => format({ color: e.target.value })}
+              <div className="lm-compact-format">
+                <span>Rand</span>
+                <FormatSamples
+                  name="Rundung"
+                  rounded
+                  value={data.radius}
+                  onChange={(radius) => format({ radius })}
                 />
+                <FormatSamples
+                  name="Randstärke"
+                  value={data.strokeWidth}
+                  onChange={(strokeWidth) => format({ strokeWidth })}
+                />
+              </div>
+              <div className="lm-compact-format">
+                <ColorSwatches
+                  name="Formrand"
+                  value={data.stroke}
+                  onChange={(e) => format({ stroke: e.target.value })}
+                />
+              </div>
+              <div className="lm-compact-format lm-compact-text">
+                <select
+                  aria-label="Schriftart"
+                  value={data.font ?? "System"}
+                  onChange={(e) => format({ font: e.target.value })}
+                >
+                  {boardFonts.map((font) => (
+                    <option key={font} style={{ fontFamily: font }}>
+                      {font}
+                    </option>
+                  ))}
+                </select>
                 <select
                   aria-label="Schriftgröße"
                   value={data.fontSize}
                   onChange={(e) => format({ fontSize: +e.target.value })}
                 >
-                  {[12, 16, 18, 20, 24, 28, 32, 40, 48, 64, 96].map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
+                  {Array.from(
+                    new Set([
+                      data.fontSize,
+                      12,
+                      16,
+                      18,
+                      20,
+                      24,
+                      28,
+                      32,
+                      40,
+                      48,
+                      64,
+                      96,
+                    ]),
+                  )
+                    .sort((a, b) => a - b)
+                    .map((size) => (
+                      <option key={size} value={size}>
+                        {Number(size.toPrecision(3))}
+                      </option>
+                    ))}
                 </select>
                 <button
-                  className={data.bold ? "active" : ""}
                   aria-label="Fett"
+                  aria-pressed={data.bold}
                   onClick={() => format({ bold: !data.bold })}
                 >
-                  <Bold size={16} />
+                  <Bold size={15} />
                 </button>
                 <button
-                  className={data.italic ? "active" : ""}
                   aria-label="Kursiv"
+                  aria-pressed={data.italic}
                   onClick={() => format({ italic: !data.italic })}
                 >
-                  <Italic size={16} />
+                  <Italic size={15} />
                 </button>
+                <button
+                  aria-label="Unterstrichen"
+                  aria-pressed={!!data.underline}
+                  onClick={() => format({ underline: !data.underline })}
+                >
+                  <Underline size={15} />
+                </button>
+              </div>
+              <div className="lm-compact-format">
+                <ColorSwatches
+                  name="Formtext"
+                  value={data.color}
+                  onChange={(e) => format({ color: e.target.value })}
+                />
                 {(["left", "center", "right"] as const).map((align, i) => {
                   const Icon = [AlignLeft, AlignCenter, AlignRight][i];
                   return (
                     <button
                       key={align}
-                      className={data.align === align ? "active" : ""}
-                      aria-label={`Text ${align}`}
+                      aria-label={"Text " + align}
+                      aria-pressed={data.align === align}
                       onClick={() => format({ align })}
                     >
-                      <Icon size={16} />
+                      <Icon size={15} />
                     </button>
                   );
                 })}
               </div>
+              <details className="lm-more-format">
+                <summary>Weitere Optionen</summary>
+                <label>
+                  Deckkraft{" "}
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={data.opacity ?? 1}
+                    onChange={(e) => format({ opacity: +e.target.value })}
+                  />
+                </label>
+                {data.kind === "sticky" && (
+                  <label>
+                    Papier{" "}
+                    <select
+                      value={data.paper ?? "plain"}
+                      onChange={(e) =>
+                        format({ paper: e.target.value as ShapeData["paper"] })
+                      }
+                    >
+                      <option value="plain">Glatt</option>
+                      <option value="lines">Liniert</option>
+                      <option value="grid">Kariert</option>
+                    </select>
+                  </label>
+                )}
+              </details>
               <div className="lm-format-row">
                 <button
                   onClick={() => {
@@ -3783,7 +3785,7 @@ function BoardEditor() {
           <button aria-label="Verkleinern" onClick={() => flow.zoomOut()}>
             <Minus size={17} />
           </button>
-          <span>{Math.round(board.viewport.zoom * 100)}%</span>
+          <span>{Number((board.viewport.zoom * 100).toPrecision(3))}%</span>
           <button aria-label="Vergrößern" onClick={() => flow.zoomIn()}>
             <Plus size={17} />
           </button>
