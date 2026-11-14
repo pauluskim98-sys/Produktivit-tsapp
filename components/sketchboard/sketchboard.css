@@ -622,3 +622,13 @@
 .lm-toolbar {
   max-width: 96vw;
 }
+.lm-board-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid #8883;
+}
+.lm-board-tabs button[aria-current="page"] {
+  background: #9576c22b;
+}

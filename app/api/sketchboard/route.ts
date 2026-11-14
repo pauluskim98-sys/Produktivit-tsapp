@@ -3,19 +3,23 @@ import { db, USER } from "@/lib/db";
 import { sameOrigin, errorResponse } from "@/lib/validation";
 import { emptyBoard, validateBoard } from "@/lib/sketchboard";
 export const dynamic = "force-dynamic";
-function prepare() {
+function prepare(request: Request) {
+  const tab = new URL(request.url).searchParams.get("tab") || "main";
+  if (!/^(main|[a-f0-9-]{36})$/.test(tab)) throw new Error("Ungültiger Tab.");
+  const owner = tab === "main" ? USER : USER + ":tab:" + tab;
   db.exec(
     "CREATE TABLE IF NOT EXISTS Sketchboard (userId TEXT PRIMARY KEY, content TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)",
   );
   db.prepare(
     "INSERT OR IGNORE INTO Sketchboard(userId,content) VALUES (?,?)",
-  ).run(USER, JSON.stringify(emptyBoard()));
+  ).run(owner, JSON.stringify(emptyBoard()));
+  return owner;
 }
-export const GET = accountRoute(async () => {
-  prepare();
+export const GET = accountRoute(async (request) => {
+  const owner = prepare(request);
   const row = db
     .prepare("SELECT content,revision FROM Sketchboard WHERE userId=?")
-    .get(USER) as { content: string; revision: number };
+    .get(owner) as { content: string; revision: number };
   return Response.json(
     { board: JSON.parse(row.content), revision: row.revision },
     { headers: { "Cache-Control": "private, no-store" } },
@@ -31,12 +35,12 @@ export const PUT = accountRoute(async (request) => {
     if (!Number.isSafeInteger(revision) || revision < 0)
       throw new Error("Ungültiger Speicherstand.");
     const valid = validateBoard(board);
-    prepare();
+    const owner = prepare(request);
     const result = db
       .prepare(
         "UPDATE Sketchboard SET content=?,revision=revision+1 WHERE userId=? AND revision=?",
       )
-      .run(JSON.stringify(valid), USER, revision);
+      .run(JSON.stringify(valid), owner, revision);
     if (!result.changes)
       return Response.json(
         {

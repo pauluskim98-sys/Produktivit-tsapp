@@ -310,6 +310,52 @@ function BoardEditor() {
     connectFrom = useRef<string | null>(null),
     host = useRef<HTMLDivElement>(null);
   const storage = useBoardStorage(board, setBoard);
+  const leavingText = useRef(false);
+  const currentTab = new URLSearchParams(location.search).get("tab") || "main";
+  const [tabs] = useState<{ id: string; title: string }[]>(() => {
+    try {
+      return (
+        JSON.parse(localStorage.getItem("lifemap-tabs") || "null") ?? [
+          { id: "main", title: "LifeMap" },
+        ]
+      );
+    } catch {
+      return [{ id: "main", title: "LifeMap" }];
+    }
+  });
+  const openTab = async (id?: string) => {
+    if (!(await storage.finish())) return;
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(
+        "lifemap-tabs",
+        JSON.stringify([
+          ...tabs,
+          { id, title: "LifeMap " + (tabs.length + 1) },
+        ]),
+      );
+    }
+    location.assign(
+      id === "main" ? "/lifemap/board" : "/lifemap/board?tab=" + id,
+    );
+  };
+  const [noteHeight, setNoteHeight] = useState(280);
+  useEffect(() => {
+    const resize = (event: MessageEvent) => {
+      if (
+        event.origin === location.origin &&
+        event.data?.type === "lifemap-notepad-height"
+      )
+        setNoteHeight(
+          Math.min(
+            innerHeight * 0.72,
+            Math.max(100, Number(event.data.height) || 280),
+          ),
+        );
+    };
+    window.addEventListener("message", resize);
+    return () => window.removeEventListener("message", resize);
+  }, []);
   useEffect(
     () =>
       listenForViewSwipe(
@@ -524,6 +570,18 @@ function BoardEditor() {
   }, [dark]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (key === "z" || key === "y") &&
+        !settings &&
+        !form
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        undo(key === "y" || e.shiftKey);
+        return;
+      }
       if (
         (e.target as HTMLElement).closest(
           "input,textarea,select,[contenteditable=true]",
@@ -609,10 +667,10 @@ function BoardEditor() {
           previous === "select" && k === "a" ? "write" : shortcuts[k],
         );
     };
-    window.addEventListener("keydown", keydown);
+    window.addEventListener("keydown", keydown, true);
 
     return () => {
-      window.removeEventListener("keydown", keydown);
+      window.removeEventListener("keydown", keydown, true);
     };
   });
   function exportBoard() {
@@ -717,8 +775,24 @@ function BoardEditor() {
           <Download size={18} />
         </button>
       </header>
+      <nav className="lm-board-tabs" aria-label="LifeMap-Tabs">
+        {tabs.map(({ id, title }) => (
+          <button
+            key={id}
+            aria-current={id === currentTab ? "page" : undefined}
+            onClick={() => {
+              if (id !== currentTab) void openTab(id);
+            }}
+          >
+            {title}
+          </button>
+        ))}
+        <button aria-label="Neuer LifeMap-Tab" onClick={() => void openTab()}>
+          +
+        </button>
+      </nav>
       {notes && (
-        <aside className="lm-notepad">
+        <aside className="lm-notepad" style={{ height: noteHeight }}>
           <iframe title="Kalender-Notepad" src="/lifemap?boardNotes=1" />
         </aside>
       )}
@@ -885,6 +959,12 @@ function BoardEditor() {
       )}
       <div
         ref={host}
+        onPointerDownCapture={(e) => {
+          leavingText.current = Boolean(
+            editing && !(e.target as HTMLElement).closest("textarea"),
+          );
+          if (leavingText.current) setEditing("");
+        }}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
@@ -936,6 +1016,14 @@ function BoardEditor() {
               onNodeDragStart={checkpoint}
               onSelectionDragStart={checkpoint}
               onNodeClick={(_, node) => {
+                if (leavingText.current) {
+                  leavingText.current = false;
+                  return;
+                }
+                if (tool === "select" || tool === "hand") {
+                  setTool("write");
+                  return;
+                }
                 if (tool === "paint" && node.data.kind !== "image") {
                   checkpoint();
                   patch(node.id, { fill });
@@ -960,6 +1048,15 @@ function BoardEditor() {
                 }
               }}
               onPaneClick={(e) => {
+                if (leavingText.current) {
+                  leavingText.current = false;
+                  return;
+                }
+                if (tool !== "write") {
+                  setTool("write");
+                  connectFrom.current = null;
+                  return;
+                }
                 setQuick(null);
                 setColors(false);
                 if (tool === "write" && !editing)
@@ -1059,6 +1156,13 @@ function BoardEditor() {
               const w = Math.abs(e.clientX - start.x),
                 h = Math.abs(e.clientY - start.y),
                 drag = w > 8 || h > 8;
+              if (!drag) {
+                setTool("write");
+                drawing.current = null;
+                setDraft(null);
+                setStroke([]);
+                return;
+              }
               if (tool === "ink") {
                 const points = strokePoints.current;
                 if (points.length > 1) {

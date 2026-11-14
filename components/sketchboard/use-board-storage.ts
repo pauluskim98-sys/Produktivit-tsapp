@@ -3,6 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { emptyBoard, validateBoard, type Board } from "@/lib/sketchboard";
 
 export function useBoardStorage(board: Board, restore: (board: Board) => void) {
+  const tab =
+    new URLSearchParams(
+      typeof location === "undefined" ? "" : location.search,
+    ).get("tab") || "main";
+  const endpoint = "/api/sketchboard?tab=" + encodeURIComponent(tab);
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState("Laden …");
   const [error, setError] = useState("");
@@ -27,7 +32,7 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
     busy.current = true;
     setStatus("Speichern …");
     try {
-      const response = await fetch("/api/sketchboard", {
+      const response = await fetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -56,7 +61,7 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
   };
   useEffect(() => {
     let active = true;
-    fetch("/api/sketchboard", { cache: "no-store" })
+    fetch(endpoint, { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error("LifeMap konnte nicht geladen werden.");
         return r.json();
@@ -118,5 +123,16 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
       document.removeEventListener("visibilitychange", visibility);
     };
   }, []);
-  return { ready, status, error, retry: () => void flush.current() };
+  return {
+    ready,
+    status,
+    error,
+    retry: () => void flush.current(),
+    finish: async () => {
+      while (busy.current)
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      await flush.current();
+      return pending.current === saved.current;
+    },
+  };
 }

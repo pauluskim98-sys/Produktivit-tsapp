@@ -746,6 +746,19 @@ export default function Planner() {
       (zoneEdit ? `zone:${zoneEdit.id}` : planning ? "planning" : newOpen ? "new" : settings ? "settings" : ""),
   );
   const [notesPosition, setNotesPosition] = useState<"below" | "open" | "closing">("below");
+  useEffect(() => {
+    if (!document.documentElement.classList.contains("lifemap-notes-frame")) return;
+    setNotesPosition("open");
+    const panel = document.querySelector<HTMLElement>(".calendar-bottom-notes");
+    if (!panel) return;
+    const report = () => window.parent.postMessage({
+      type: "lifemap-notepad-height", height: panel.scrollHeight,
+    }, location.origin);
+    const observer = new ResizeObserver(report);
+    observer.observe(panel);
+    report();
+    return () => observer.disconnect();
+  }, []);
   const visibleNotesPosition = newOpen && notesPosition==="open" ? "closing" : notesPosition;
   const [notePreferences,setNotePreferences]=useState(defaultNotePreferences);
   const [noteSettingsOpen,setNoteSettingsOpen]=useState(false);
