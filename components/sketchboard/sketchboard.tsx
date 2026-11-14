@@ -1280,7 +1280,6 @@ const EditContext = createContext({
   checkpoint: () => {},
   link: (_id: string) => {},
   inspect: (_id: string): boolean => false,
-  jump: (_jump: BoardJump) => {},
 });
 function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   const edit = useContext(EditContext),
@@ -1716,26 +1715,6 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           </span>
         )}
       </div>
-      {!!data.jumps?.length && (
-        <div className="lm-node-jumps nodrag nopan">
-          {data.jumps
-            .filter((link) => !link.sourceGroup && !link.sourceOffset)
-            .map((link) => (
-              <button
-                type="button"
-                key={link.id}
-                title={link.label}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  edit.jump(link);
-                }}
-              >
-                <Link2 size={12} />
-                {link.label}
-              </button>
-            ))}
-        </div>
-      )}
       {[Position.Top, Position.Right, Position.Bottom, Position.Left].map(
         (position) => (
           <Handle
@@ -2449,7 +2428,32 @@ function BoardEditor() {
       );
     }
   };
+  const [teleportFormat, setTeleportFormat] = useState<{
+    nodeId: string;
+    jumpId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const formattedTeleportNode = board.nodes.find(
+    (node) => node.id === teleportFormat?.nodeId,
+  );
+  const formattedTeleport = formattedTeleportNode?.data.jumps?.find(
+    (jump) => jump.id === teleportFormat?.jumpId,
+  );
+  const formatTeleport = (
+    node: ShapeNode,
+    jump: BoardJump,
+    changes: Partial<BoardJump>,
+  ) => {
+    checkpoint();
+    patch(node.id, {
+      jumps: node.data.jumps?.map((item) =>
+        item.id === jump.id ? { ...item, ...changes } : item,
+      ),
+    });
+  };
   const teleportMoved = useRef(false);
+  const teleportResize = useRef(false);
   const teleportDrag = useRef<{
     id: number;
     start: Point;
@@ -2471,6 +2475,7 @@ function BoardEditor() {
     const owner = event.currentTarget.closest("button")!;
     owner.setPointerCapture(event.pointerId);
     teleportMoved.current = false;
+    teleportResize.current = resize;
     const offset = jump.sourceOffset ?? { x: 0, y: 0 },
       size = jump.size ?? 1;
     teleportDrag.current = {
@@ -3912,6 +3917,24 @@ function BoardEditor() {
   };
   return (
     <main
+      onContextMenuCapture={(event) => {
+        const hit = event.target as Element;
+        if (
+          !host.current?.contains(hit) ||
+          hit.closest(
+            ".react-flow__node,.react-flow__edge-interaction,button,input,textarea,.lm-import-menu,.lm-format",
+          )
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.shiftKey) {
+          setImportError("");
+          setImportAt({ x: event.clientX, y: event.clientY });
+          return;
+        }
+        fitVisibleBoard();
+      }}
       onClickCapture={(e) => {
         const hit = e.target as Element;
         if (
@@ -3929,6 +3952,7 @@ function BoardEditor() {
         if (!hit.closest(".lm-symbol-action,.lm-symbol-picker"))
           setPinSymbol(null);
         if (!hit.closest(".lm-import-menu")) setImportAt(null);
+        if (!hit.closest(".lm-teleport-format")) setTeleportFormat(null);
         if (hit.matches(".lm-app,.lm-canvas,.lm-header")) clearCanvasPopups();
       }}
       className={`lm-app${dark ? " lm-dark" : ""}${embedded ? " lm-embedded" : ""}`}
@@ -3991,17 +4015,6 @@ function BoardEditor() {
             <Waypoints size={22} />
             LifeMap
           </strong>
-          <button
-            type="button"
-            aria-label={groupActive ? "Gruppe auflösen" : "Gruppieren"}
-            title={
-              groupPicking ? "Gruppenauswahl abschließen (G)" : "Gruppieren (G)"
-            }
-            aria-pressed={groupActive || groupPicking}
-            onClick={makeGroup}
-          >
-            <Group size={19} />
-          </button>
           <button
             className="lm-header-settings"
             aria-label="Einstellungen"
@@ -4506,22 +4519,6 @@ function BoardEditor() {
           if (tool === "connect" && connectFrom.current)
             setLinkPointer({ x: e.clientX, y: e.clientY });
         }}
-        onContextMenuCapture={(e) => {
-          if (
-            (e.target as HTMLElement).closest(
-              ".react-flow__node,.react-flow__edge-interaction,button,input,textarea,.lm-import-menu",
-            )
-          )
-            return;
-          e.preventDefault();
-          if (e.shiftKey) {
-            setImportError("");
-            setImportAt({ x: e.clientX, y: e.clientY });
-            return;
-          }
-          e.stopPropagation();
-          fitVisibleBoard();
-        }}
         tabIndex={-1}
         onPointerDownCapture={(e) => {
           leavingText.current = Boolean(
@@ -4585,7 +4582,6 @@ function BoardEditor() {
                 setShownGroup(group);
                 return true;
               },
-              jump: (link) => void followJump(link),
             }}
           >
             <ReactFlow<ShapeNode>
@@ -5009,9 +5005,7 @@ function BoardEditor() {
               selectionMode={SelectionMode.Partial}
               multiSelectionKeyCode="Shift"
               selectionKeyCode={null}
-              panOnDrag={
-                tool === "hand" || tool === "write" ? [0, 1, 2] : [1, 2]
-              }
+              panOnDrag={tool === "hand" || tool === "write" ? [0, 1] : [1]}
               panActivationKeyCode={null}
               paneClickDistance={5}
               panOnScroll={false}
@@ -5873,76 +5867,142 @@ function BoardEditor() {
           );
         })()}
       {board.nodes
-        .flatMap((n) => n.data.jumps ?? [])
-        .filter((jump) => jump.sourceGroup && !jump.sourceOffset)
-        .map((jump) => {
-          const bounds = groupBounds(jump.sourceGroup!);
-          if (!bounds) return null;
-          const p = flow.flowToScreenPosition({
-            x: bounds.x + bounds.width / 2,
-            y: bounds.y,
-          });
-          return (
-            <button
-              key={jump.id}
-              type="button"
-              className="lm-group-jump"
-              style={{ left: p.x, top: p.y }}
-              onClick={() => void followJump(jump)}
-            >
-              <Link2 size={13} />
-              {jump.label}
-            </button>
-          );
-        })}
-      {board.nodes
         .filter((node) => !collapsedGroups.has(node.data.group ?? ""))
         .flatMap((node) =>
-          (node.data.jumps ?? [])
-            .filter((jump) => jump.sourceOffset)
-            .map((jump) => {
-              const p = flow.flowToScreenPosition({
-                x: node.position.x + jump.sourceOffset!.x,
-                y: node.position.y + jump.sourceOffset!.y,
-              });
-              return (
-                <button
-                  key={jump.id}
-                  type="button"
-                  className="lm-placed-jump"
-                  style={{ left: p.x, top: p.y, scale: jump.size ?? 1 }}
-                  onPointerDown={(event) =>
-                    startTeleportDrag(event, node, jump, false)
-                  }
-                  onPointerMove={moveTeleport}
-                  onPointerUp={(event) => endTeleportDrag(event, node, jump)}
-                  onPointerCancel={(event) => {
-                    teleportDrag.current = null;
-                    teleportMoved.current = false;
-                    event.currentTarget.style.transform = "";
-                    event.currentTarget.style.scale = String(jump.size ?? 1);
-                  }}
-                  onClick={(event) => {
-                    if (
-                      !teleportMoved.current &&
-                      !(event.target as Element).closest(".lm-teleport-resize")
-                    )
-                      void followJump(jump);
-                  }}
-                >
-                  <Zap size={13} />
-                  {jump.label}
-                  <span
-                    className="lm-teleport-resize"
-                    title="Teleportergröße ändern"
-                    onPointerDown={(event) =>
-                      startTeleportDrag(event, node, jump, true)
+          (node.data.jumps ?? []).map((storedJump, index) => {
+            const bounds = storedJump.sourceGroup
+              ? groupBounds(storedJump.sourceGroup)
+              : null;
+            const jump = {
+              ...storedJump,
+              sourceOffset:
+                storedJump.sourceOffset ??
+                (bounds
+                  ? {
+                      x: bounds.x + bounds.width / 2 - node.position.x,
+                      y: bounds.y - node.position.y,
                     }
-                  />
-                </button>
-              );
-            }),
+                  : {
+                      x: (node.width ?? 0) / 2,
+                      y: (node.height ?? 0) - 10 - index * 25,
+                    }),
+            };
+            const p = flow.flowToScreenPosition({
+              x: node.position.x + jump.sourceOffset.x,
+              y: node.position.y + jump.sourceOffset.y,
+            });
+            return (
+              <button
+                key={jump.id}
+                type="button"
+                className="lm-placed-jump lm-teleporter-button"
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setTeleportFormat({
+                    nodeId: node.id,
+                    jumpId: jump.id,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                style={{ left: p.x, top: p.y, scale: jump.size ?? 1 }}
+                onPointerDown={(event) =>
+                  startTeleportDrag(
+                    event,
+                    node,
+                    jump,
+                    (() => {
+                      const bounds =
+                        event.currentTarget.getBoundingClientRect();
+                      const inset = Math.min(6, bounds.height * 0.22);
+                      return (
+                        event.clientX - bounds.left <= inset ||
+                        bounds.right - event.clientX <= inset ||
+                        event.clientY - bounds.top <= inset ||
+                        bounds.bottom - event.clientY <= inset
+                      );
+                    })(),
+                  )
+                }
+                onPointerMove={moveTeleport}
+                onPointerUp={(event) => endTeleportDrag(event, node, jump)}
+                onPointerCancel={(event) => {
+                  teleportDrag.current = null;
+                  teleportMoved.current = false;
+                  event.currentTarget.style.transform = "";
+                  event.currentTarget.style.scale = String(jump.size ?? 1);
+                }}
+                onClick={(event) => {
+                  if (
+                    (event.detail === 0 ||
+                      (!teleportMoved.current && !teleportResize.current)) &&
+                    !(event.target as Element).closest(".lm-teleport-resize")
+                  )
+                    void followJump(jump);
+                }}
+              >
+                <Zap size={13} />
+                {jump.label}
+                <span
+                  className="lm-teleport-resize"
+                  title="Teleportergröße ändern"
+                  onPointerDown={(event) =>
+                    startTeleportDrag(event, node, jump, true)
+                  }
+                />
+              </button>
+            );
+          }),
         )}
+      {teleportFormat && formattedTeleport && formattedTeleportNode && (
+        <StoredPanel
+          name="teleporter"
+          className="lm-format lm-teleport-format"
+          label="Teleporter formatieren"
+          style={{
+            left: Math.max(8, Math.min(teleportFormat.x, innerWidth - 315)),
+            top: Math.max(60, Math.min(teleportFormat.y, innerHeight - 155)),
+            right: "auto",
+          }}
+        >
+          <strong>Teleporter</strong>
+          <label>
+            Beschriftung{" "}
+            <input
+              maxLength={80}
+              defaultValue={formattedTeleport.label}
+              key={formattedTeleport.id}
+              onBlur={(e) => {
+                const label = e.target.value.trim();
+                if (label && label !== formattedTeleport.label)
+                  formatTeleport(formattedTeleportNode, formattedTeleport, {
+                    label,
+                  });
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+            />
+          </label>
+          <label>
+            Größe{" "}
+            <input
+              type="range"
+              min={0.6}
+              max={2.5}
+              step={0.05}
+              value={formattedTeleport.size ?? 1}
+              onChange={(e) =>
+                formatTeleport(formattedTeleportNode, formattedTeleport, {
+                  size: +e.target.value,
+                })
+              }
+            />
+          </label>
+        </StoredPanel>
+      )}
       {jumpDraft?.tab === currentTab &&
         jumpDraft.position &&
         (() => {
@@ -6524,42 +6584,6 @@ function BoardEditor() {
                     onChange={(e) => format({ stroke: e.target.value })}
                   />
                 </div>
-                <label className="lm-rotate-control">
-                  Drehung{" "}
-                  <input
-                    type="range"
-                    aria-label="Element drehen"
-                    min={-180}
-                    max={180}
-                    value={data.rotation ?? 0}
-                    onPointerDown={checkpoint}
-                    onKeyDown={(event) => {
-                      if (
-                        [
-                          "ArrowLeft",
-                          "ArrowRight",
-                          "ArrowUp",
-                          "ArrowDown",
-                          "Home",
-                          "End",
-                        ].includes(event.key)
-                      )
-                        checkpoint();
-                    }}
-                    onChange={(event) => {
-                      const rotation = +event.target.value;
-                      setBoard((b) => ({
-                        ...b,
-                        nodes: b.nodes.map((node) =>
-                          node.selected
-                            ? { ...node, data: { ...node.data, rotation } }
-                            : node,
-                        ),
-                      }));
-                    }}
-                  />
-                  <output>{data.rotation ?? 0}°</output>
-                </label>
                 <strong className="lm-font-heading">Schrift</strong>
                 <div className="lm-compact-format lm-compact-text">
                   <select
@@ -7874,6 +7898,17 @@ function BoardEditor() {
               />
             </div>
           )}
+          <button
+            type="button"
+            aria-label={groupActive ? "Gruppe auflösen" : "Gruppieren"}
+            title={
+              groupPicking ? "Gruppenauswahl abschließen (G)" : "Gruppieren (G)"
+            }
+            aria-pressed={groupActive || groupPicking}
+            onClick={makeGroup}
+          >
+            <Group size={19} />
+          </button>
         </nav>
         <div className="lm-zoom">
           <button

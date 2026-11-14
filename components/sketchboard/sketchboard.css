@@ -2039,3 +2039,33 @@
   border-radius: 9px;
   background: var(--lm-panel);
 }
+
+.lm-app .lm-teleporter-button,
+.lm-app .lm-group-jump {
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-accent);
+  box-shadow: 0 2px 5px #2f204b30;
+  min-height: 26px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  color: var(--lm-accent);
+}
+.lm-app .lm-teleporter-button:hover {
+  box-shadow: 0 3px 8px #2f204b48;
+}
+.lm-teleport-format {
+  display: grid;
+  gap: 7px;
+}
+.lm-teleport-format label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lm-teleport-format input {
+  min-width: 0;
+  flex: 1;
+}
+.lm-shape.lm-selected .lm-rotate-grip {
+  opacity: 1;
+}
