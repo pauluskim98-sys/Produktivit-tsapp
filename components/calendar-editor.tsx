@@ -1,4 +1,5 @@
 "use client";
+import ColorSwatches from "@/components/color-swatches";
 import { useEffect, useState } from "react";
 import type { CalendarConnection, CalendarEvent } from "@/lib/types";
 import type { CalendarRule } from "@/lib/calendar/overrides";
@@ -22,7 +23,7 @@ export function CalendarOptions({connection,onRefresh,onClose}:{connection:Pick<
   },[open,connection.id]);
   async function apply(body:object, closeAfter=false){setBusy(true);setError("");try{await request({id:connection.id,...body});await onRefresh();if(closeAfter && onClose)onClose();else await read();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   const fields=<>
-      <form onSubmit={(e)=>{e.preventDefault();if(!busy)void apply({action:color===connection.color?"rename-connection":"connection",name,color},true);}}><label>Name <input data-title-field value={name} required maxLength={80} onChange={(e)=>setName(e.target.value)}/></label><label>Farbe <input type="color" value={color} onChange={(e)=>setColor(e.target.value)}/></label><button disabled={busy}>Speichern</button></form>
+      <form onSubmit={(e)=>{e.preventDefault();if(!busy)void apply({action:color===connection.color?"rename-connection":"connection",name,color},true);}}><label>Name <input data-title-field value={name} required maxLength={80} onChange={(e)=>setName(e.target.value)}/></label><label>Farbe <ColorSwatches name="calendar-editor-0" value={color} onChange={(e)=>setColor(e.target.value)} /></label><button disabled={busy}>Speichern</button></form>
       <CalendarGroups types={types} rules={rules} busy={busy}
         onGroup={(group,titles)=>void apply({action:"group-members",...group,titles})}
         onRule={(group,match)=>void apply({action:"group",...group,match})}
@@ -61,7 +62,7 @@ export function CalendarEventEditor({event,connection,onClose,onRefresh,deleteOn
     {event.description && <p className="calendar-event-description">{event.description}</p>}
     {!deleting && <form onSubmit={(e)=>{e.preventDefault();void apply(false);}}>
       <label>Titel <input data-title-field required maxLength={300} value={title} onChange={(e)=>setTitle(e.target.value)}/></label>
-      <label>Farbe <input type="color" value={color} onChange={(e)=>setColor(e.target.value)}/></label>
+      <label>Farbe <ColorSwatches name="calendar-editor-1" value={color} onChange={(e)=>setColor(e.target.value)} /></label>
       {event.seriesId && <label>Änderung für <select value={scope} onChange={(e)=>setScope(e.target.value)}><option value="event">Diesen Termin</option><option value="series">Ganze Serie</option></select></label>}
       <button disabled={busy}>Speichern</button><button type="button" disabled={busy} onClick={()=>{setDeleteScope("event");setDeleting(true);}}>Aus Lifemap entfernen</button>
     </form>}

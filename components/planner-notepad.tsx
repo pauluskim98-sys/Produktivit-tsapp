@@ -1,4 +1,5 @@
 "use client";
+import ColorSwatches from "@/components/color-swatches";
 import { useEffect, useId, useRef, useState } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { ChevronLeft, ChevronRight, Paperclip } from "lucide-react";
@@ -141,7 +142,7 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
           <label>Größe <select value={line.size||14} onChange={(e)=>patch(i,{size:Number(e.target.value)})}>{[12,14,16,20,24,30].map((n)=><option key={n}>{n}</option>)}</select></label>
           <button type="button" aria-pressed={!!line.bold} onClick={()=>patch(i,{bold:!line.bold})}>Fett</button>
           <button type="button" aria-pressed={!!line.italic} onClick={()=>patch(i,{italic:!line.italic})}>Kursiv</button>
-          <label>Farbe <input type="color" value={line.color||"#28392f"} onChange={(e)=>patch(i,{color:e.target.value})}/></label>
+          <label>Farbe <ColorSwatches name="planner-notepad-0" value={line.color||"#28392f"} onChange={(e)=>patch(i,{color:e.target.value})} /></label>
           <button type="button" onClick={()=>patch(i,{box:!line.box,done:false})}>{line.box?"Kästchen entfernen":"Kästchen einfügen"}</button>
           <button type="button" onClick={()=>setMenu(null)}>Schließen</button>
         </div>}

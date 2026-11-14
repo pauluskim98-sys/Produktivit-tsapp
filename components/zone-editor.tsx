@@ -1,5 +1,6 @@
 "use client";
 
+import ColorSwatches from "@/components/color-swatches";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { toMinutes, toTime } from "@/lib/schedule";
@@ -40,7 +41,7 @@ export default function ZoneEditor({ zone, existing, onSave, onDelete, onClose }
       <p>{draft.days.map((day)=>new Date(`${day}T12:00`).toLocaleDateString("de-DE",{weekday:"short",day:"numeric",month:"numeric"})).join(", ")} · {toTime(draft.start)}–{draft.end===1440?"24:00":toTime(draft.end)}</p>
       <form onSubmit={(event)=>{event.preventDefault();void submit();}}>
         <label>Name <input required autoFocus maxLength={100} placeholder="z. B. Lernzeit" value={draft.name} onChange={(event)=>setDraft({...draft,name:event.target.value})}/></label>
-        <label>Farbe <input type="color" value={draft.color} onChange={(event)=>setDraft({...draft,color:event.target.value})}/></label>
+        <label>Farbe <ColorSwatches name="zone-editor-0" value={draft.color} onChange={(event)=>setDraft({...draft,color:event.target.value})} /></label>
         <label><input type="checkbox" checked={draft.outline} onChange={(event)=>setDraft({...draft,outline:event.target.checked})}/> Nur gestrichelter Rand</label>
         <RepeatPicker legend="Wöchentlich wiederholen">
           <label>Uhrzeit <TimeInput label="Uhrzeit der Wiederholungen" value={toTime(draft.start)} onChange={(time)=>{

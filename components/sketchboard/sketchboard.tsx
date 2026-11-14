@@ -1,4 +1,5 @@
 "use client";
+import ColorSwatches from "@/components/color-swatches";
 import {
   createContext,
   useCallback,
@@ -98,6 +99,33 @@ const initialPoints: [number, number][] = [
   [10, 90],
 ];
 const preferenceKey = "lifemap-board-tools";
+function LineSample({ value }: { value: string }) {
+  return (
+    <svg
+      width="30"
+      height="18"
+      viewBox="0 0 30 18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    >
+      <path
+        d={
+          value === "default"
+            ? "M3 14C13 14 17 4 27 4"
+            : value === "step" || value === "smoothstep"
+              ? "M3 14H15V4H27"
+              : "M3 9H27"
+        }
+        strokeDasharray={
+          value === "7 5" ? "5 3" : value === "2 5" ? "1 3" : undefined
+        }
+      />
+      {(value === "end" || value === "both") && <path d="M22 5l5 4-5 4" />}
+      {value === "both" && <path d="M8 5L3 9l5 4" />}
+    </svg>
+  );
+}
 const defaults = {
   accent: "#9360c9",
   order: [] as string[],
@@ -1202,6 +1230,8 @@ function BoardEditor() {
   }, [dark]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).closest(".color-popup,.color-swatches"))
+        return;
       if (
         preview &&
         ["Enter", "Delete", "Backspace", "Escape"].includes(e.key) &&
@@ -1757,8 +1787,8 @@ function BoardEditor() {
           </div>
           <label>
             UI-Farbe{" "}
-            <input
-              type="color"
+            <ColorSwatches
+              name="UI-Akzent"
               value={preferences.accent}
               onChange={(e) => updatePreferences({ accent: e.target.value })}
             />
@@ -1827,8 +1857,8 @@ function BoardEditor() {
           </label>
           <label>
             Hintergrund{" "}
-            <input
-              type="color"
+            <ColorSwatches
+              name="Board-Hintergrund"
               value={preferences.background || (dark ? "#202124" : "#faf9fc")}
               onChange={(e) =>
                 updatePreferences({ background: e.target.value })
@@ -2743,30 +2773,16 @@ function BoardEditor() {
           </div>
           {data && (
             <>
-              <div className="lm-palette">
-                {palette.map((c) => (
-                  <button
-                    key={c}
-                    title={`Füllfarbe ${c}`}
-                    aria-label={`Füllfarbe ${c}`}
-                    className={data.fill === c ? "active" : ""}
-                    style={{ background: c }}
-                    onClick={() => format({ fill: c })}
-                  />
-                ))}
-                <label title="Eigene Füllfarbe">
-                  <input
-                    type="color"
-                    aria-label="Eigene Füllfarbe"
-                    value={data.fill === "transparent" ? "#ffffff" : data.fill}
-                    onChange={(e) => format({ fill: e.target.value })}
-                  />
-                </label>
-              </div>
+              <ColorSwatches
+                name="Formfüllung"
+                value={data.fill}
+                onChange={(e) => format({ fill: e.target.value })}
+                presets={palette}
+              />
               <label>
                 Schrifthintergrund{" "}
-                <input
-                  type="color"
+                <ColorSwatches
+                  name="Schrifthintergrund"
                   value={
                     data.textBackground && data.textBackground !== "transparent"
                       ? data.textBackground
@@ -2809,9 +2825,8 @@ function BoardEditor() {
               <div className="lm-format-row">
                 <label>
                   Rand
-                  <input
-                    aria-label="Randfarbe"
-                    type="color"
+                  <ColorSwatches
+                    name="Formrand"
                     value={
                       data.stroke === "transparent" ? "#ffffff" : data.stroke
                     }
@@ -2852,10 +2867,8 @@ function BoardEditor() {
                 </label>
               </div>
               <div className="lm-format-row">
-                <input
-                  title="Textfarbe"
-                  aria-label="Textfarbe"
-                  type="color"
+                <ColorSwatches
+                  name="Formtext"
                   value={data.color}
                   onChange={(e) => format({ color: e.target.value })}
                 />
@@ -2992,16 +3005,16 @@ function BoardEditor() {
                 </label>
                 <label>
                   Textfarbe{" "}
-                  <input
-                    type="color"
+                  <ColorSwatches
+                    name="Linientext"
                     value={caption.color}
                     onChange={(e) => setCaption({ color: e.target.value })}
                   />
                 </label>
                 <label>
                   Schrifthintergrund{" "}
-                  <input
-                    type="color"
+                  <ColorSwatches
+                    name="Linientext-Hintergrund"
                     value={
                       caption.background === "transparent"
                         ? "#ffffff"
@@ -3030,9 +3043,8 @@ function BoardEditor() {
               </fieldset>
               <label>
                 Farbe
-                <input
-                  aria-label="Linienfarbe"
-                  type="color"
+                <ColorSwatches
+                  name="Linienfarbe"
                   value={String(edge.style?.stroke || "#8b8797")}
                   onChange={(e) =>
                     formatEdge({
@@ -3162,58 +3174,76 @@ function BoardEditor() {
           <div className="lm-tool-options">
             {tool === "connect" && (
               <>
-                <label>
-                  Form{" "}
-                  <select
-                    value={connection.type}
-                    onChange={(e) =>
-                      setConnectionOverride({
-                        ...connection,
-                        type: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="default">Geschwungen</option>
-                    <option value="straight">Gerade</option>
-                    <option value="smoothstep">Abgewinkelt</option>
-                  </select>
-                </label>
-                <label>
-                  Strich{" "}
-                  <select
-                    value={connection.dash}
-                    onChange={(e) =>
-                      setConnectionOverride({
-                        ...connection,
-                        dash: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="">Durchgezogen</option>
-                    <option value="7 5">Gestrichelt</option>
-                    <option value="2 5">Gepunktet</option>
-                  </select>
-                </label>
-                <label>
-                  Pfeile{" "}
-                  <select
-                    value={connection.arrows}
-                    onChange={(e) =>
-                      setConnectionOverride({
-                        ...connection,
-                        arrows: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="none">Keine</option>
-                    <option value="end">Einseitig</option>
-                    <option value="both">Beidseitig</option>
-                  </select>
-                </label>
+                <span className="line-options" role="group" aria-label="Form">
+                  {(
+                    [
+                      ["default", "Geschwungen"],
+                      ["straight", "Gerade"],
+                      ["smoothstep", "Abgewinkelt"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={connection.type === value}
+                      onClick={() =>
+                        setConnectionOverride({ ...connection, type: value })
+                      }
+                    >
+                      <LineSample value={value} />
+                    </button>
+                  ))}
+                </span>
+                <span className="line-options" role="group" aria-label="Strich">
+                  {(
+                    [
+                      ["", "Durchgezogen"],
+                      ["7 5", "Gestrichelt"],
+                      ["2 5", "Gepunktet"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={connection.dash === value}
+                      onClick={() =>
+                        setConnectionOverride({ ...connection, dash: value })
+                      }
+                    >
+                      <LineSample value={value} />
+                    </button>
+                  ))}
+                </span>
+                <span className="line-options" role="group" aria-label="Pfeile">
+                  {(
+                    [
+                      ["none", "Keine"],
+                      ["end", "Einseitig"],
+                      ["both", "Beidseitig"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={connection.arrows === value}
+                      onClick={() =>
+                        setConnectionOverride({ ...connection, arrows: value })
+                      }
+                    >
+                      <LineSample value={value} />
+                    </button>
+                  ))}
+                </span>
                 <label>
                   Farbe{" "}
-                  <input
-                    type="color"
+                  <ColorSwatches
+                    name="Verbindung"
                     value={connection.color}
                     onChange={(e) =>
                       setConnectionOverride({
@@ -3272,41 +3302,15 @@ function BoardEditor() {
                     </button>
                   ))}
                 </div>
-                <div className="lm-pen-presets" aria-label="Stiftfarbe">
-                  {[
-                    "#403451",
-                    "#2273bc",
-                    "#1d8262",
-                    "#b5484e",
-                    "#dc932e",
-                    "#9360c9",
-                  ].map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      title={color}
-                      aria-label={"Stiftfarbe " + color}
-                      aria-pressed={preferences.pen.color === color}
-                      onClick={() =>
-                        updatePreferences({
-                          pen: { ...preferences.pen, color },
-                        })
-                      }
-                    >
-                      <i style={{ background: color }} />
-                    </button>
-                  ))}
-                  <input
-                    type="color"
-                    aria-label="Eigene Stiftfarbe"
-                    value={preferences.pen.color}
-                    onChange={(e) =>
-                      updatePreferences({
-                        pen: { ...preferences.pen, color: e.target.value },
-                      })
-                    }
-                  />
-                </div>
+                <ColorSwatches
+                  name="Stift"
+                  value={preferences.pen.color}
+                  onChange={(e) =>
+                    updatePreferences({
+                      pen: { ...preferences.pen, color: e.target.value },
+                    })
+                  }
+                />
                 <label>
                   Dicke{" "}
                   <input
@@ -3573,24 +3577,16 @@ function BoardEditor() {
                   )}
                 </div>
               )}
-              {palette.map((c) => (
-                <button
-                  key={c}
-                  aria-label={`Neue Füllfarbe ${c}`}
-                  style={{ background: c }}
-                  className={fill === c ? "active" : ""}
-                  onClick={() => {
-                    setFill(c);
-                    if (tool !== "paint" && selected.length)
-                      format({ fill: c });
-                  }}
-                />
-              ))}
-              <input
-                type="color"
-                aria-label="Neue eigene Füllfarbe"
+
+              <ColorSwatches
+                name="Färber"
                 value={fill}
-                onChange={(e) => setFill(e.target.value)}
+                onChange={(e) => {
+                  setFill(e.target.value);
+                  if (tool !== "paint" && selected.length)
+                    format({ fill: e.target.value });
+                }}
+                presets={palette}
               />
             </div>
           )}

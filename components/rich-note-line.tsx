@@ -1,4 +1,5 @@
 "use client";
+import ColorSwatches from "@/components/color-swatches";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { noteFonts, noteFontCss, type NoteFont, type NotePreferences } from "@/lib/note-todos";
 
@@ -65,7 +66,7 @@ export default function RichNoteLine({text,runs,label,preferences,onChange,onBlu
   },[text,runs]);
   useEffect(()=>{
     if(!open)return;
-    const outside=(event:PointerEvent)=>{if(event.target instanceof Node && !menu.current?.contains(event.target))setOpen(false);};
+    const outside=(event:PointerEvent)=>{if(event.target instanceof Node && !menu.current?.contains(event.target) && !(event.target instanceof Element && event.target.closest(".color-popup")))setOpen(false);};
     const escape=(event:KeyboardEvent)=>{if(event.key==="Escape")setOpen(false);};
     document.addEventListener("pointerdown",outside,true);document.addEventListener("keydown",escape,true);
     return ()=>{document.removeEventListener("pointerdown",outside,true);document.removeEventListener("keydown",escape,true);};
@@ -107,7 +108,7 @@ export default function RichNoteLine({text,runs,label,preferences,onChange,onBlu
         <option disabled value="">Auswählen</option>{[12,14,16,18,20,24,30].map((size)=><option key={size}>{size}</option>)}
       </select></label>
       {([["bold","Fett"],["italic","Kursiv"],["underline","Unterstrichen"]] as const).map(([key,label])=><button type="button" key={key} onMouseDown={(event)=>event.preventDefault()} onClick={()=>apply(key)}>{label}</button>)}
-      <label>Farbe <input type="color" onChange={(event)=>apply("foreColor",event.target.value)}/></label>
+      <label>Farbe <ColorSwatches name="rich-note-line-0" onChange={(event)=>apply("foreColor",event.target.value)} /></label>
     </div>}
   </div>;
 }

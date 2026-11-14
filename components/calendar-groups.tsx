@@ -1,5 +1,6 @@
 "use client";
 
+import ColorSwatches from "@/components/color-swatches";
 import { useRef, useState } from "react";
 import type { CalendarRule } from "@/lib/calendar/overrides";
 import { eventTitleKey } from "@/lib/calendar/overrides";
@@ -88,7 +89,7 @@ export default function CalendarGroups({types,rules,busy,onGroup,onRule,onRemove
         onDrop={(event)=>drop(event,{label:name.trim(),color:shade})}>
         <label>Neue Gruppe <input value={name} onChange={(event)=>setName(event.target.value)} maxLength={100}/></label>
         <label>Titel enthält <input value={pattern} onChange={(event)=>setPattern(event.target.value)} placeholder="Optional, z. B. Vorlesung" maxLength={240}/></label>
-        <label>Farbe <input type="color" value={shade} onChange={(event)=>setShade(event.target.value)}/></label>
+        <label>Farbe <ColorSwatches name="calendar-groups-0" value={shade} onChange={(event)=>setShade(event.target.value)} /></label>
         <button type="button" disabled={busy || !name.trim() || !selected.length} onClick={()=>{onGroup({label:name.trim(),color:shade},selected);setSelected([]);}}>Auswahl zuordnen</button>
         {match && <button type="button" disabled={busy || !name.trim()} onClick={()=>onRule({label:name.trim(),color:shade},match)}>Passende Titel gruppieren</button>}
       </div>
