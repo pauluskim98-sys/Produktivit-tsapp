@@ -7914,3 +7914,7 @@ button[hidden] {
   .note-splitter { display:none; }
   .calendar-bottom-notes .note-todo-column { padding:8px 0 0; border-left:0; border-top:1px solid var(--line); }
 }
+.lifemap-notes-frame body * { visibility: hidden; }
+.lifemap-notes-frame .calendar-bottom-notes,
+.lifemap-notes-frame .calendar-bottom-notes * { visibility: visible; }
+.lifemap-notes-frame .calendar-bottom-notes { position: fixed; inset: 0; z-index: 1000; margin: 0; max-height: none; overflow: auto; }

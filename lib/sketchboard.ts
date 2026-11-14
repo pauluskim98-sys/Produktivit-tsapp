@@ -7,6 +7,9 @@ export const shapeKinds = [
   "diamond",
   "text",
   "sticky",
+  "image",
+  "polygon",
+  "ink",
 ] as const;
 export type ShapeKind = (typeof shapeKinds)[number];
 export type ShapeData = {
@@ -21,7 +24,23 @@ export type ShapeData = {
   bold: boolean;
   italic: boolean;
   align: "left" | "center" | "right";
+  font?: string;
+  image?: string;
+  points?: [number, number][];
 };
+export const boardFonts = ["System", "Arial", "Georgia", "Verdana", "Consolas"];
+export const validPoints = (points: unknown): points is [number, number][] =>
+  Array.isArray(points) &&
+  points.length >= 2 &&
+  points.length <= 1500 &&
+  points.every(
+    (p) =>
+      Array.isArray(p) && p.length === 2 && p.every((v) => number(v, 0, 100)),
+  );
+export const validPicture = (src: unknown): src is string =>
+  typeof src === "string" &&
+  src.length <= 900_000 &&
+  /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(src);
 export type ShapeNode = Node<ShapeData, "shape">;
 export type Board = {
   version: 1;
@@ -152,6 +171,9 @@ export function validateBoard(input: unknown): Board {
         bold: d.bold,
         italic: d.italic,
         align: d.align,
+        ...(d.font && boardFonts.includes(d.font) ? { font: d.font } : {}),
+        ...(validPicture(d.image) ? { image: d.image } : {}),
+        ...(validPoints(d.points) ? { points: d.points } : {}),
       },
     };
   });
@@ -163,7 +185,9 @@ export function validateBoard(input: unknown): Board {
       edgeIds.has(e.id) ||
       !ids.has(e.source) ||
       !ids.has(e.target) ||
-      !["default", "straight"].includes(e.type || "default") ||
+      !["default", "straight", "step", "smoothstep"].includes(
+        e.type || "default",
+      ) ||
       !["top", "right", "bottom", "left"].includes(e.sourceHandle || "") ||
       !["top", "right", "bottom", "left"].includes(e.targetHandle || "") ||
       !color(e.style?.stroke) ||
@@ -178,7 +202,13 @@ export function validateBoard(input: unknown): Board {
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
       type: e.type || "default",
-      style: { stroke: e.style!.stroke, strokeWidth: e.style!.strokeWidth },
+      style: {
+        stroke: e.style!.stroke,
+        strokeWidth: e.style!.strokeWidth,
+        ...(["7 5", "2 5"].includes(String(e.style?.strokeDasharray))
+          ? { strokeDasharray: e.style!.strokeDasharray }
+          : {}),
+      },
       ...(e.markerEnd
         ? {
             markerEnd: {

@@ -80,7 +80,18 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
   }, []);
   useEffect(() => {
     if (!ready) return;
-    const content = JSON.stringify(validateBoard(board));
+    let content: string;
+    try {
+      content = JSON.stringify(validateBoard(board));
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Dieser Stand konnte nicht gespeichert werden.",
+      );
+      setStatus("Nicht gespeichert");
+      return;
+    }
     pending.current = content;
     if (content === saved.current) return;
     setStatus("Änderungen …");

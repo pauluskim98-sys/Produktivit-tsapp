@@ -14,6 +14,7 @@ import {
 } from "@/lib/client-history";
 import ReminderSetup from "./reminder-setup";
 import LifeInbox from "./life-inbox";
+import { listenForViewSwipe } from "@/lib/lifemap-swipe";
 import CalendarTabs from "./calendar-tabs";
 import ZoneEditor from "./zone-editor";
 import { RepeatPicker, RepeatDays, RepeatWeeks } from "./repeat-picker";
@@ -445,6 +446,29 @@ function QuickAdd({
 }
 
 export default function Planner() {
+  useEffect(() => {
+    const embedded = window.parent !== window && new URLSearchParams(location.search).has("boardNotes");
+    if (embedded) document.documentElement.classList.add("lifemap-notes-frame");
+    let start: number | null = null;
+    const touchStart = (event: TouchEvent) => { start = event.touches.length >= 2 ? event.touches[0].clientY : null; };
+    const touchEnd = (event: TouchEvent) => {
+      if (start !== null && event.changedTouches[0]?.clientY > start + 80) location.assign("/lifemap/board");
+      start = null;
+    };
+    if (!embedded) {
+      window.addEventListener("touchstart", touchStart, {passive:true});
+      window.addEventListener("touchend", touchEnd, {passive:true});
+    }
+    const stopWheel = embedded ? undefined : listenForViewSwipe(-1, () => location.assign("/lifemap/board"),
+      () => !document.querySelector('[role="dialog"],.notes-open') &&
+        (document.querySelector(".timeline-scroll")?.scrollTop ?? 0) <= 0);
+    return () => {
+      stopWheel?.();
+      document.documentElement.classList.remove("lifemap-notes-frame");
+      window.removeEventListener("touchstart", touchStart);
+      window.removeEventListener("touchend", touchEnd);
+    };
+  }, []);
   const shortcutHints = useShortcutPreferences();
   const [state, setState] = useState<AppState>(EMPTY),
     [loading, setLoading] = useState(true),
@@ -1153,6 +1177,10 @@ export default function Planner() {
         event.target.closest("input,textarea,select,[contenteditable]") ||
         document.querySelector('[role="dialog"],[role="menu"]'))return;
       event.preventDefault();event.stopImmediatePropagation();
+      if (document.documentElement.classList.contains("lifemap-notes-frame")) {
+        if (!event.repeat) window.parent.postMessage("lifemap-close-notes", location.origin);
+        return;
+      }
       if(!event.repeat)toggleNotes();
     };
     window.addEventListener("keydown", notesKey,true);
