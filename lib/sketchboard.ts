@@ -16,6 +16,7 @@ export const shapeKinds = [
 ] as const;
 export type ShapeKind = (typeof shapeKinds)[number];
 export type ShapeData = {
+  group?: string;
   media?: { kind: "video" | "document" | "link"; url: string; name: string };
   textBackground?: string;
   kind: ShapeKind;
@@ -55,7 +56,9 @@ export const validPoints = (points: unknown): points is [number, number][] =>
   points.length <= 1500 &&
   points.every(
     (p) =>
-      Array.isArray(p) && p.length === 2 && p.every((v) => number(v, 0, 100)),
+      Array.isArray(p) &&
+      p.length === 2 &&
+      p.every((v) => number(v, -200, 300)),
   );
 export const validPicture = (src: unknown): src is string =>
   typeof src === "string" &&
@@ -231,6 +234,9 @@ export function validateBoard(input: unknown): Board {
       zIndex: number(n.zIndex, -100000, 100000) ? n.zIndex : 0,
       data: {
         kind: d.kind,
+        ...(typeof d.group === "string" && id(d.group)
+          ? { group: d.group }
+          : {}),
         ...(["plain", "lines", "grid"].includes(d.paper ?? "")
           ? { paper: d.paper }
           : {}),
@@ -350,9 +356,18 @@ export function duplicateSelection(
   offset = 30,
 ) {
   const mapping = new Map(nodes.map((n) => [n.id, crypto.randomUUID()]));
+  const groups = new Map(
+    nodes
+      .flatMap((n) => (n.data.group ? [n.data.group] : []))
+      .map((group) => [group, crypto.randomUUID()]),
+  );
   return {
     nodes: nodes.map((n) => ({
       ...n,
+      data: {
+        ...n.data,
+        group: n.data.group ? groups.get(n.data.group) : undefined,
+      },
       id: mapping.get(n.id)!,
       position: { x: n.position.x + offset, y: n.position.y + offset },
       selected: true,

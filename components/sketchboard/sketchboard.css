@@ -1299,3 +1299,70 @@
 .lm-more-format summary {
   cursor: pointer;
 }
+.lm-group-frame,
+.lm-polygon-preview {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9;
+}
+.lm-group-frame {
+  border: 1px dashed var(--lm-accent);
+}
+.lm-group-frame button {
+  pointer-events: auto;
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  padding: 0 !important;
+  min-height: 0 !important;
+  border-radius: 3px !important;
+  background: var(--lm-accent) !important;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.lm-polygon-preview {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.lm-pin-form {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  gap: 3px;
+  padding: 5px;
+  border: 1px solid var(--lm-line);
+  border-radius: 9px;
+  background: var(--lm-panel);
+}
+.lm-custom-symbol {
+  width: 100%;
+  height: 100%;
+  max-width: 28px;
+  max-height: 28px;
+  object-fit: contain;
+}
+.lm-symbol-import {
+  grid-column: 1/-1;
+}
+.lm-format .lm-actions {
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+}
+.lm-format .lm-grip-dots {
+  line-height: 0.8;
+  letter-spacing: 2px;
+  opacity: 0.5;
+}
+.lm-font-heading {
+  font-size: 11px;
+}
+.lm-compact-format .lm-opacity {
+  width: 58px;
+}
+.lm-format .lm-opacity {
+  margin: 0;
+}
