@@ -1,5 +1,6 @@
 "use client";
 import ColorSwatches from "@/components/color-swatches";
+import { createPortal } from "react-dom";
 import {
   createContext,
   useCallback,
@@ -307,7 +308,7 @@ function FormatSamples({
   value: number;
   onChange: (n: number) => void;
   rounded?: boolean;
-  onPick?: () => void;
+  onPick?: (button: HTMLButtonElement) => void;
 }) {
   const values = rounded ? [0, 32, 96] : [1, 3, 7];
   const closest = values.reduce((a, b) =>
@@ -326,9 +327,9 @@ function FormatSamples({
           }
           aria-label={name + " " + (i + 1)}
           aria-pressed={n === closest}
-          onClick={() => {
+          onClick={(event) => {
             onChange(n);
-            onPick?.();
+            onPick?.(event.currentTarget);
           }}
         >
           <svg
@@ -2758,7 +2759,27 @@ function BoardEditor() {
     }));
     setRepresentation(null);
   };
-  const [borderPicker, setBorderPicker] = useState(0);
+  const [borderPicker, setBorderPicker] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const borderMenu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!borderPicker) return;
+    const close = (event: PointerEvent) => {
+      if (!borderMenu.current?.contains(event.target as Node))
+        setBorderPicker(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setBorderPicker(null);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [borderPicker]);
   const [groupFlash, setGroupFlash] = useState<string[]>([]);
   const groupId = selected[0]?.data.group;
   const representsOwnGroup =
@@ -6223,6 +6244,42 @@ function BoardEditor() {
           <Waypoints size={15} />
         </button>
       )}
+      {borderPicker &&
+        data &&
+        createPortal(
+          <div
+            ref={borderMenu}
+            className="lm-border-menu"
+            role="group"
+            aria-label="Randart"
+            style={borderPicker}
+          >
+            {(
+              [
+                ["solid", "Durchgezogen"],
+                ["wavy", "Geschlängelt"],
+                ["dashed", "Gestrichelt"],
+                ["double", "Doppellinie"],
+                [undefined, "Standard"],
+              ] as const
+            ).map(([style, label]) => (
+              <button
+                key={label}
+                type="button"
+                aria-label={label}
+                title={label}
+                aria-pressed={data.borderStyle === style}
+                onClick={() => {
+                  format({ borderStyle: style });
+                  setBorderPicker(null);
+                }}
+              >
+                <PatternSample style={style} />
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
       {!representation &&
         (tool !== "connect" || selectedEdges.length > 0) &&
         (selected.some((n) => n.data.kind !== "connection-anchor") ||
@@ -6552,24 +6609,23 @@ function BoardEditor() {
                   />
                   <FormatSamples
                     name="Randstärke"
-                    onPick={() => setBorderPicker((v) => v + 1)}
+                    onPick={(button) => {
+                      const bounds = button.getBoundingClientRect();
+                      setBorderPicker({
+                        left: Math.min(
+                          innerWidth - 49,
+                          Math.max(6, bounds.left),
+                        ),
+                        top:
+                          bounds.bottom + 148 < innerHeight
+                            ? bounds.bottom + 4
+                            : Math.max(6, bounds.top - 148),
+                      });
+                    }}
                     value={data.strokeWidth}
                     onChange={(strokeWidth) =>
                       format({
                         strokeWidth,
-                        ...(data.stroke === "transparent"
-                          ? { stroke: data.color }
-                          : {}),
-                      })
-                    }
-                  />
-                  <UnderlinePicker
-                    border
-                    openFrom={borderPicker}
-                    value={data.borderStyle}
-                    onChange={(borderStyle) =>
-                      format({
-                        borderStyle,
                         ...(data.stroke === "transparent"
                           ? { stroke: data.color }
                           : {}),
