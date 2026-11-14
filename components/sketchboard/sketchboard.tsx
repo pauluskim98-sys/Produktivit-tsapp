@@ -514,7 +514,7 @@ const defaults = {
   hiddenSymbols: [] as string[],
   symbolOrder: [] as string[],
   templateOrder: [] as string[],
-  size: 14,
+  size: 11,
   background: "",
   pattern: "plain",
   hidden: ["text"] as string[],
@@ -671,7 +671,10 @@ function StoredPanel({
                 size?.width ?? 310,
                 (innerWidth - 16) / formatScale,
               ),
-              height: size?.height,
+              maxHeight:
+                size?.height !== undefined
+                  ? "min(" + size.height + "px, 65vh)"
+                  : style?.maxHeight,
               zoom: formatScale,
               fontSize: 12,
             }
@@ -2034,7 +2037,11 @@ function BoardEditor() {
   useEffect(() => {
     host.current?.focus({ preventScroll: true });
   }, []);
-  const storage = useBoardStorage(board, setBoard);
+  const mainViewport = useRef<Board["viewport"] | null>(null);
+  const storage = useBoardStorage(
+    mainViewport.current ? { ...board, viewport: mainViewport.current } : board,
+    setBoard,
+  );
   const [importAt, setImportAt] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -2321,6 +2328,18 @@ function BoardEditor() {
       height: Math.max(...list.map((n) => n.position.y + (n.height ?? 0))) - y,
     };
   }
+  const groupEndpoint = (id: string, group: string): boolean => {
+    if (!id.startsWith("line:"))
+      return board.nodes.some(
+        (node) => node.id === id && node.data.group === group,
+      );
+    const edge = board.edges.find((edge) => edge.id === id.slice(5));
+    return (
+      !!edge &&
+      groupEndpoint(edge.source, group) &&
+      groupEndpoint(edge.target, group)
+    );
+  };
   const groupAt = (p: Point) =>
     [
       ...new Set(
@@ -2885,6 +2904,39 @@ function BoardEditor() {
     selectedEdges = board.edges.filter((e) => e.selected),
     data = selected[0]?.data;
   const [shownGroup, setShownGroup] = useState<string | null>(null);
+  const closeGroup = () => {
+    const viewport = mainViewport.current;
+    mainViewport.current = null;
+    setShownGroup(null);
+    setEditing("");
+    setBoard((b) => ({
+      ...b,
+      ...(viewport ? { viewport } : {}),
+      nodes: b.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+      edges: b.edges.map((edge) =>
+        edge.selected ? { ...edge, selected: false } : edge,
+      ),
+    }));
+    if (viewport) void flow.setViewport(viewport);
+  };
+  const openGroup = (group: string) => {
+    if (!groupBounds(group)) return;
+    if (!mainViewport.current) mainViewport.current = board.viewport;
+    setShownGroup(group);
+    setEditing("");
+    setBoard((b) => ({
+      ...b,
+      nodes: b.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+    }));
+  };
+  useLayoutEffect(() => {
+    if (!shownGroup) return;
+    const frame = requestAnimationFrame(() => {
+      const bounds = groupBounds(shownGroup);
+      if (bounds) void flow.fitBounds(bounds, { padding: 0.28 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [shownGroup]);
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [representation, setRepresentation] = useState<string | null>(null);
   const collapsedGroups = new Set(
@@ -3184,6 +3236,7 @@ function BoardEditor() {
     );
     node.data = {
       ...node.data,
+      ...(shownGroup ? { group: shownGroup } : {}),
       font: preferences.font,
       fontSize: preferences.size / zoom,
       underline: !!preferences.underlineStyle,
@@ -3548,7 +3601,7 @@ function BoardEditor() {
         setConfirmGroup(false);
         setJumpDraft(null);
         setJumpTab(null);
-        setShownGroup(null);
+        if (shownGroup) closeGroup();
         setRepresentation(null);
         setEditing("");
         setTool("hand");
@@ -4159,6 +4212,7 @@ function BoardEditor() {
   };
   return (
     <main
+      data-group-workspace={shownGroup ? true : undefined}
       onPointerDownCapture={(event) => {
         if (
           event.button === 2 &&
@@ -4869,8 +4923,17 @@ function BoardEditor() {
           <button onClick={exportBoard}>Entwurf exportieren</button>
         </div>
       )}
+      {shownGroup && (
+        <div
+          className="lm-group-workspace-backdrop"
+          aria-hidden
+          onClick={closeGroup}
+        />
+      )}
       <div
         ref={host}
+        role={shownGroup ? "region" : undefined}
+        aria-label={shownGroup ? "Elementgruppe bearbeiten" : undefined}
         onPointerLeave={(event) => {
           if (
             event.relatedTarget instanceof Element &&
@@ -4994,7 +5057,7 @@ function BoardEditor() {
                 const node = board.nodes.find((n) => n.id === id);
                 const group = node?.data.representGroup ?? node?.data.group;
                 if (!group) return false;
-                setShownGroup(group);
+                openGroup(group);
                 return true;
               },
             }}
@@ -5003,8 +5066,10 @@ function BoardEditor() {
               nodes={[
                 ...board.nodes.map((n) => ({
                   ...n,
-                  hidden:
-                    !representation && collapsedGroups.has(n.data.group ?? ""),
+                  hidden: shownGroup
+                    ? n.data.group !== shownGroup
+                    : !representation &&
+                      collapsedGroups.has(n.data.group ?? ""),
                   selectable:
                     n.data.kind === "connection-anchor" ? false : n.selectable,
                   className: groupFlash.includes(n.id)
@@ -5053,8 +5118,13 @@ function BoardEditor() {
                     : fade("line:" + e.id),
                 },
                 hidden:
+                  (shownGroup
+                    ? !groupEndpoint(e.source, shownGroup) ||
+                      !groupEndpoint(e.target, shownGroup)
+                    : false) ||
                   fade("line:" + e.id) === 0 ||
-                  (!representation &&
+                  (!shownGroup &&
+                    !representation &&
                     board.nodes.some(
                       (n) =>
                         collapsedGroups.has(n.data.group ?? "") &&
@@ -5268,6 +5338,19 @@ function BoardEditor() {
                 groupDrag.current = null;
               }}
               onSelectionDragStart={checkpoint}
+              onNodeContextMenu={(event, node) => {
+                if (!node.data.representGroup) return;
+                event.preventDefault();
+                setEditing("");
+                setBoard((b) => ({
+                  ...b,
+                  nodes: b.nodes.map((n) => ({
+                    ...n,
+                    selected: n.id === node.id,
+                  })),
+                  edges: b.edges.map((edge) => ({ ...edge, selected: false })),
+                }));
+              }}
               onNodeClick={(event, node) => {
                 if (tool === "select" && !groupPicking) {
                   setBoard((b) => ({
@@ -5291,7 +5374,7 @@ function BoardEditor() {
                   node.data.representGroup &&
                   !event.ctrlKey
                 ) {
-                  setShownGroup(node.data.representGroup);
+                  openGroup(node.data.representGroup);
                   return;
                 }
                 if (tool === "jump") {
@@ -5409,6 +5492,7 @@ function BoardEditor() {
                     10,
                     10,
                   );
+                  if (shownGroup) node.data.group = shownGroup;
                   connectTo(node.id, undefined, node);
                   return;
                 }
@@ -5511,7 +5595,7 @@ function BoardEditor() {
                   }
                   gap={24}
                   size={1}
-                  color={dark ? "#4e4b59" : "#d8d5df"}
+                  color="var(--lm-grid)"
                 />
               )}
             </ReactFlow>
@@ -6242,7 +6326,7 @@ function BoardEditor() {
                   alt=""
                 />
               ) : (
-                <SymbolArt name={symbol} stroke="#4e485f" fill="none" />
+                <SymbolArt name={symbol} stroke="var(--lm-ink)" fill="none" />
               ))}
             {(tool === "polygon" || tool === "diamond") && (
               <svg viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -6287,91 +6371,12 @@ function BoardEditor() {
             />
           );
         })()}
-      {shownGroup &&
-        (() => {
-          const list = board.nodes.filter((n) => n.data.group === shownGroup);
-          const b = groupBounds(shownGroup);
-          if (!b) return null;
-          const scale = Math.min(
-            1.12,
-            (innerWidth * 0.48) / Math.max(1, b.width),
-            (innerHeight * 0.48) / Math.max(1, b.height),
-          );
-          return (
-            <div
-              className="lm-group-overlay"
-              onClick={() => setShownGroup(null)}
-            >
-              <section
-                role="dialog"
-                aria-label="Elementgruppe"
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  width: b.width * scale + 28,
-                  height: b.height * scale + 38,
-                }}
-              >
-                <div
-                  className="lm-group-overlay-content"
-                  style={{
-                    width: b.width,
-                    height: b.height,
-                    transform: "scale(" + scale + ")",
-                  }}
-                >
-                  {list.map((n) => (
-                    <div
-                      key={n.id}
-                      className="lm-group-overlay-item"
-                      style={{
-                        left: n.position.x - b.x,
-                        top: n.position.y - b.y,
-                        width: n.width,
-                        height: n.height,
-                        background:
-                          n.data.kind === "text" ? "transparent" : n.data.fill,
-                        borderRadius:
-                          n.data.kind === "circle" || n.data.kind === "ellipse"
-                            ? "50%"
-                            : n.data.radius,
-                        color: n.data.color,
-                        fontSize: n.data.fontSize,
-                        fontFamily:
-                          n.data.font === "System" ? undefined : n.data.font,
-                      }}
-                    >
-                      {n.data.image ? (
-                        <img src={n.data.image} alt="" />
-                      ) : n.data.kind === "symbol" ? (
-                        <SymbolArt
-                          name={n.data.text}
-                          stroke={n.data.color}
-                          fill={n.data.fill}
-                        />
-                      ) : (
-                        n.data.text
-                      )}
-                      {n.data.jumps?.map((link) => (
-                        <button
-                          key={link.id}
-                          type="button"
-                          onClick={() => {
-                            setShownGroup(null);
-                            void followJump(link);
-                          }}
-                        >
-                          {link.label}
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-          );
-        })()}
       {board.nodes
-        .filter((node) => !collapsedGroups.has(node.data.group ?? ""))
+        .filter((node) =>
+          shownGroup
+            ? node.data.group === shownGroup
+            : !collapsedGroups.has(node.data.group ?? ""),
+        )
         .flatMap((node) =>
           (node.data.jumps ?? []).map((storedJump, index) => {
             const bounds = storedJump.sourceGroup
@@ -6816,6 +6821,8 @@ function BoardEditor() {
               {
                 ...borderPicker,
                 "--lm-accent": preferences.accent,
+                "--lm-panel": dark ? "#282a34" : "#ffffff",
+                "--lm-ink": dark ? "#eeeaf5" : "#30303c",
               } as CSSProperties
             }
           >
@@ -7308,12 +7315,21 @@ function BoardEditor() {
                     </label>
                   )}
                 </>
-                {representsOwnGroup && (
+                {selected.length === 1 && data.representGroup && (
+                  <button
+                    type="button"
+                    onClick={() => format({ representGroup: undefined })}
+                  >
+                    Element Repr. löschen
+                  </button>
+                )}
+                {representsOwnGroup && !data.representGroup && (
                   <button type="button" onClick={createGroupRepresentative}>
                     Elementgruppe repräsentieren
                   </button>
                 )}
                 {!representsOwnGroup &&
+                  !data.representGroup &&
                   selected.length === 1 &&
                   board.nodes.some(
                     (n) => n.data.group && n.data.group !== data.group,
@@ -7325,14 +7341,6 @@ function BoardEditor() {
                       >
                         Elementgruppe repräsentieren
                       </button>
-                      {data.representGroup && (
-                        <button
-                          type="button"
-                          onClick={() => format({ representGroup: undefined })}
-                        >
-                          Gruppe wieder anzeigen
-                        </button>
-                      )}
                     </div>
                   )}
                 <div className="lm-format-row">

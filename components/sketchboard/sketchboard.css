@@ -3,7 +3,8 @@
   --lm-panel: rgba(255, 255, 255, 0.95);
   --lm-ink: #30303c;
   --lm-muted: #97929f;
-  --lm-line: #e9e5ee;
+  --lm-line: color-mix(in srgb, var(--lm-accent) 15%, var(--lm-panel));
+  --lm-grid: color-mix(in srgb, var(--lm-accent) 26%, var(--lm-bg));
   --lm-accent: #936bd0;
   --lm-active: color-mix(in srgb, var(--lm-accent) 15%, var(--lm-panel));
   --lm-accent-soft: color-mix(in srgb, var(--lm-accent) 20%, transparent);
@@ -21,7 +22,7 @@
   --lm-panel: rgba(40, 42, 52, 0.97);
   --lm-ink: #eeeaf5;
   --lm-muted: #aaa5b8;
-  --lm-line: #42404e;
+  --lm-line: color-mix(in srgb, var(--lm-accent) 27%, var(--lm-panel));
   --lm-active: color-mix(in srgb, var(--lm-accent) 32%, var(--lm-panel));
   --lm-accent: #c6a3fa;
 }
@@ -202,7 +203,7 @@
   pointer-events: none;
 }
 .lm-selected .lm-shape-bg {
-  filter: drop-shadow(0 0 1px #a17dd7);
+  filter: drop-shadow(0 0 1px var(--lm-accent));
 }
 .lm-app .lm-shape textarea {
   margin: 0;
@@ -225,7 +226,7 @@
 .lm-handle.react-flow__handle {
   width: 10px;
   height: 10px;
-  border: 1.5px solid #a487ca;
+  border: 1.5px solid var(--lm-accent);
   background: white;
   opacity: 0;
   transition: opacity 0.12s;
@@ -1070,13 +1071,13 @@
 .lm-sticky[data-paper="lines"] .lm-shape-bg {
   background-image: repeating-linear-gradient(
     transparent 0 23px,
-    #65598329 23px 24px
+    var(--lm-accent-soft) 23px 24px
   ) !important;
 }
 .lm-sticky[data-paper="grid"] .lm-shape-bg {
   background-image:
-    linear-gradient(#65598329 1px, transparent 1px),
-    linear-gradient(90deg, #65598329 1px, transparent 1px) !important;
+    linear-gradient(var(--lm-accent-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lm-accent-soft) 1px, transparent 1px) !important;
   background-size: 16px 16px !important;
 }
 .lm-symbol-picker {
@@ -1709,46 +1710,6 @@
   font-size: 11px;
   padding: 1px 5px;
 }
-.lm-group-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  background: #231c3944;
-  display: grid;
-  place-items: center;
-}
-.lm-group-overlay section {
-  position: relative;
-  overflow: hidden;
-  border-radius: 18px;
-  background: var(--lm-panel);
-  box-shadow: 0 15px 54px #1d183650;
-}
-.lm-group-overlay-close {
-  position: absolute;
-  right: 4px;
-  top: 4px;
-  z-index: 2;
-}
-.lm-group-overlay-content {
-  position: absolute;
-  left: 16px;
-  top: 30px;
-  transform-origin: top left;
-}
-.lm-group-overlay-item {
-  position: absolute;
-  border: 1px solid var(--lm-line);
-  overflow: auto;
-  padding: 8px;
-  box-sizing: border-box;
-  white-space: pre-wrap;
-}
-.lm-group-overlay-item img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
 .lm-represent-group {
   display: flex;
   align-items: center;
@@ -1891,14 +1852,14 @@
 
 .lm-app * {
   scrollbar-width: thin;
-  scrollbar-color: #9289a045 transparent;
+  scrollbar-color: var(--lm-accent-soft) transparent;
 }
 .lm-app *::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
 .lm-app *::-webkit-scrollbar-thumb {
-  background: #9289a045;
+  background: var(--lm-accent-soft);
   border-radius: 5px;
 }
 .lm-teleport-tab {
@@ -1972,10 +1933,10 @@
 }
 .lm-shape:hover .lm-shape-content,
 .lm-shape:focus-within .lm-shape-content {
-  scrollbar-color: #9289a045 transparent;
+  scrollbar-color: var(--lm-accent-soft) transparent;
 }
 .lm-shape:hover .lm-shape-content::-webkit-scrollbar-thumb {
-  background: #9289a045;
+  background: var(--lm-accent-soft);
 }
 .lm-text-heading {
   margin-bottom: 0.12em;
@@ -2078,11 +2039,11 @@
   grid-template-columns: 1fr;
   gap: 2px;
   padding: 4px;
-  background: #fff;
-  border: 1px solid #ded8e7;
+  background: var(--lm-panel);
+  border: 1px solid color-mix(in srgb, var(--lm-accent) 26%, var(--lm-panel));
   border-radius: 8px;
   box-shadow: 0 6px 18px #30223f24;
-  color: #3e344b;
+  color: var(--lm-ink);
 }
 .lm-border-menu button {
   display: grid;
@@ -2250,4 +2211,37 @@
   border: 1px solid var(--lm-accent);
   background: color-mix(in srgb, var(--lm-accent) 11%, transparent);
   border-radius: 8px;
+}
+
+.lm-group-workspace-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  background: color-mix(in srgb, var(--lm-accent) 12%, var(--lm-bg));
+}
+.lm-app[data-group-workspace] .lm-canvas {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  translate: -50% -50%;
+  width: min(620px, 83vw);
+  height: min(390px, 60vh);
+  z-index: 7;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--lm-line);
+  box-shadow: 0 10px 35px #0002;
+}
+.lm-app[data-group-workspace] .lm-empty {
+  display: none;
+}
+.lm-app .lm-live-note {
+  font-size: 0.85em;
+  line-height: 1.05;
+  gap: 0.08em;
+}
+.lm-app .lm-live-note :is(input, textarea) {
+  line-height: 1.05;
+}
+.lm-shape-content {
+  line-height: 1.08;
 }
