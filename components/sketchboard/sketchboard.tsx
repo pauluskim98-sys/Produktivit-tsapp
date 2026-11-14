@@ -146,7 +146,7 @@ const defaults = {
   },
   font: "System",
   textStyle: "regular",
-  size: 24,
+  size: 17,
   background: "",
   pattern: "plain",
   hidden: [] as string[],
@@ -344,7 +344,8 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       data-paper={data.paper ?? "plain"}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        if (!["image", "ink", "media"].includes(data.kind)) edit.begin(id);
+        if (!["image", "ink", "media", "symbol"].includes(data.kind))
+          edit.begin(id);
       }}
     >
       {data.kind === "sticky" && (
@@ -394,7 +395,19 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
             }}
           />
         ))}
-      {data.media ? (
+      {data.kind === "symbol" ? (
+        <svg className="lm-shape-bg lm-symbol-art" viewBox="0 0 100 100">
+          <text
+            x="50"
+            y="53"
+            dominantBaseline="central"
+            textAnchor="middle"
+            fontSize="76"
+          >
+            {data.text}
+          </text>
+        </svg>
+      ) : data.media ? (
         <MediaCard media={data.media} />
       ) : data.kind === "image" && data.image ? (
         <img
@@ -454,7 +467,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       )}
       {data.kind === "sticky" && <span className="lm-tape" />}
       <div
-        className="lm-shape-content"
+        className="lm-shape-content nowheel"
         data-default-ink={
           data.color === "#29352f" && data.fill === "transparent"
             ? "true"
@@ -476,7 +489,8 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       >
         {data.kind === "image" ||
         data.kind === "ink" ||
-        data.kind === "media" ? null : editing ? (
+        data.kind === "media" ||
+        data.kind === "symbol" ? null : editing ? (
           <textarea
             ref={area}
             aria-label="Text bearbeiten"
@@ -522,10 +536,22 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
                 : { fontSize: "0.7em" }
             }
           >
-            {data.text ||
-              (data.kind === "sticky"
-                ? "Deine Notiz"
-                : "Doppelklick zum Schreiben")}
+            {data.text ? (
+              <>
+                <strong className="lm-text-heading">
+                  {data.text.split("\n")[0]}
+                </strong>
+                {data.text.includes("\n") && (
+                  <span className="lm-text-body">
+                    {data.text.slice(data.text.indexOf("\n") + 1)}
+                  </span>
+                )}
+              </>
+            ) : data.kind === "sticky" ? (
+              "Deine Notiz"
+            ) : (
+              "Doppelklick zum Schreiben"
+            )}
           </span>
         )}
       </div>
@@ -1283,7 +1309,7 @@ function BoardEditor() {
         !preview &&
         (tool === "write" || tool === "hand") &&
         target &&
-        !["image", "media", "ink"].includes(target.data.kind) &&
+        !["image", "media", "ink", "symbol"].includes(target.data.kind) &&
         !e.ctrlKey &&
         !e.metaKey &&
         !e.altKey &&
@@ -1427,7 +1453,7 @@ function BoardEditor() {
     a.click();
     URL.revokeObjectURL(url);
   }
-  const [symbol, setSymbol] = useState("★");
+  const [symbol, setSymbol] = useState("☀️");
   const embedded = new URLSearchParams(location.search).has("notebookEmbed");
   const shapeTool = !["write", "paint", "select", "hand", "connect"].includes(
     tool,
@@ -2333,18 +2359,14 @@ function BoardEditor() {
                     strokePoints.current.some(
                       ([x, y]) => Math.hypot(x - start.x, y - start.y) > 8,
                     ));
-              if (tool === "symbols" && !drag && !leavingText.current) {
+              if (tool === "symbols" && !leavingText.current) {
                 add(
-                  "text",
-                  e.clientX,
-                  e.clientY,
-                  65 / board.viewport.zoom,
-                  55 / board.viewport.zoom,
-                  {
-                    text: symbol,
-                    align: "center",
-                    fontSize: 34 / board.viewport.zoom,
-                  },
+                  "symbol",
+                  Math.min(start.x, e.clientX),
+                  Math.min(start.y, e.clientY),
+                  Math.max(42, w) / board.viewport.zoom,
+                  Math.max(42, h) / board.viewport.zoom,
+                  { text: symbol, fill: "transparent", stroke: "transparent" },
                 );
                 drawing.current = null;
                 setDraft(null);
@@ -2848,6 +2870,19 @@ function BoardEditor() {
                       })
                     }
                   />
+                </label>
+                <label>
+                  Schrift{" "}
+                  <select
+                    value={data.font ?? "System"}
+                    onChange={(e) => format({ font: e.target.value })}
+                  >
+                    {boardFonts.map((font) => (
+                      <option key={font} style={{ fontFamily: font }}>
+                        {font}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   Rundung
@@ -3368,9 +3403,68 @@ function BoardEditor() {
             )}
             {toolMenu === "symbols" && (
               <div className="lm-symbol-picker">
-                {Array.from(
-                  "★☆♥♡✓✕⚑⚠☀☁☂☕♫♪✉☎⌚⌛⚙⚡☘✿❄☾☻☺♟♞♜♣♠♦◆◇●○■□▲△▼▽⬟⬢←→↑↓↔↕∞πΩλ×÷≈≠≤≥⊕⊗✦✧✪✎✂❖✚⊙☮☯",
-                ).map((value) => (
+                {[
+                  "☀️",
+                  "🌤️",
+                  "☁️",
+                  "🌧️",
+                  "⛈️",
+                  "🌈",
+                  "🌙",
+                  "⭐",
+                  "⛰️",
+                  "🏔️",
+                  "🏝️",
+                  "🌴",
+                  "🌲",
+                  "🌵",
+                  "🌊",
+                  "🌻",
+                  "🍂",
+                  "🍄",
+                  "🔥",
+                  "❄️",
+                  "✈️",
+                  "🛩️",
+                  "🚁",
+                  "🚀",
+                  "⛵",
+                  "🛶",
+                  "🚲",
+                  "🚂",
+                  "🚗",
+                  "🗺️",
+                  "🧭",
+                  "🎒",
+                  "🧳",
+                  "🏕️",
+                  "🏖️",
+                  "🏙️",
+                  "🏡",
+                  "🏰",
+                  "🌉",
+                  "💡",
+                  "🎨",
+                  "🎵",
+                  "🎸",
+                  "🎬",
+                  "📷",
+                  "📚",
+                  "📌",
+                  "🔖",
+                  "💬",
+                  "🎯",
+                  "🧩",
+                  "🏆",
+                  "🎁",
+                  "❤️",
+                  "🍋",
+                  "☕",
+                  "🌿",
+                  "🦋",
+                  "🐚",
+                  "🐾",
+                ].map((value) => (
                   <button
                     type="button"
                     key={value}

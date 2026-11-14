@@ -9,6 +9,7 @@ export const shapeKinds = [
   "sticky",
   "image",
   "media",
+  "symbol",
   "polygon",
   "ink",
 ] as const;

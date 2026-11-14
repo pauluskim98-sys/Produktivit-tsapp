@@ -1094,4 +1094,41 @@
   background: var(--lm-accent);
   color: white;
 }
-.lm-sticky .lm-sticky-pin {top:2px;left:calc(50% - 12px);width:24px;height:24px;z-index:20;color:#652033;stroke:#652033;filter:drop-shadow(1px 2px 2px #49222b66);}
+.lm-sticky .lm-sticky-pin {
+  top: 2px;
+  left: calc(50% - 12px);
+  width: 24px;
+  height: 24px;
+  z-index: 20;
+  color: #652033;
+  stroke: #652033;
+  filter: drop-shadow(1px 2px 2px #49222b66);
+}
+.lm-shape-content {
+  overflow: auto;
+  justify-content: safe center;
+  scrollbar-width: thin;
+}
+.lm-shape-content > span {
+  flex: none;
+}
+.lm-text-heading,
+.lm-text-body {
+  display: block;
+}
+.lm-text-heading:empty {
+  display: none;
+}
+.lm-text-heading {
+  font-size: 1.12em;
+  font-weight: 650;
+}
+.lm-symbol-art {
+  border: 0;
+  overflow: visible;
+  pointer-events: none;
+  font-family: "Segoe UI Emoji", sans-serif;
+}
+.lm-symbol-picker button {
+  font-family: "Segoe UI Emoji", sans-serif;
+}
