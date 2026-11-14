@@ -5,6 +5,7 @@ export const shapeKinds = [
   "rectangle",
   "rounded",
   "ellipse",
+  "circle",
   "diamond",
   "text",
   "sticky",
@@ -15,6 +16,7 @@ export const shapeKinds = [
   "ink",
 ] as const;
 export type ShapeKind = (typeof shapeKinds)[number];
+export type UnderlineStyle = "solid" | "wavy" | "dashed" | "double";
 export type ShapeData = {
   group?: string;
   media?: { kind: "video" | "document" | "link"; url: string; name: string };
@@ -44,6 +46,7 @@ export type ShapeData = {
   bold: boolean;
   italic: boolean;
   underline?: boolean;
+  underlineStyle?: UnderlineStyle;
   align: "left" | "center" | "right";
   font?: string;
   image?: string;
@@ -106,6 +109,7 @@ export function validMedia(
   }
 }
 export type LineLabel = {
+  underlineStyle?: UnderlineStyle;
   text: string;
   size: number;
   angle: number;
@@ -226,8 +230,8 @@ export function validateBoard(input: unknown): Board {
       !color(d.fill) ||
       !color(d.stroke) ||
       !color(d.color) ||
-      !number(d.strokeWidth, 0, 12) ||
-      !number(d.radius, 0, 200) ||
+      !number(d.strokeWidth, 0, 1e9) ||
+      !number(d.radius, 0, 1e9) ||
       !number(d.fontSize, 2, 1e9) ||
       typeof d.bold !== "boolean" ||
       typeof d.italic !== "boolean" ||
@@ -283,6 +287,11 @@ export function validateBoard(input: unknown): Board {
         bold: d.bold,
         italic: d.italic,
         ...(d.underline === true ? { underline: true } : {}),
+        ...(["solid", "wavy", "dashed", "double"].includes(
+          d.underlineStyle ?? "",
+        )
+          ? { underlineStyle: d.underlineStyle }
+          : {}),
         align: d.align,
         ...(color(d.textBackground)
           ? { textBackground: d.textBackground }
@@ -314,7 +323,7 @@ export function validateBoard(input: unknown): Board {
       !["top", "right", "bottom", "left"].includes(e.sourceHandle || "") ||
       !["top", "right", "bottom", "left"].includes(e.targetHandle || "") ||
       !color(e.style?.stroke) ||
-      !number(e.style?.strokeWidth, 0.5, 12)
+      !number(e.style?.strokeWidth, 0.00001, 1e9)
     )
       throw new Error("Ungültige Verbindung.");
     edgeIds.add(e.id);
@@ -340,6 +349,11 @@ export function validateBoard(input: unknown): Board {
             font: boardFonts.includes(label.font ?? "") ? label.font : "System",
             bold: label.bold === true,
             italic: label.italic === true,
+            ...(["solid", "wavy", "dashed", "double"].includes(
+              label.underlineStyle ?? "",
+            )
+              ? { underlineStyle: label.underlineStyle }
+              : {}),
           }
         : undefined;
     return {

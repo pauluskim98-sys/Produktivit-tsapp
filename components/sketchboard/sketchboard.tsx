@@ -34,6 +34,12 @@ import {
   Square,
   RectangleHorizontal,
   Circle,
+  Ellipsis,
+  Brush,
+  Highlighter,
+  Pencil,
+  Droplet,
+  Eraser,
   Diamond,
   Type,
   StickyNote,
@@ -76,6 +82,7 @@ import {
   palette,
   duplicateSelection,
   type Board,
+  type UnderlineStyle,
   type ShapeData,
   type ShapeKind,
   type ShapeNode,
@@ -96,7 +103,14 @@ import "@xyflow/react/dist/style.css";
 import "./sketchboard.css";
 
 type Tool =
-  "symbols" | "write" | "paint" | "select" | "hand" | "connect" | ShapeKind;
+  | "eraser"
+  | "symbols"
+  | "write"
+  | "paint"
+  | "select"
+  | "hand"
+  | "connect"
+  | ShapeKind;
 const initialPoints: [number, number][] = [
   [12, 12],
   [88, 12],
@@ -236,6 +250,62 @@ function FormatSamples({
     </span>
   );
 }
+function UnderlinePicker({
+  value,
+  onChange,
+}: {
+  value?: UnderlineStyle;
+  onChange: (style?: UnderlineStyle) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      className="lm-underline-picker"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        aria-label="Unterstreichung"
+        aria-pressed={!!value}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Underline size={15} />
+      </button>
+      {open && (
+        <span role="group" aria-label="Art der Unterstreichung">
+          {(
+            [
+              ["solid", "Einfach"],
+              ["wavy", "Geschlängelt"],
+              ["dashed", "Gestrichelt"],
+              ["double", "Doppellinie"],
+              [undefined, "Keine"],
+            ] as const
+          ).map(([style, label]) => (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={value === style}
+              onClick={() => {
+                onChange(style);
+                setOpen(false);
+              }}
+              style={{
+                textDecorationLine: style ? "underline" : undefined,
+                textDecorationStyle: style,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
 function StandardButton({
   onSave,
   saved = false,
@@ -288,6 +358,9 @@ const defaults = {
   },
   font: "System",
   textStyle: "regular",
+  underlineStyle: undefined as UnderlineStyle | undefined,
+  hiddenTemplates: [] as string[],
+  hiddenSymbols: [] as string[],
   size: 17,
   background: "",
   pattern: "plain",
@@ -312,7 +385,8 @@ const tools = [
     label: "Abgerundetes Rechteck (R)",
     Icon: RectangleHorizontal,
   },
-  { id: "ellipse", label: "Kreis / Ellipse (O)", Icon: Circle },
+  { id: "circle", label: "Kreis", Icon: Circle },
+  { id: "ellipse", label: "Oval (O)", Icon: Ellipsis },
   { id: "diamond", label: "Raute", Icon: Diamond },
   { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
   { id: "text", label: "Text (T)", Icon: Type },
@@ -350,6 +424,13 @@ function StoredPanel({
     height: number;
   } | null>(null);
   const panel = useRef<HTMLElement>(null);
+  const [formatScale, setFormatScale] = useState(() => {
+    try {
+      return Number(localStorage.getItem("lifemap-format-scale")) || 1;
+    } catch {
+      return 1;
+    }
+  });
   return (
     <section
       ref={panel}
@@ -357,10 +438,18 @@ function StoredPanel({
       aria-label={label}
       style={{
         ...style,
-        ...(size
+        ...(name === "element" &&
+        typeof style?.left === "number" &&
+        typeof style.top === "number"
+          ? { left: style.left / formatScale, top: style.top / formatScale }
+          : {}),
+        ...(name === "element"
+          ? { width: 310, zoom: formatScale, fontSize: 12 }
+          : {}),
+        ...(size && name !== "element"
           ? {
               width: Math.min(size.width, innerWidth - 16),
-              height: name === "element" ? undefined : size.height,
+              height: size.height,
             }
           : {}),
         overflow: "auto",
@@ -385,6 +474,18 @@ function StoredPanel({
         onPointerMove={(e) => {
           const start = drag.current;
           if (!start || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          if (name === "element") {
+            const ratio =
+              (e.clientX - start.x + (e.clientY - start.y)) /
+              (start.width + start.height);
+            const scale = Math.max(
+              0.7,
+              Math.min(1.6, (start.width / 310) * (1 + ratio)),
+            );
+            setFormatScale(scale);
+            localStorage.setItem("lifemap-format-scale", String(scale));
+            return;
+          }
           const next = {
             width: Math.max(
               180,
@@ -432,7 +533,8 @@ function connectionPoint(node: ShapeNode, side: Side, offset: number): Point {
   const dx = x - 0.5,
     dy = y - 0.5;
   let scale = 1;
-  if (node.data.kind === "ellipse") scale = 0.5 / Math.hypot(dx, dy);
+  if (node.data.kind === "ellipse" || node.data.kind === "circle")
+    scale = 0.5 / Math.hypot(dx, dy);
   if (node.data.points && node.data.kind === "polygon") {
     const points = node.data.points;
     let nearest = Infinity;
@@ -880,7 +982,8 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
     borderColor: data.stroke,
     boxSizing: "border-box",
     borderWidth: data.strokeWidth,
-    borderRadius: data.kind === "ellipse" ? "50%" : data.radius,
+    borderRadius:
+      data.kind === "ellipse" || data.kind === "circle" ? "50%" : data.radius,
   };
   const warpPoints: [number, number][] | undefined =
     data.points ??
@@ -1002,6 +1105,10 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
               fill="none"
               stroke={data.fill}
               strokeWidth={data.strokeWidth}
+              style={{
+                strokeWidth:
+                  "calc(" + data.strokeWidth + "px * var(--lm-board-zoom, 1))",
+              }}
               opacity={data.opacity ?? 1}
               className={"lm-ink-" + (data.inkStyle ?? "pen")}
               strokeLinecap="round"
@@ -1015,6 +1122,10 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
               fill={data.fill}
               stroke={data.stroke}
               strokeWidth={data.strokeWidth}
+              style={{
+                strokeWidth:
+                  "calc(" + data.strokeWidth + "px * var(--lm-board-zoom, 1))",
+              }}
               vectorEffect="non-scaling-stroke"
             />
           )}
@@ -1030,6 +1141,10 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
             fill={data.fill}
             stroke={data.stroke}
             strokeWidth={data.strokeWidth}
+            style={{
+              strokeWidth:
+                "calc(" + data.strokeWidth + "px * var(--lm-board-zoom, 1))",
+            }}
             vectorEffect="non-scaling-stroke"
           />
         </svg>
@@ -1054,7 +1169,9 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           fontSize: data.fontSize,
           fontWeight: data.bold ? 700 : 400,
           fontStyle: data.italic ? "italic" : "normal",
-          textDecoration: data.underline ? "underline" : undefined,
+          textDecorationLine:
+            data.underline || data.underlineStyle ? "underline" : undefined,
+          textDecorationStyle: data.underlineStyle,
           textAlign: data.align,
           justifyContent:
             data.kind === "sticky" || data.kind === "text"
@@ -1878,12 +1995,19 @@ function BoardEditor() {
       p.y,
       fill,
       width ?? (kind === "sticky" ? 240 : 220) / zoom,
-      height ?? (kind === "text" ? 80 : kind === "sticky" ? 220 : 140) / zoom,
+      height ??
+        (kind === "text"
+          ? 80
+          : kind === "sticky" || kind === "circle"
+            ? 220
+            : 140) / zoom,
     );
     node.data = {
       ...node.data,
       font: preferences.font,
       fontSize: preferences.size / zoom,
+      underline: !!preferences.underlineStyle,
+      underlineStyle: preferences.underlineStyle,
       bold:
         preferences.textStyle === "bold" ||
         preferences.textStyle === "bold-italic",
@@ -1895,6 +2019,14 @@ function BoardEditor() {
         ? { fontSize: preferences.elementStyles[kind]!.fontSize! / zoom }
         : {}),
       ...extra,
+      strokeWidth:
+        (extra.strokeWidth ??
+          preferences.elementStyles[kind]?.strokeWidth ??
+          node.data.strokeWidth) / zoom,
+      radius:
+        (extra.radius ??
+          preferences.elementStyles[kind]?.radius ??
+          node.data.radius) / zoom,
     };
     node.selected = true;
     setBoard((b) => ({
@@ -1954,7 +2086,7 @@ function BoardEditor() {
           },
           style: {
             stroke: connection.color,
-            strokeWidth: connection.width,
+            strokeWidth: connection.width / flow.getViewport().zoom,
             strokeDasharray: connection.dash,
           },
           ...(connection.arrows !== "none"
@@ -2330,7 +2462,11 @@ function BoardEditor() {
     }
   });
   const [stickyError, setStickyError] = useState("");
-  const [pinSymbol, setPinSymbol] = useState<string | null>(null);
+  const [pinSymbol, setPinSymbol] = useState<{
+    name: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [customSymbols, setCustomSymbols] = useState<Record<string, string>>(
     () => {
       try {
@@ -2349,9 +2485,14 @@ function BoardEditor() {
       return [];
     }
   });
-  const shapeTool = !["write", "paint", "select", "hand", "connect"].includes(
-    tool,
-  );
+  const shapeTool = ![
+    "eraser",
+    "write",
+    "paint",
+    "select",
+    "hand",
+    "connect",
+  ].includes(tool);
   const edge = selectedEdges[0];
   const caption =
     (edge?.data?.caption as LineLabel | undefined) ?? emptyLineLabel;
@@ -2531,6 +2672,8 @@ function BoardEditor() {
         if (!hit.closest(".lm-tab-menu")) setTabMenu(null);
         if (!hit.closest(".lm-pin-form")) setPinForm(null);
         if (!hit.closest(".lm-remove-tool")) setRemoveTool(null);
+        if (!hit.closest(".lm-symbol-action,.lm-symbol-picker"))
+          setPinSymbol(null);
         if (!hit.closest(".lm-import-menu")) setImportAt(null);
         if (hit.matches(".lm-app,.lm-canvas,.lm-header")) clearCanvasPopups();
       }}
@@ -2879,18 +3022,41 @@ function BoardEditor() {
               }
             />
           </label>
-          <label>
-            Standardschriftstil
-            <select
-              value={configured.textStyle}
-              onChange={(e) => updateSettings({ textStyle: e.target.value })}
-            >
-              <option value="regular">Normal</option>
-              <option value="bold">Fett</option>
-              <option value="italic">Kursiv</option>
-              <option value="bold-italic">Fett und kursiv</option>
-            </select>
-          </label>
+          <div className="lm-default-text-style">
+            <span>Standardschriftstil</span>
+            {(
+              [
+                [Bold, "Fett", "bold"],
+                [Italic, "Kursiv", "italic"],
+              ] as const
+            ).map(([Icon, label, key]) => (
+              <button
+                type="button"
+                key={key}
+                aria-label={label}
+                aria-pressed={configured.textStyle.includes(key)}
+                onClick={() => {
+                  const other = key === "bold" ? "italic" : "bold";
+                  const hasOther = configured.textStyle.includes(other);
+                  updateSettings({
+                    textStyle: configured.textStyle.includes(key)
+                      ? hasOther
+                        ? other
+                        : "regular"
+                      : hasOther
+                        ? "bold-italic"
+                        : key,
+                  });
+                }}
+              >
+                <Icon size={15} />
+              </button>
+            ))}
+            <UnderlinePicker
+              value={configured.underlineStyle}
+              onChange={(underlineStyle) => updateSettings({ underlineStyle })}
+            />
+          </div>
           <label>
             Hintergrund{" "}
             <ColorSwatches
@@ -2901,18 +3067,6 @@ function BoardEditor() {
             <button onClick={() => updateSettings({ background: "" })}>
               Standard
             </button>
-          </label>
-          <label>
-            Muster{" "}
-            <select
-              value={configured.pattern}
-              onChange={(e) => updateSettings({ pattern: e.target.value })}
-            >
-              <option value="plain">Ohne</option>
-              <option value="dots">Punkte</option>
-              <option value="lines">Linien</option>
-              <option value="cork">Pinnwand</option>
-            </select>
           </label>
           <details className="lm-settings-tools">
             <summary>Werkzeugleiste</summary>
@@ -3094,7 +3248,12 @@ function BoardEditor() {
             insertImage(file);
           }
         }}
-        style={{ "--lm-ui": preferences.accent } as CSSProperties}
+        style={
+          {
+            "--lm-ui": preferences.accent,
+            "--lm-board-zoom": board.viewport.zoom,
+          } as CSSProperties
+        }
         className={`lm-canvas lm-pattern-${preferences.pattern} ${tool === "select" || tool === "paint" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}`}
         onDoubleClick={(e) => {
           if ((e.target as HTMLElement).classList.contains("react-flow__pane"))
@@ -3323,6 +3482,18 @@ function BoardEditor() {
                           ? { fill, opacity: paintOpacity }
                           : { fill },
                   );
+                }
+                if (tool === "eraser" && node.data.kind === "ink") {
+                  checkpoint();
+                  setBoard((b) => ({
+                    ...b,
+                    nodes: b.nodes.filter((n) => n.id !== node.id),
+                    edges: b.edges.filter(
+                      (edge) =>
+                        edge.source !== node.id && edge.target !== node.id,
+                    ),
+                  }));
+                  return;
                 }
                 if (tool === "connect")
                   connectTo(node.id, { x: event.clientX, y: event.clientY });
@@ -3595,8 +3766,20 @@ function BoardEditor() {
                 setDraft({
                   x: Math.min(start.x, e.clientX),
                   y: Math.min(start.y, e.clientY),
-                  width: Math.abs(e.clientX - start.x),
-                  height: Math.abs(e.clientY - start.y),
+                  width:
+                    tool === "circle"
+                      ? Math.max(
+                          Math.abs(e.clientX - start.x),
+                          Math.abs(e.clientY - start.y),
+                        )
+                      : Math.abs(e.clientX - start.x),
+                  height:
+                    tool === "circle"
+                      ? Math.max(
+                          Math.abs(e.clientX - start.x),
+                          Math.abs(e.clientY - start.y),
+                        )
+                      : Math.abs(e.clientY - start.y),
                 });
             }}
             onPointerUp={(e) => {
@@ -3690,8 +3873,14 @@ function BoardEditor() {
                 tool as ShapeKind,
                 drag ? Math.min(start.x, e.clientX) : e.clientX,
                 drag ? Math.min(start.y, e.clientY) : e.clientY,
-                drag ? Math.max(60, w / board.viewport.zoom) : undefined,
-                drag ? Math.max(50, h / board.viewport.zoom) : undefined,
+                drag
+                  ? Math.max(60, tool === "circle" ? Math.max(w, h) : w) /
+                      board.viewport.zoom
+                  : undefined,
+                drag
+                  ? Math.max(50, tool === "circle" ? Math.max(60, w, h) : h) /
+                      board.viewport.zoom
+                  : undefined,
                 tool === "polygon"
                   ? { points: polygonTemplate ?? preferences.recent }
                   : {},
@@ -3971,7 +4160,7 @@ function BoardEditor() {
                   d={path}
                   fill="none"
                   stroke={connection.color}
-                  strokeWidth={connection.width}
+                  strokeWidth={connection.width / zoom}
                   strokeLinecap={thread ? "round" : undefined}
                   strokeDasharray={thread ? undefined : connection.dash}
                   markerEnd={
@@ -4499,13 +4688,15 @@ function BoardEditor() {
                   >
                     <Italic size={15} />
                   </button>
-                  <button
-                    aria-label="Unterstrichen"
-                    aria-pressed={!!data.underline}
-                    onClick={() => format({ underline: !data.underline })}
-                  >
-                    <Underline size={15} />
-                  </button>
+                  <UnderlinePicker
+                    value={
+                      data.underlineStyle ??
+                      (data.underline ? "solid" : undefined)
+                    }
+                    onChange={(underlineStyle) =>
+                      format({ underline: !!underlineStyle, underlineStyle })
+                    }
+                  />
                 </div>
                 <div className="lm-compact-format">
                   <ColorSwatches
@@ -4527,9 +4718,7 @@ function BoardEditor() {
                     );
                   })}
                 </div>
-                <details className="lm-more-format">
-                  <summary>Weitere Optionen</summary>
-
+                <>
                   {data.kind === "sticky" && (
                     <label>
                       Papier{" "}
@@ -4547,7 +4736,7 @@ function BoardEditor() {
                       </select>
                     </label>
                   )}
-                </details>
+                </>
                 <div className="lm-format-row">
                   <button
                     onClick={() => {
@@ -4598,6 +4787,7 @@ function BoardEditor() {
                         bold,
                         italic,
                         underline,
+                        underlineStyle,
                         textBackground,
                         stickyStyle,
                         stickyMask,
@@ -4619,6 +4809,7 @@ function BoardEditor() {
                             bold,
                             italic,
                             underline,
+                            underlineStyle,
                             textBackground,
                             stickyStyle,
                             stickyMask,
@@ -4728,6 +4919,12 @@ function BoardEditor() {
                   >
                     Kursiv
                   </button>
+                  <UnderlinePicker
+                    value={caption.underlineStyle}
+                    onChange={(underlineStyle) =>
+                      setCaption({ underlineStyle })
+                    }
+                  />
                 </fieldset>
                 <label>
                   Farbe
@@ -4867,7 +5064,7 @@ function BoardEditor() {
               setRemoveTool(null);
             }}
           >
-            Aus Leiste entfernen
+            Entfernen
           </button>
         </div>
       )}
@@ -4891,6 +5088,46 @@ function BoardEditor() {
             onClick={clearCanvasPopups}
           >
             <X size={18} />
+          </button>
+        </div>
+      )}
+      {pinSymbol && (
+        <div
+          className="lm-pin-form lm-symbol-action"
+          style={{
+            left: Math.min(pinSymbol.x + 4, innerWidth - 155),
+            top: Math.min(pinSymbol.y, innerHeight - 55),
+          }}
+        >
+          <button
+            onClick={() => {
+              const next = [...new Set([...pinnedSymbols, pinSymbol.name])];
+              checkpoint();
+              setPinnedSymbols(next);
+              localStorage.setItem(
+                "lifemap-pinned-symbols",
+                JSON.stringify(next),
+              );
+              setPinSymbol(null);
+            }}
+          >
+            Hinzufügen
+          </button>
+          <button
+            type="button"
+            aria-label="Symbol aus Galerie entfernen"
+            title="Aus Galerie entfernen"
+            onClick={() => {
+              updatePreferences({
+                hiddenSymbols: [
+                  ...generalPreferences.hiddenSymbols,
+                  pinSymbol.name,
+                ],
+              });
+              setPinSymbol(null);
+            }}
+          >
+            <X size={15} />
           </button>
         </div>
       )}
@@ -5025,32 +5262,44 @@ function BoardEditor() {
                 />
               </>
             )}
-            {tool === "ink" && (
+            {(tool === "ink" || tool === "eraser") && (
               <>
                 <div className="lm-pen-presets" aria-label="Stiftspitzen">
                   {(
                     [
-                      ["pen", "Stift", 3, 1],
-                      ["brush", "Pinsel", 9, 0.9],
-                      ["marker", "Textmarker", 12, 0.34],
-                      ["felt", "Filzstift", 6, 1],
-                      ["water", "Wasserfarbe", 11, 0.42],
+                      ["pen", "Stift", 3, 1, PenTool],
+                      ["brush", "Pinsel", 9, 0.9, Brush],
+                      ["marker", "Textmarker", 12, 0.34, Highlighter],
+                      ["felt", "Filzstift", 6, 1, Pencil],
+                      ["water", "Wasserfarbe", 11, 0.42, Droplet],
                     ] as const
-                  ).map(([style, label, width, opacity]) => (
+                  ).map(([style, label, width, opacity, Icon]) => (
                     <button
                       key={style}
                       type="button"
                       title={label}
                       aria-label={label}
                       aria-pressed={pen.style === style}
-                      onClick={() =>
-                        setPenOverride({ ...pen, style, width, opacity })
-                      }
+                      onClick={() => {
+                        setTool("ink");
+                        setPenOverride({ ...pen, style, width, opacity });
+                      }}
                     >
-                      <i style={{ width, height: width, opacity }} />
+                      <Icon size={17} />
                     </button>
                   ))}
                 </div>
+                <button
+                  type="button"
+                  aria-label="Radiergummi"
+                  title="Radiergummi – Stiftstriche entfernen"
+                  onClick={() => {
+                    setTool("eraser");
+                    setToolMenu("ink");
+                  }}
+                >
+                  <Eraser size={18} />
+                </button>
                 <ColorSwatches
                   name="Stift"
                   value={pen.color}
@@ -5131,6 +5380,20 @@ function BoardEditor() {
                         key={i}
                         title={"Zuletzt erstellt " + (i + 1)}
                         aria-label={"Zuletzt erstellt " + (i + 1)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setRemoveTool({
+                            x: e.clientX,
+                            y: e.clientY,
+                            remove: () =>
+                              updatePreferences({
+                                recentForms:
+                                  generalPreferences.recentForms.filter(
+                                    (_, index) => index !== i,
+                                  ),
+                              }),
+                          });
+                        }}
                         onClick={() => placeTemplate(points)}
                       >
                         <FormPreview points={points} />
@@ -5139,16 +5402,35 @@ function BoardEditor() {
                   </div>
                 )}
                 <div role="group" aria-label="Vorlagen">
-                  {formTemplates.map(([label, points]) => (
-                    <button
-                      key={label}
-                      title={label}
-                      aria-label={label}
-                      onClick={() => placeTemplate(points)}
-                    >
-                      <FormPreview points={points} />
-                    </button>
-                  ))}
+                  {formTemplates
+                    .filter(
+                      ([label]) =>
+                        !generalPreferences.hiddenTemplates.includes(label),
+                    )
+                    .map(([label, points]) => (
+                      <button
+                        key={label}
+                        title={label}
+                        aria-label={label}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setRemoveTool({
+                            x: e.clientX,
+                            y: e.clientY,
+                            remove: () =>
+                              updatePreferences({
+                                hiddenTemplates: [
+                                  ...generalPreferences.hiddenTemplates,
+                                  label,
+                                ],
+                              }),
+                          });
+                        }}
+                        onClick={() => placeTemplate(points)}
+                      >
+                        <FormPreview points={points} />
+                      </button>
+                    ))}
                 </div>
               </div>
             )}
@@ -5159,25 +5441,11 @@ function BoardEditor() {
                 tabIndex={0}
               >
                 {mediaError && <span role="alert">{mediaError}</span>}
-                {pinSymbol && (
-                  <button
-                    className="lm-symbol-import"
-                    onClick={() => {
-                      const next = [...new Set([...pinnedSymbols, pinSymbol])];
-                      checkpoint();
-                      setPinnedSymbols(next);
-                      localStorage.setItem(
-                        "lifemap-pinned-symbols",
-                        JSON.stringify(next),
-                      );
-                      setPinSymbol(null);
-                    }}
-                  >
-                    Hinzufügen
-                  </button>
-                )}
-                {[...Object.keys(customSymbols), ...Object.keys(symbols)].map(
-                  (value) => (
+                {[...Object.keys(customSymbols), ...Object.keys(symbols)]
+                  .filter(
+                    (name) => !generalPreferences.hiddenSymbols.includes(name),
+                  )
+                  .map((value) => (
                     <button
                       type="button"
                       key={value}
@@ -5186,7 +5454,12 @@ function BoardEditor() {
                       title={value}
                       onContextMenu={(e) => {
                         e.preventDefault();
-                        setPinSymbol(value);
+                        const bounds = e.currentTarget.getBoundingClientRect();
+                        setPinSymbol({
+                          name: value,
+                          x: bounds.right,
+                          y: bounds.top,
+                        });
                       }}
                       onClick={() => setSymbol(value)}
                     >
@@ -5204,8 +5477,7 @@ function BoardEditor() {
                         />
                       )}
                     </button>
-                  ),
-                )}
+                  ))}
                 <label className="lm-import-tile" title="Symbol importieren">
                   <Plus size={19} aria-hidden />
                   <input
@@ -5247,10 +5519,6 @@ function BoardEditor() {
                     }}
                   />
                 </label>
-                <StandardButton
-                  saved={symbol === preferences.symbol}
-                  onSave={() => updatePreferences({ symbol })}
-                />
               </div>
             )}
             {toolMenu === "image" && (

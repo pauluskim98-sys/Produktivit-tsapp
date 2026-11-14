@@ -1581,3 +1581,56 @@
   height: 24px;
   background: var(--lm-line);
 }
+
+.lm-circle .lm-shape-content {
+  inset: 10%;
+  padding: 8px;
+}
+.lm-draft[data-preview="circle"] {
+  border-radius: 50%;
+}
+.lm-format .lm-format-row:last-child {
+  padding-bottom: 0;
+}
+.lm-format.lm-resizable-panel {
+  min-height: 0;
+  padding-bottom: 8px;
+}
+.lm-default-text-style,
+.lm-underline-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.lm-underline-picker {
+  position: relative;
+}
+.lm-underline-picker > span {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  right: 0;
+  display: grid;
+  padding: 4px;
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-line);
+  border-radius: 9px;
+}
+.lm-symbol-action {
+  z-index: 45;
+}
+.lm-format.lm-resizable-panel .lm-panel-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  float: none;
+  width: 13px;
+  height: 13px;
+}
+.lm-format .lm-format-row:last-child {
+  padding-right: 12px;
+}
+.lm-pen-presets button {
+  border-radius: 50%;
+  aspect-ratio: 1;
+}

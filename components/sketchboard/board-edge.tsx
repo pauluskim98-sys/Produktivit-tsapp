@@ -177,6 +177,12 @@ export function BoardEdge(props: EdgeProps) {
             fontFamily={caption.font === "System" ? undefined : caption.font}
             fontWeight={caption.bold ? "bold" : "normal"}
             fontStyle={caption.italic ? "italic" : "normal"}
+            style={{
+              textDecorationLine: caption.underlineStyle
+                ? "underline"
+                : undefined,
+              textDecorationStyle: caption.underlineStyle,
+            }}
             textAnchor="middle"
             x={angle ? x : undefined}
             y={angle ? y : undefined}
