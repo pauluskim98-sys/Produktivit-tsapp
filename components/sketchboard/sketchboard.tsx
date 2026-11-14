@@ -2756,6 +2756,33 @@ function BoardEditor() {
   const [borderPicker, setBorderPicker] = useState(0);
   const [groupFlash, setGroupFlash] = useState<string[]>([]);
   const groupId = selected[0]?.data.group;
+  const representsOwnGroup =
+    !!groupId &&
+    selected.every((node) => node.data.group === groupId) &&
+    board.nodes.filter((node) => node.data.group === groupId).length > 1;
+  const createGroupRepresentative = () => {
+    if (!groupId) return;
+    const bounds = groupBounds(groupId);
+    if (!bounds) return;
+    const label =
+      board.nodes
+        .find((node) => node.data.group === groupId && node.data.text.trim())
+        ?.data.text.split("\n")[0] || "Elementgruppe";
+    const point = flow.flowToScreenPosition(bounds);
+    const id = add("rounded", point.x, point.y, undefined, undefined, {
+      text: label,
+      representGroup: groupId,
+    });
+    setEditing("");
+    setBoard((b) => ({
+      ...b,
+      nodes: b.nodes.map((node) =>
+        node.id !== id && node.data.representGroup === groupId
+          ? { ...node, data: { ...node.data, representGroup: undefined } }
+          : node,
+      ),
+    }));
+  };
   const selectedGroups = new Set(
     selected.flatMap((n) => (n.data.group ? [n.data.group] : [])),
   );
@@ -4462,11 +4489,19 @@ function BoardEditor() {
           const bounds = target?.getBoundingClientRect();
           if (!e.buttons && id && bounds && !editing && !preview) {
             const edge = target!.classList.contains("react-flow__edge");
-            setLinkHover({
-              id: edge ? "line:" + id : id,
-              x: edge ? e.clientX : (bounds.left + bounds.right) / 2,
-              y: edge ? e.clientY - 11 : bounds.bottom - 8,
-            });
+            const midpoint =
+              edge && anchors[id]
+                ? flow.flowToScreenPosition(anchors[id])
+                : null;
+            setLinkHover(
+              edge
+                ? midpoint && { id: "line:" + id, ...midpoint }
+                : {
+                    id,
+                    x: (bounds.left + bounds.right) / 2,
+                    y: bounds.bottom - 8,
+                  },
+            );
           } else setLinkHover(null);
           if (tool === "connect" && connectFrom.current)
             setLinkPointer({ x: e.clientX, y: e.clientY });
@@ -6629,7 +6664,13 @@ function BoardEditor() {
                     </label>
                   )}
                 </>
-                {selected.length === 1 &&
+                {representsOwnGroup && (
+                  <button type="button" onClick={createGroupRepresentative}>
+                    Elementgruppe repräsentieren
+                  </button>
+                )}
+                {!representsOwnGroup &&
+                  selected.length === 1 &&
                   board.nodes.some(
                     (n) => n.data.group && n.data.group !== data.group,
                   ) && (
