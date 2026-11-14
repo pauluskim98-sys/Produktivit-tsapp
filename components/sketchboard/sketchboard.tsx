@@ -381,6 +381,9 @@ function BoardEditor() {
     } | null>(null),
     connectFrom = useRef<string | null>(null),
     host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    host.current?.focus({ preventScroll: true });
+  }, []);
   const storage = useBoardStorage(board, setBoard);
   const leavingText = useRef(false);
   const [focus, setFocus] = useState<{ id: string; level: 1 | 2 } | null>(null);
@@ -413,13 +416,7 @@ function BoardEditor() {
     }
   });
   const [renaming, setRenaming] = useState<string | null>(null);
-  const tabClick = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (tabClick.current) clearTimeout(tabClick.current);
-    },
-    [],
-  );
+  const [tabMenu, setTabMenu] = useState<string | null>(null);
   const [tabTitle, setTabTitle] = useState("");
   const saveTabs = (next: typeof tabs) => {
     setTabs(next);
@@ -489,6 +486,23 @@ function BoardEditor() {
     [editing, notes, settings, form],
   );
   const strokePoints = useRef<[number, number][]>([]);
+  const displayStroke = (points: [number, number][]) => {
+    if (points.length < 3) return points;
+    if (preferences.pen.straight) return [points[0], points.at(-1)!];
+    if (!preferences.pen.smooth) return points;
+    return points.map((point, i) => {
+      if (i === 0 || i === points.length - 1) return point;
+      const neighbors = points.slice(Math.max(0, i - 3), i + 4);
+      const total = neighbors.reduce(
+        ([x, y], [px, py]) => [x + px, y + py],
+        [0, 0],
+      );
+      return [total[0] / neighbors.length, total[1] / neighbors.length] as [
+        number,
+        number,
+      ];
+    });
+  };
   const toolbar = useRef<HTMLElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const touchStart = useRef<number | null>(null);
@@ -862,7 +876,8 @@ function BoardEditor() {
     );
     const a = document.createElement("a");
     a.href = url;
-    a.download = "LifeMap.json";
+    a.download =
+      (tabs.find((t) => t.id === currentTab)?.title ?? "LifeMap") + ".json";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1018,35 +1033,70 @@ function BoardEditor() {
                 />
               ) : (
                 <button
-                  onDoubleClick={() => {
-                    if (tabClick.current) clearTimeout(tabClick.current);
-                    setRenaming(id);
-                    setTabTitle(title);
-                  }}
                   aria-current={id === currentTab ? "page" : undefined}
-                  onClick={(event) => {
-                    if (id === currentTab) return;
-                    if (event.detail === 0) {
-                      void openTab(id);
-                      return;
-                    }
-                    if (event.detail === 1)
-                      tabClick.current = setTimeout(
-                        () => void openTab(id),
-                        470,
-                      );
-                  }}
+                  aria-expanded={tabMenu === id}
+                  onClick={() => setTabMenu(tabMenu === id ? null : id)}
                 >
                   {title}
                 </button>
               )}
-              <button
-                aria-label={title + " schließen"}
-                title="Tab schließen"
-                onClick={() => void closeTab(id)}
-              >
-                <X size={13} />
-              </button>
+              {tabMenu === id && (
+                <div className="lm-tab-menu">
+                  {id !== currentTab && (
+                    <button onClick={() => void openTab(id)}>Öffnen</button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setRenaming(id);
+                      setTabTitle(title);
+                      setTabMenu(null);
+                    }}
+                  >
+                    Umbenennen
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (id === currentTab) exportBoard();
+                      else {
+                        const response = await fetch(
+                          "/api/sketchboard?tab=" + encodeURIComponent(id),
+                        );
+                        if (!response.ok) return;
+                        const result = await response.json();
+                        const url = URL.createObjectURL(
+                          new Blob([JSON.stringify(result.board, null, 2)], {
+                            type: "application/json",
+                          }),
+                        );
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = title + ".json";
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }
+                      setTabMenu(null);
+                    }}
+                  >
+                    Speichern unter
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSettings(true);
+                      setTabMenu(null);
+                    }}
+                  >
+                    Einstellungen
+                  </button>
+                  <button
+                    onClick={() => {
+                      void closeTab(id);
+                      setTabMenu(null);
+                    }}
+                  >
+                    Löschen
+                  </button>
+                </div>
+              )}
             </div>
           ))}
           <button aria-label="Neuer LifeMap-Tab" onClick={() => void openTab()}>
@@ -1263,6 +1313,7 @@ function BoardEditor() {
       )}
       <div
         ref={host}
+        tabIndex={-1}
         onPointerDownCapture={(e) => {
           leavingText.current = Boolean(
             editing && !(e.target as HTMLElement).closest("textarea"),
@@ -1540,19 +1591,7 @@ function BoardEditor() {
                 return;
               }
               if (tool === "ink") {
-                const raw = strokePoints.current;
-                const points =
-                  preferences.pen.straight && raw.length > 1
-                    ? [raw[0], raw[raw.length - 1]]
-                    : preferences.pen.smooth
-                      ? raw.map((point, i) => {
-                          if (!i || i === raw.length - 1) return point;
-                          return [
-                            (raw[i - 1][0] + point[0] * 2 + raw[i + 1][0]) / 4,
-                            (raw[i - 1][1] + point[1] * 2 + raw[i + 1][1]) / 4,
-                          ] as [number, number];
-                        })
-                      : raw;
+                const points = displayStroke(strokePoints.current);
                 if (points.length > 1) {
                   const x = Math.min(...points.map((p) => p[0])),
                     y = Math.min(...points.map((p) => p[1]));
@@ -1608,7 +1647,7 @@ function BoardEditor() {
         {stroke.length > 0 && (
           <svg className="lm-ink-preview">
             <polyline
-              points={stroke.join(" ")}
+              points={displayStroke(stroke).join(" ")}
               fill="none"
               stroke={preferences.pen.color}
               strokeWidth={preferences.pen.width}
@@ -1619,13 +1658,41 @@ function BoardEditor() {
         {draft && (
           <div
             className="lm-draft"
+            data-preview={tool}
             style={{
               left: draft.x,
               top: draft.y,
               width: draft.width,
               height: draft.height,
+              background:
+                tool === "text"
+                  ? "transparent"
+                  : tool === "sticky"
+                    ? palette[3]
+                    : fill,
             }}
-          />
+          >
+            {(tool === "polygon" || tool === "diamond") && (
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path
+                  d={roundedOutline(
+                    tool === "diamond"
+                      ? [
+                          [50, 0],
+                          [100, 50],
+                          [50, 100],
+                          [0, 50],
+                        ]
+                      : preferences.recent,
+                    0,
+                  )}
+                  fill={fill}
+                  stroke="#a58bc7"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            )}
+          </div>
         )}
       </div>
       {(selected.length > 0 || selectedEdges.length > 0) && !editing && (

@@ -816,7 +816,7 @@ export default function Planner() {
   useEffect(()=>{
     const workspace=workspaceRef.current, panel=notesPanelRef.current;
     if(!workspace || !panel || visibleNotesPosition==="below")return;
-    if(visibleNotesPosition==="open" && !panel.contains(document.activeElement))panel.focus({preventScroll:true});
+    if(visibleNotesPosition==="open" && !document.documentElement.classList.contains("lifemap-notes-frame") && !panel.contains(document.activeElement))panel.focus({preventScroll:true});
     const setLimit=()=>{
       const timeline=workspace.querySelector<HTMLElement>(".timeline-scroll");
       const hour=String(notePreferences.height).padStart(2,"0")+":00";

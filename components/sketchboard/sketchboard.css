@@ -771,3 +771,74 @@
   display: grid;
   gap: 6px;
 }
+.lm-tab-item {
+  position: relative;
+}
+.lm-header .lm-board-tabs {
+  overflow: visible;
+}
+.lm-tab-menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  min-width: 160px;
+  padding: 6px;
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-line);
+  border-radius: 12px;
+  box-shadow: 0 7px 22px #29203022;
+}
+.lm-tab-menu button {
+  justify-content: flex-start;
+  padding: 7px 9px !important;
+}
+.lm-canvas:focus {
+  outline: none;
+}
+.lm-draft {
+  border-radius: 0;
+  border: 1.5px solid #a58bc7;
+}
+.lm-draft[data-preview="rounded"] {
+  border-radius: 24px;
+}
+.lm-draft[data-preview="ellipse"] {
+  border-radius: 50%;
+}
+.lm-draft[data-preview="sticky"] {
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px #29203022;
+}
+.lm-draft[data-preview="text"] {
+  border-color: transparent;
+}
+.lm-draft[data-preview="diamond"],
+.lm-draft[data-preview="polygon"] {
+  background: transparent !important;
+  border: 0;
+}
+.lm-draft svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.lm-tool-options,
+.lm-tool-palette {
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-line);
+  border-radius: 17px;
+  box-shadow: 0 7px 27px #29203016;
+  backdrop-filter: blur(16px);
+}
+.lm-tool-options select,
+.lm-tool-palette select,
+.lm-format select {
+  border: 1px solid var(--lm-line);
+  border-radius: 8px;
+  padding: 5px 7px;
+  background: var(--lm-panel);
+}
