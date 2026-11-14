@@ -62,6 +62,7 @@ import {
 } from "lucide-react";
 import {
   emptyBoard,
+  validateBoard,
   emptyLineLabel,
   type LineLabel,
   newShape,
@@ -223,8 +224,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         color="#9774d1"
         onResizeStart={() => edit.checkpoint()}
       />
-      {selected &&
-        !editing &&
+      {!editing &&
         data.kind !== "ink" &&
         warpPoints?.map(([x, y], index) => (
           <button
@@ -452,6 +452,66 @@ function BoardEditor() {
     host.current?.focus({ preventScroll: true });
   }, []);
   const storage = useBoardStorage(board, setBoard);
+  const [importAt, setImportAt] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [importError, setImportError] = useState("");
+  const [preview, setPreview] = useState<{
+    board: Board;
+    x: number;
+    y: number;
+    scale: number;
+  } | null>(null);
+  const previewDrag = useRef<{
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+  } | null>(null);
+  const goToCalendar = async () => {
+    if (await storage.finish()) location.assign("/lifemap");
+  };
+  const loadImport = (value: unknown) => {
+    try {
+      const incoming = validateBoard(value);
+      if (!incoming.nodes.length)
+        throw new Error("Diese LifeMap enthält keine Elemente.");
+      const ids = new Map(
+        incoming.nodes.map((n) => [n.id, crypto.randomUUID()]),
+      );
+      const lineIds = new Map(
+        incoming.edges.map((e) => [e.id, crypto.randomUUID()]),
+      );
+      const endpoint = (id: string) =>
+        id.startsWith("line:")
+          ? "line:" + lineIds.get(id.slice(5))
+          : ids.get(id)!;
+      const point = flow.screenToFlowPosition(
+        importAt ?? { x: innerWidth / 2, y: innerHeight / 2 },
+      );
+      setPreview({
+        x: point.x,
+        y: point.y,
+        scale: 1,
+        board: {
+          ...incoming,
+          nodes: incoming.nodes.map((n) => ({ ...n, id: ids.get(n.id)! })),
+          edges: incoming.edges.map((e) => ({
+            ...e,
+            id: lineIds.get(e.id)!,
+            source: endpoint(e.source),
+            target: endpoint(e.target),
+          })),
+        },
+      });
+      setImportAt(null);
+      setImportError("");
+    } catch (error) {
+      setImportError(
+        error instanceof Error ? error.message : "Import fehlgeschlagen.",
+      );
+    }
+  };
   const leavingText = useRef(false);
   const [focus, setFocus] = useState<{ id: string; level: 1 | 2 } | null>(null);
   const [anchors, setAnchors] = useState<
@@ -547,7 +607,7 @@ function BoardEditor() {
     () =>
       listenForViewSwipe(
         1,
-        () => location.assign("/lifemap"),
+        () => void goToCalendar(),
         () => !editing && !notes && !settings && !form,
       ),
     [editing, notes, settings, form],
@@ -786,11 +846,15 @@ function BoardEditor() {
         sourceHandle: "right",
         targetHandle: "left",
       });
-    connectFrom.current = id;
+    const current = source === id ? null : id;
+    connectFrom.current = current;
     setBoard((b) => ({
       ...b,
-      nodes: b.nodes.map((n) => ({ ...n, selected: n.id === id })),
-      edges: b.edges.map((e) => ({ ...e, selected: "line:" + e.id === id })),
+      nodes: b.nodes.map((n) => ({ ...n, selected: n.id === current })),
+      edges: b.edges.map((e) => ({
+        ...e,
+        selected: "line:" + e.id === current,
+      })),
     }));
   };
   const begin = (id: string) => {
@@ -978,9 +1042,51 @@ function BoardEditor() {
     }
   }
   const fade = (id: string) =>
-    !focus || connected.has(id) ? 1 : focus.level === 1 ? 0.15 : 0;
+    !focus || focus.id === id
+      ? 1
+      : connected.has(id)
+        ? 0.8
+        : focus.level === 1
+          ? 0.15
+          : 0;
+  const baseX = preview
+    ? Math.min(...preview.board.nodes.map((n) => n.position.x))
+    : 0;
+  const baseY = preview
+    ? Math.min(...preview.board.nodes.map((n) => n.position.y))
+    : 0;
+  const previewNodes =
+    preview?.board.nodes.map((n) => {
+      const width = Math.max(
+        40,
+        Math.min(10000, (n.width ?? 100) * preview.scale),
+      );
+      const height = Math.max(
+        40,
+        Math.min(10000, (n.height ?? 100) * preview.scale),
+      );
+      return {
+        ...n,
+        width,
+        height,
+        style: { width, height },
+        position: {
+          x: preview.x + (n.position.x - baseX) * preview.scale,
+          y: preview.y + (n.position.y - baseY) * preview.scale,
+        },
+        data: {
+          ...n.data,
+          fontSize: Math.min(
+            120,
+            Math.max(10, n.data.fontSize * preview.scale),
+          ),
+        },
+      };
+    }) ?? [];
+  const renderedEdges = [...board.edges, ...(preview?.board.edges ?? [])];
+  const previewEdgeIds = new Set(preview?.board.edges.map((e) => e.id));
   const referenceIds = new Set(
-    board.edges
+    renderedEdges
       .flatMap((e) => [e.source, e.target])
       .filter((id) => id.startsWith("line:")),
   );
@@ -1030,7 +1136,7 @@ function BoardEditor() {
           touchStart.current !== null &&
           e.changedTouches[0]?.clientY < touchStart.current - 80
         )
-          location.assign("/lifemap");
+          void goToCalendar();
         touchStart.current = null;
       }}
     >
@@ -1168,7 +1274,15 @@ function BoardEditor() {
               )}
             </div>
           ))}
-          <button aria-label="Neuer LifeMap-Tab" onClick={() => void openTab()}>
+          <button
+            aria-label="Neuer LifeMap-Tab"
+            onClick={() => void openTab()}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setImportError("");
+              setImportAt({ x: innerWidth / 2, y: innerHeight / 2 });
+            }}
+          >
             +
           </button>
         </nav>
@@ -1382,6 +1496,17 @@ function BoardEditor() {
       )}
       <div
         ref={host}
+        onContextMenu={(e) => {
+          if (
+            (e.target as HTMLElement).closest(
+              ".react-flow__node,.react-flow__edge",
+            )
+          )
+            return;
+          e.preventDefault();
+          setImportError("");
+          setImportAt({ x: e.clientX, y: e.clientY });
+        }}
         tabIndex={-1}
         onPointerDownCapture={(e) => {
           leavingText.current = Boolean(
@@ -1445,18 +1570,34 @@ function BoardEditor() {
                       fade(n.id) === 0 ? ("none" as const) : undefined,
                   },
                 })),
+                ...previewNodes.map((n) => ({
+                  ...n,
+                  selectable: false,
+                  draggable: false,
+                  style: {
+                    ...n.style,
+                    opacity: 0.38,
+                    pointerEvents: "none" as const,
+                  },
+                })),
                 ...proxyNodes,
               ]}
-              edges={board.edges.map((e) => ({
+              edges={renderedEdges.map((e) => ({
                 ...e,
                 type: "boardLine",
+                selectable: !previewEdgeIds.has(e.id),
                 sourceHandle: e.source.startsWith("line:")
                   ? "center"
                   : e.sourceHandle,
                 targetHandle: e.target.startsWith("line:")
                   ? "end"
                   : e.targetHandle,
-                style: { ...e.style, opacity: fade("line:" + e.id) },
+                style: {
+                  ...e.style,
+                  opacity: previewEdgeIds.has(e.id)
+                    ? 0.38
+                    : fade("line:" + e.id),
+                },
                 hidden: fade("line:" + e.id) === 0,
                 data: {
                   ...e.data,
@@ -1467,7 +1608,8 @@ function BoardEditor() {
               }))}
               edgeTypes={edgeTypes}
               onEdgeClick={(_, e) => {
-                if (tool === "connect") connectTo("line:" + e.id);
+                if (tool === "connect" && !previewEdgeIds.has(e.id))
+                  connectTo("line:" + e.id);
               }}
               nodeTypes={nodeTypes}
               viewport={board.viewport}
@@ -1480,7 +1622,9 @@ function BoardEditor() {
                   nodes: applyNodeChanges(
                     changes.filter(
                       (change) =>
-                        !("id" in change) || !change.id.startsWith("line:"),
+                        !("id" in change) ||
+                        (!change.id.startsWith("line:") &&
+                          !previewNodes.some((n) => n.id === change.id)),
                     ),
                     b.nodes,
                   ),
@@ -1533,7 +1677,7 @@ function BoardEditor() {
               }}
               onPaneClick={(e) => {
                 if (tool === "connect") {
-                  connectFrom.current = null;
+                  setTool("hand");
                   setBoard((b) => ({
                     ...b,
                     nodes: b.nodes.map((n) => ({ ...n, selected: false })),
@@ -1728,6 +1872,145 @@ function BoardEditor() {
             }}
           />
         )}
+        {importAt && (
+          <section
+            className="lm-import-menu lm-format"
+            style={{
+              left: Math.max(8, Math.min(innerWidth - 310, importAt.x)),
+              top: Math.max(65, Math.min(innerHeight - 240, importAt.y)),
+              right: "auto",
+              maxHeight: "45vh",
+              overflow: "auto",
+            }}
+            aria-label="LifeMap importieren"
+          >
+            <strong>LifeMap importieren</strong>
+            {tabs
+              .filter((t) => t.id !== currentTab)
+              .map((t) => (
+                <button
+                  key={t.id}
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(
+                        "/api/sketchboard?tab=" + encodeURIComponent(t.id),
+                      );
+                      if (!response.ok)
+                        throw new Error("Tab konnte nicht geladen werden.");
+                      loadImport((await response.json()).board);
+                    } catch (error) {
+                      setImportError((error as Error).message);
+                    }
+                  }}
+                >
+                  {t.title}
+                </button>
+              ))}
+            <label>
+              Gespeicherte Datei{" "}
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    if (file.size > 8_000_000)
+                      throw new Error("Die Datei ist zu groß.");
+                    loadImport(JSON.parse(await file.text()));
+                  } catch (error) {
+                    setImportError((error as Error).message);
+                  }
+                }}
+              />
+            </label>
+            {importError && <span role="alert">{importError}</span>}
+            <button onClick={() => setImportAt(null)}>Abbrechen</button>
+          </section>
+        )}
+        {preview &&
+          (() => {
+            const point = flow.flowToScreenPosition(preview);
+            const width =
+              Math.max(
+                ...previewNodes.map((n) => n.position.x + (n.width ?? 0)),
+              ) - preview.x;
+            const height =
+              Math.max(
+                ...previewNodes.map((n) => n.position.y + (n.height ?? 0)),
+              ) - preview.y;
+            return (
+              <>
+                <div
+                  className="lm-import-preview"
+                  style={{
+                    left: point.x,
+                    top: point.y,
+                    width: width * board.viewport.zoom,
+                    height: height * board.viewport.zoom,
+                  }}
+                  onPointerDown={(e) => {
+                    previewDrag.current = {
+                      x: e.clientX,
+                      y: e.clientY,
+                      left: preview.x,
+                      top: preview.y,
+                    };
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    const drag = previewDrag.current;
+                    if (
+                      !drag ||
+                      !e.currentTarget.hasPointerCapture(e.pointerId)
+                    )
+                      return;
+                    setPreview(
+                      (p) =>
+                        p && {
+                          ...p,
+                          x:
+                            drag.left +
+                            (e.clientX - drag.x) / board.viewport.zoom,
+                          y:
+                            drag.top +
+                            (e.clientY - drag.y) / board.viewport.zoom,
+                        },
+                    );
+                  }}
+                />
+                <div className="lm-import-actions">
+                  <label>
+                    Größe{" "}
+                    <input
+                      type="range"
+                      min={0.2}
+                      max={3}
+                      step={0.05}
+                      value={preview.scale}
+                      onChange={(e) =>
+                        setPreview({ ...preview, scale: +e.target.value })
+                      }
+                    />
+                  </label>
+                  <button
+                    onClick={() => {
+                      checkpoint();
+                      setBoard((b) => ({
+                        ...b,
+                        nodes: [...b.nodes, ...previewNodes],
+                        edges: [...b.edges, ...preview.board.edges],
+                      }));
+                      setPreview(null);
+                    }}
+                  >
+                    Zusammenführen
+                  </button>
+                  <button onClick={() => setPreview(null)}>Abbrechen</button>
+                </div>
+              </>
+            );
+          })()}
         {stroke.length > 0 && (
           <svg className="lm-ink-preview">
             <polyline

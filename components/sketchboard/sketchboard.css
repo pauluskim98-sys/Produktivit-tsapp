@@ -856,3 +856,55 @@
   cursor: move;
   touch-action: none;
 }
+.lm-shape .lm-warp-point {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+}
+.lm-shape:hover .lm-warp-point,
+.lm-shape.lm-selected .lm-warp-point,
+.lm-shape .lm-warp-point:focus-visible {
+  opacity: 1;
+}
+.lm-shape .lm-warp-point::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  background: var(--lm-accent);
+  border: 1px solid white;
+  border-radius: 1px;
+}
+.lm-import-menu {
+  position: fixed;
+  display: grid;
+  gap: 8px;
+  z-index: 70;
+}
+.lm-import-preview {
+  position: fixed;
+  z-index: 25;
+  outline: 1px dashed var(--lm-accent);
+  cursor: grab;
+  touch-action: none;
+}
+.lm-import-preview:active {
+  cursor: grabbing;
+}
+.lm-import-actions {
+  position: absolute;
+  z-index: 28;
+  left: 50%;
+  bottom: 110px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-line);
+  white-space: nowrap;
+}
