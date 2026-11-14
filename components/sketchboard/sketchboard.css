@@ -1634,3 +1634,11 @@
   border-radius: 50%;
   aspect-ratio: 1;
 }
+.lm-folder .lm-shape-content {
+  justify-content: flex-start !important;
+  gap: 0.2em;
+}
+.lm-folder-mark {
+  color: var(--lm-accent);
+  flex: none;
+}

@@ -120,3 +120,20 @@ test("line endpoints and caption formatting survive persistence", () => {
   );
   assert.throws(() => validateBoard({ ...restored, edges: [branch, third] }));
 });
+
+test("curved shapes and folders survive a round trip", () => {
+  const board = emptyBoard();
+  const polygon = newShape("polygon", 0, 0);
+  polygon.data.points = [
+    [0, 0],
+    [100, 0],
+    [100, 100],
+  ];
+  polygon.data.curved = true;
+  const folder = newShape("folder", 0, 0);
+  folder.data.text = "Reise";
+  const saved = validateBoard({ ...board, nodes: [polygon, folder] });
+  assert.equal(saved.nodes[0].data.curved, true);
+  assert.equal(saved.nodes[1].data.kind, "folder");
+  assert.equal(saved.nodes[1].data.text, "Reise");
+});

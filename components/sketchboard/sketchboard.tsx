@@ -69,7 +69,7 @@ import {
   Settings,
   PenTool,
   ImagePlus,
-  Pentagon,
+  FolderPlus,
   Smile,
 } from "lucide-react";
 import {
@@ -82,6 +82,7 @@ import {
   palette,
   duplicateSelection,
   type Board,
+  connectionWeight,
   type UnderlineStyle,
   type ShapeData,
   type ShapeKind,
@@ -361,6 +362,8 @@ const defaults = {
   underlineStyle: undefined as UnderlineStyle | undefined,
   hiddenTemplates: [] as string[],
   hiddenSymbols: [] as string[],
+  symbolOrder: [] as string[],
+  templateOrder: [] as string[],
   size: 17,
   background: "",
   pattern: "plain",
@@ -371,10 +374,54 @@ const defaults = {
   recentForms: [] as PolygonPoint[][],
   pinnedForms: [] as PolygonPoint[][],
 };
+function FreeformIcon({
+  size = 21,
+  strokeWidth = 1.6,
+}: {
+  size?: number;
+  strokeWidth?: number;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      aria-hidden
+    >
+      <path d="m4 17 3-12 13 3 1 12Z" />
+      {[
+        [4, 17],
+        [7, 5],
+        [20, 8],
+        [21, 20],
+      ].map(([cx, cy]) => (
+        <circle key={cx} cx={cx} cy={cy} r="1.8" fill="var(--lm-panel,white)" />
+      ))}
+    </svg>
+  );
+}
+function creationStroke(width: number, zoom: number) {
+  return width * Math.pow(zoom, -0.8);
+}
+function galleryOrder(items: string[], saved: string[]) {
+  return [
+    ...saved.filter((id) => items.includes(id)),
+    ...items.filter((id) => !saved.includes(id)),
+  ];
+}
+function moveGalleryItem(items: string[], source: string, target: string) {
+  if (!items.includes(source) || source === target) return items;
+  const next = items.filter((id) => id !== source);
+  next.splice(next.indexOf(target), 0, source);
+  return next;
+}
 const tools = [
   { id: "write", label: "Schreiben und verschieben", Icon: Type },
   { id: "ink", label: "Stift", Icon: PenTool },
-  { id: "polygon", label: "Freie Form erstellen", Icon: Pentagon },
+  { id: "polygon", label: "Freie Form erstellen", Icon: FreeformIcon },
   { id: "symbols", label: "Symbole", Icon: Smile },
   { id: "paint", label: "Färber", Icon: Palette },
   { id: "select", label: "Auswahl (A)", Icon: MousePointer2 },
@@ -903,6 +950,33 @@ function straightenForm(points: PolygonPoint[]): PolygonPoint[] {
   });
 }
 const hiddenTools = ["write", "select", "hand", "rounded"];
+function curvedOutline(points: PolygonPoint[], close = true): string {
+  if (!points.length) return "";
+  const [first] = points;
+  const next = close ? [...points.slice(1), first] : points.slice(1);
+  return (
+    "M " +
+    first.join(" ") +
+    next
+      .map(([x, y], i) => {
+        const [a, b] = points[i],
+          dx = x - a,
+          dy = y - b;
+        return (
+          " Q " +
+          (a + dx / 2 - dy * 0.23) +
+          " " +
+          (b + dy / 2 + dx * 0.23) +
+          " " +
+          x +
+          " " +
+          y
+        );
+      })
+      .join("") +
+    (close ? " Z" : "")
+  );
+}
 function roundedOutline(points: [number, number][], radius: number) {
   return (
     points
@@ -1117,7 +1191,11 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
             />
           ) : (
             <path
-              d={roundedOutline(data.points, data.radius)}
+              d={
+                data.curved
+                  ? curvedOutline(data.points)
+                  : roundedOutline(data.points, data.radius)
+              }
               opacity={data.opacity ?? 1}
               fill={data.fill}
               stroke={data.stroke}
@@ -1179,6 +1257,9 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
               : "center",
         }}
       >
+        {data.kind === "folder" && (
+          <FolderPlus className="lm-folder-mark" size="1.25em" aria-hidden />
+        )}
         {data.kind === "image" ||
         data.kind === "ink" ||
         data.kind === "media" ||
@@ -2019,10 +2100,12 @@ function BoardEditor() {
         ? { fontSize: preferences.elementStyles[kind]!.fontSize! / zoom }
         : {}),
       ...extra,
-      strokeWidth:
-        (extra.strokeWidth ??
+      strokeWidth: creationStroke(
+        extra.strokeWidth ??
           preferences.elementStyles[kind]?.strokeWidth ??
-          node.data.strokeWidth) / zoom,
+          node.data.strokeWidth,
+        zoom,
+      ),
       radius:
         (extra.radius ??
           preferences.elementStyles[kind]?.radius ??
@@ -2035,7 +2118,7 @@ function BoardEditor() {
       edges: b.edges.map((e) => ({ ...e, selected: false })),
     }));
     setQuick(null);
-    if (!width && !["image", "ink", "polygon", "media"].includes(kind))
+    if (!["image", "ink", "symbol", "media"].includes(kind))
       setEditing(node.id);
     return node.id;
   };
@@ -2086,7 +2169,10 @@ function BoardEditor() {
           },
           style: {
             stroke: connection.color,
-            strokeWidth: connection.width / flow.getViewport().zoom,
+            strokeWidth: creationStroke(
+              connection.width,
+              flow.getViewport().zoom,
+            ),
             strokeDasharray: connection.dash,
           },
           ...(connection.arrows !== "none"
@@ -2404,7 +2490,9 @@ function BoardEditor() {
   const [symbol, setSymbol] = useState("Sonne");
   const embedded = new URLSearchParams(location.search).has("notebookEmbed");
   const [drawPolygon, setDrawPolygon] = useState<PolygonPoint[] | null>(null);
-  const polygonGuide = useRef<SVGLineElement>(null);
+  const polygonGuide = useRef<SVGPathElement>(null);
+  const polygonStart = useRef<SVGCircleElement>(null);
+  const [curvedPolygon, setCurvedPolygon] = useState(false);
   const [polygonTemplate, setPolygonTemplate] = useState<PolygonPoint[] | null>(
     null,
   );
@@ -2599,7 +2687,9 @@ function BoardEditor() {
     100 + tools.findIndex((tool) => tool.id === id);
   const toolbarTools = tools
     .filter(
-      ({ id }) => !hiddenTools.includes(id) && !preferences.hidden.includes(id),
+      ({ id }) =>
+        !hiddenTools.includes(id) &&
+        (id === "image" || !preferences.hidden.includes(id)),
     )
     .sort(
       (a, b) =>
@@ -2609,6 +2699,21 @@ function BoardEditor() {
   const firstStyleTool = toolbarTools.find(
     ({ id }) => toolSection(id) === 2,
   )?.id;
+  const templateNames = galleryOrder(
+    formTemplates.map(([name]) => name),
+    generalPreferences.templateOrder,
+  );
+  const symbolNames = galleryOrder(
+    [...new Set([...Object.keys(customSymbols), ...Object.keys(symbols)])],
+    generalPreferences.symbolOrder,
+  );
+  const attachSymbol = (name: string) => {
+    if (pinnedSymbols.includes(name)) return;
+    checkpoint();
+    const next = [...pinnedSymbols, name];
+    setPinnedSymbols(next);
+    localStorage.setItem("lifemap-pinned-symbols", JSON.stringify(next));
+  };
   const attachedForms = pinnedForms.map((points, i) => (
     <button
       key={i}
@@ -3412,7 +3517,10 @@ function BoardEditor() {
               connectionMode={ConnectionMode.Loose}
               connectionLineStyle={{
                 stroke: connection.color,
-                strokeWidth: connection.width,
+                strokeWidth:
+                  creationStroke(connection.width, board.viewport.zoom) *
+                  connectionWeight *
+                  board.viewport.zoom,
                 strokeDasharray: corkMode ? undefined : connection.dash,
               }}
               onNodeDragStart={(_, node) => {
@@ -3583,8 +3691,36 @@ function BoardEditor() {
           <div
             className="lm-draw-layer lm-polygon-plot"
             onPointerMove={(e) => {
-              polygonGuide.current?.setAttribute("x2", String(e.clientX));
-              polygonGuide.current?.setAttribute("y2", String(e.clientY));
+              const last = drawPolygon.at(-1);
+              if (!last) return;
+              const [x, y] = last,
+                dx = e.clientX - x,
+                dy = e.clientY - y;
+              polygonGuide.current?.setAttribute(
+                "d",
+                curvedPolygon
+                  ? "M " +
+                      x +
+                      " " +
+                      y +
+                      " Q " +
+                      (x + dx / 2 - dy * 0.23) +
+                      " " +
+                      (y + dy / 2 + dx * 0.23) +
+                      " " +
+                      e.clientX +
+                      " " +
+                      e.clientY
+                  : "M " + x + " " + y + " L " + e.clientX + " " + e.clientY,
+              );
+              const first = drawPolygon[0];
+              polygonStart.current?.setAttribute(
+                "r",
+                drawPolygon.length >= 3 &&
+                  Math.hypot(first[0] - e.clientX, first[1] - e.clientY) <= 13
+                  ? "12"
+                  : "7",
+              );
             }}
             onClick={(e) => {
               const point: PolygonPoint = [e.clientX, e.clientY];
@@ -3617,7 +3753,7 @@ function BoardEditor() {
                   y,
                   width / board.viewport.zoom,
                   height / board.viewport.zoom,
-                  { points },
+                  { points, curved: curvedPolygon },
                 );
                 updatePreferences({
                   recent: points,
@@ -3637,8 +3773,14 @@ function BoardEditor() {
             }}
           >
             <svg className="lm-polygon-preview" aria-hidden>
-              <polyline
-                points={drawPolygon.map((p) => p.join(",")).join(" ")}
+              <path
+                d={
+                  curvedPolygon
+                    ? curvedOutline(drawPolygon, false)
+                    : drawPolygon.length
+                      ? "M " + drawPolygon.map((p) => p.join(",")).join(" L ")
+                      : ""
+                }
                 fill="none"
                 stroke={fill}
                 strokeWidth={2}
@@ -3647,13 +3789,11 @@ function BoardEditor() {
                 (() => {
                   const [x, y] = drawPolygon.at(-1)!;
                   return (
-                    <line
+                    <path
                       key={drawPolygon.length}
                       ref={polygonGuide}
-                      x1={x}
-                      y1={y}
-                      x2={x}
-                      y2={y}
+                      d={"M " + x + " " + y}
+                      fill="none"
                       stroke={fill}
                       strokeWidth={2}
                     />
@@ -3664,6 +3804,7 @@ function BoardEditor() {
                   key={i}
                   cx={x}
                   cy={y}
+                  ref={i === 0 ? polygonStart : undefined}
                   r={i === 0 ? 7 : 4}
                   fill="#fff"
                   stroke="#6e55a5"
@@ -4075,7 +4216,10 @@ function BoardEditor() {
               points={displayStroke(stroke).join(" ")}
               fill="none"
               stroke={pen.color}
-              strokeWidth={pen.width}
+              strokeWidth={
+                creationStroke(pen.width, board.viewport.zoom) *
+                board.viewport.zoom
+              }
               opacity={pen.opacity}
             />
           </svg>
@@ -4140,13 +4284,23 @@ function BoardEditor() {
                   <marker
                     id="lm-preview-arrow"
                     viewBox="-10 -10 20 20"
-                    markerWidth="12.5"
-                    markerHeight="12.5"
+                    markerWidth={Math.max(
+                      26,
+                      creationStroke(connection.width, zoom) *
+                        connectionWeight *
+                        2.15,
+                    )}
+                    markerHeight={Math.max(
+                      26,
+                      creationStroke(connection.width, zoom) *
+                        connectionWeight *
+                        2.15,
+                    )}
                     markerUnits="userSpaceOnUse"
                     orient="auto-start-reverse"
                   >
                     <polyline
-                      points="-5,-4 0,0 -5,4 -5,-4"
+                      points="-7,-5 0,0 -7,5 -7,-5"
                       fill={connection.color}
                       stroke={connection.color}
                     />
@@ -4160,7 +4314,9 @@ function BoardEditor() {
                   d={path}
                   fill="none"
                   stroke={connection.color}
-                  strokeWidth={connection.width / zoom}
+                  strokeWidth={
+                    creationStroke(connection.width, zoom) * connectionWeight
+                  }
                   strokeLinecap={thread ? "round" : undefined}
                   strokeDasharray={thread ? undefined : connection.dash}
                   markerEnd={
@@ -4548,6 +4704,7 @@ function BoardEditor() {
                 <div className="lm-compact-format">
                   <ColorSwatches
                     name="Formfüllung"
+                    presetGroup={preferences.paletteStyle}
                     value={data.fill}
                     onChange={(e) => format({ fill: e.target.value })}
                     presets={
@@ -5101,13 +5258,7 @@ function BoardEditor() {
         >
           <button
             onClick={() => {
-              const next = [...new Set([...pinnedSymbols, pinSymbol.name])];
-              checkpoint();
-              setPinnedSymbols(next);
-              localStorage.setItem(
-                "lifemap-pinned-symbols",
-                JSON.stringify(next),
-              );
+              attachSymbol(pinSymbol.name);
               setPinSymbol(null);
             }}
           >
@@ -5372,6 +5523,20 @@ function BoardEditor() {
                 >
                   Freihand
                 </button>
+                <div role="group" aria-label="Freiform-Kanten">
+                  <button
+                    aria-pressed={!curvedPolygon}
+                    onClick={() => setCurvedPolygon(false)}
+                  >
+                    Gerade
+                  </button>
+                  <button
+                    aria-pressed={curvedPolygon}
+                    onClick={() => setCurvedPolygon(true)}
+                  >
+                    Gebogen
+                  </button>
+                </div>
                 {generalPreferences.recentForms.length > 0 && (
                   <div role="group" aria-label="Zuletzt erstellt">
                     <small>Zuletzt erstellt</small>
@@ -5380,6 +5545,38 @@ function BoardEditor() {
                         key={i}
                         title={"Zuletzt erstellt " + (i + 1)}
                         aria-label={"Zuletzt erstellt " + (i + 1)}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData(
+                            "application/x-lifemap-recent-form",
+                            String(i),
+                          );
+                          e.dataTransfer.setData(
+                            "application/x-lifemap-shape",
+                            JSON.stringify(points),
+                          );
+                        }}
+                        onDragOver={(e) => {
+                          if (
+                            e.dataTransfer.types.includes(
+                              "application/x-lifemap-recent-form",
+                            )
+                          )
+                            e.preventDefault();
+                        }}
+                        onDrop={(e) => {
+                          const id = e.dataTransfer.getData(
+                            "application/x-lifemap-recent-form",
+                          );
+                          if (id === "") return;
+                          e.preventDefault();
+                          const next = [...generalPreferences.recentForms];
+                          const [moved] = next.splice(Number(id), 1);
+                          if (moved) {
+                            next.splice(i, 0, moved);
+                            updatePreferences({ recentForms: next });
+                          }
+                        }}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setRemoveTool({
@@ -5402,7 +5599,11 @@ function BoardEditor() {
                   </div>
                 )}
                 <div role="group" aria-label="Vorlagen">
-                  {formTemplates
+                  {[...formTemplates]
+                    .sort(
+                      ([a], [b]) =>
+                        templateNames.indexOf(a) - templateNames.indexOf(b),
+                    )
                     .filter(
                       ([label]) =>
                         !generalPreferences.hiddenTemplates.includes(label),
@@ -5412,6 +5613,40 @@ function BoardEditor() {
                         key={label}
                         title={label}
                         aria-label={label}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData(
+                            "application/x-lifemap-form-template",
+                            label,
+                          );
+                          e.dataTransfer.setData(
+                            "application/x-lifemap-shape",
+                            JSON.stringify(points),
+                          );
+                        }}
+                        onDragOver={(e) => {
+                          if (
+                            e.dataTransfer.types.includes(
+                              "application/x-lifemap-form-template",
+                            )
+                          )
+                            e.preventDefault();
+                        }}
+                        onDrop={(e) => {
+                          const id = e.dataTransfer.getData(
+                            "application/x-lifemap-form-template",
+                          );
+                          if (id) {
+                            e.preventDefault();
+                            updatePreferences({
+                              templateOrder: moveGalleryItem(
+                                templateNames,
+                                id,
+                                label,
+                              ),
+                            });
+                          }
+                        }}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setRemoveTool({
@@ -5441,7 +5676,7 @@ function BoardEditor() {
                 tabIndex={0}
               >
                 {mediaError && <span role="alert">{mediaError}</span>}
-                {[...Object.keys(customSymbols), ...Object.keys(symbols)]
+                {symbolNames
                   .filter(
                     (name) => !generalPreferences.hiddenSymbols.includes(name),
                   )
@@ -5452,6 +5687,36 @@ function BoardEditor() {
                       aria-pressed={symbol === value}
                       aria-label={value}
                       title={value}
+                      draggable
+                      onDragStart={(e) =>
+                        e.dataTransfer.setData(
+                          "application/x-lifemap-symbol",
+                          value,
+                        )
+                      }
+                      onDragOver={(e) => {
+                        if (
+                          e.dataTransfer.types.includes(
+                            "application/x-lifemap-symbol",
+                          )
+                        )
+                          e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        const id = e.dataTransfer.getData(
+                          "application/x-lifemap-symbol",
+                        );
+                        if (id) {
+                          e.preventDefault();
+                          updatePreferences({
+                            symbolOrder: moveGalleryItem(
+                              symbolNames,
+                              id,
+                              value,
+                            ),
+                          });
+                        }
+                      }}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         const bounds = e.currentTarget.getBoundingClientRect();
@@ -5523,6 +5788,21 @@ function BoardEditor() {
             )}
             {toolMenu === "image" && (
               <div className="lm-media-menu">
+                <button
+                  onClick={() => {
+                    const bounds = host.current?.getBoundingClientRect();
+                    if (!bounds) return;
+                    add(
+                      "folder",
+                      bounds.left + bounds.width / 2 - 110,
+                      bounds.top + bounds.height / 2 - 65,
+                    );
+                    setTool("hand");
+                    setToolMenu(null);
+                  }}
+                >
+                  <FolderPlus size={17} /> Ordner erstellen
+                </button>
                 <button onClick={() => void pickMedia("image")}>
                   Bilddatei
                 </button>
@@ -5586,11 +5866,23 @@ function BoardEditor() {
           className="lm-toolbar"
           aria-label="Zeichenwerkzeuge"
           onDragOver={(e) => {
-            if (e.dataTransfer.types.includes("application/x-lifemap-shape"))
+            if (
+              e.dataTransfer.types.some(
+                (type) =>
+                  type === "application/x-lifemap-shape" ||
+                  type === "application/x-lifemap-symbol",
+              )
+            )
               e.preventDefault();
           }}
           onDrop={(e) => {
             const raw = e.dataTransfer.getData("application/x-lifemap-shape");
+            const name = e.dataTransfer.getData("application/x-lifemap-symbol");
+            if (name && symbolNames.includes(name)) {
+              e.preventDefault();
+              attachSymbol(name);
+              return;
+            }
             if (!raw) return;
             e.preventDefault();
             const points = JSON.parse(raw);

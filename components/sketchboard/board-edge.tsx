@@ -6,7 +6,7 @@ import {
   getStraightPath,
   type EdgeProps,
 } from "@xyflow/react";
-import type { LineLabel } from "@/lib/sketchboard";
+import { connectionWeight, type LineLabel } from "@/lib/sketchboard";
 
 export function boardEdgePath(
   route: string | undefined,
@@ -54,10 +54,27 @@ export function BoardEdge(props: EdgeProps) {
   const width = (caption?.text.length ?? 0) * size * 0.62 + 10;
   const route = "lm-route-" + id;
   const mask = "lm-mask-" + id;
+  const weight = Number(style?.strokeWidth ?? 9) * connectionWeight;
+  const arrow = "lm-arrow-" + id;
   const rotated = Boolean(caption?.text && angle);
   return (
     <>
       <defs>
+        {(markerStart || markerEnd) && (
+          <marker
+            id={arrow}
+            viewBox="-10 -10 20 20"
+            markerWidth={Math.max(26, weight * 2.15)}
+            markerHeight={Math.max(26, weight * 2.15)}
+            markerUnits="userSpaceOnUse"
+            orient="auto-start-reverse"
+          >
+            <path
+              d="M-7 -5L0 0 -7 5Z"
+              fill={String(style?.stroke ?? "#8b8797")}
+            />
+          </marker>
+        )}
         <path id={route} ref={line} d={path} />
         {rotated && (
           <mask
@@ -93,14 +110,15 @@ export function BoardEdge(props: EdgeProps) {
         style={
           {
             ...style,
-            "--lm-edge-width": (style?.strokeWidth ?? 9) + "px",
+            strokeWidth: weight,
+            "--lm-edge-width": weight + "px",
             ...(data?.thread
               ? { strokeLinecap: "round", strokeDasharray: undefined }
               : {}),
           } as React.CSSProperties
         }
-        markerEnd={markerEnd}
-        markerStart={markerStart}
+        markerEnd={markerEnd ? "url(#" + arrow + ")" : undefined}
+        markerStart={markerStart ? "url(#" + arrow + ")" : undefined}
         mask={rotated ? `url(#${mask})` : undefined}
       />
       <path

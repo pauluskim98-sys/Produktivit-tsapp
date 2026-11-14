@@ -1,4 +1,5 @@
 import type { Node, Edge, Viewport } from "@xyflow/react";
+export const connectionWeight = 1.85;
 export const minimumBoardZoom = 0.000001;
 
 export const shapeKinds = [
@@ -9,6 +10,7 @@ export const shapeKinds = [
   "diamond",
   "text",
   "sticky",
+  "folder",
   "image",
   "media",
   "symbol",
@@ -19,6 +21,7 @@ export type ShapeKind = (typeof shapeKinds)[number];
 export type UnderlineStyle = "solid" | "wavy" | "dashed" | "double";
 export type ShapeData = {
   group?: string;
+  curved?: boolean;
   media?: { kind: "video" | "document" | "link"; url: string; name: string };
   textBackground?: string;
   kind: ShapeKind;
@@ -300,6 +303,7 @@ export function validateBoard(input: unknown): Board {
         ...(validPicture(d.image) ? { image: d.image } : {}),
         ...(validMedia(d.media) ? { media: d.media } : {}),
         ...(validPoints(d.points) ? { points: d.points } : {}),
+        ...(d.curved === true ? { curved: true } : {}),
       },
     };
   });

@@ -33,15 +33,18 @@ export default function ColorSwatches({
   value,
   onChange,
   presets = defaults,
+  presetGroup,
   compactBackground = false,
 }: {
   name: string;
   value?: string;
   onChange: (event: { target: { value: string } }) => void;
   presets?: string[];
+  presetGroup?: string;
   compactBackground?: boolean;
 }) {
-  const key = "lifemap-color-presets:" + name;
+  const key =
+    "lifemap-color-presets:" + name + (presetGroup ? ":" + presetGroup : "");
   const [favorites, setFavorites] = useState(presets.slice(0, 5));
   const [panel, setPanel] = useState<{
     x: number;
@@ -59,8 +62,11 @@ export default function ColorSwatches({
         saved.every((c) => /^#[0-9a-f]{6}$/i.test(c))
       )
         setFavorites(saved);
-    } catch {}
-  }, [key]);
+      else setFavorites(presets.slice(0, 5));
+    } catch {
+      setFavorites(presets.slice(0, 5));
+    }
+  }, [key, presets]);
   useEffect(() => {
     if (!panel) return;
     const close = (e: PointerEvent) => {
