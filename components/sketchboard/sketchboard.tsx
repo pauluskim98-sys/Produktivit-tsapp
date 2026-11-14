@@ -55,6 +55,9 @@ import {
   ArrowUpToLine,
   ArrowDownToLine,
   X,
+  Settings,
+  PenTool,
+  ImagePlus,
 } from "lucide-react";
 import {
   emptyBoard,
@@ -81,6 +84,23 @@ const initialPoints: [number, number][] = [
 ];
 const preferenceKey = "lifemap-board-tools";
 const defaults = {
+  accent: "#9360c9",
+  order: [] as string[],
+  connection: {
+    type: "default",
+    color: "#8b8797",
+    width: 1.5,
+    dash: "",
+    arrows: "none",
+  },
+  pen: {
+    style: "pen",
+    color: "#403451",
+    width: 3,
+    opacity: 1,
+    smooth: true,
+    straight: false,
+  },
   font: "System",
   size: 24,
   background: "",
@@ -91,7 +111,7 @@ const defaults = {
 };
 const tools = [
   { id: "write", label: "Schreiben und verschieben", Icon: Type },
-  { id: "ink", label: "Stift", Icon: Italic },
+  { id: "ink", label: "Stift", Icon: PenTool },
   { id: "polygon", label: "Freie Form", Icon: Diamond },
   { id: "paint", label: "Färber", Icon: Palette },
   { id: "select", label: "Auswahl (A)", Icon: MousePointer2 },
@@ -106,8 +126,37 @@ const tools = [
   { id: "diamond", label: "Raute", Icon: Diamond },
   { id: "text", label: "Text (T)", Icon: Type },
   { id: "connect", label: "Verbindung (L)", Icon: Waypoints },
+  { id: "image", label: "Bild einfügen", Icon: ImagePlus },
   { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
 ] as const;
+const hiddenTools = ["write", "select", "hand"];
+function roundedOutline(points: [number, number][], radius: number) {
+  return (
+    points
+      .map((point, i) => {
+        const toward = (neighbor: [number, number]) => {
+          const distance = Math.hypot(
+            neighbor[0] - point[0],
+            neighbor[1] - point[1],
+          );
+          const scale = distance ? Math.min(0.45, radius / distance) : 0;
+          return [
+            point[0] + (neighbor[0] - point[0]) * scale,
+            point[1] + (neighbor[1] - point[1]) * scale,
+          ].join(" ");
+        };
+        return (
+          (i ? "L " : "M ") +
+          toward(points[(i + points.length - 1) % points.length]) +
+          " Q " +
+          point.join(" ") +
+          " " +
+          toward(points[(i + 1) % points.length])
+        );
+      })
+      .join(" ") + " Z"
+  );
+}
 const EditContext = createContext({
   editing: "",
   begin: (_id: string) => {},
@@ -166,14 +215,17 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
               points={data.points.join(" ")}
               fill="none"
               stroke={data.fill}
-              strokeWidth={2.5}
+              strokeWidth={data.strokeWidth}
+              opacity={data.opacity ?? 1}
+              className={"lm-ink-" + (data.inkStyle ?? "pen")}
               strokeLinecap="round"
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
             />
           ) : (
-            <polygon
-              points={data.points.join(" ")}
+            <path
+              d={roundedOutline(data.points, data.radius)}
+              opacity={data.opacity ?? 1}
               fill={data.fill}
               stroke={data.stroke}
               strokeWidth={data.strokeWidth}
@@ -196,7 +248,10 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           />
         </svg>
       ) : (
-        <div className="lm-shape-bg" style={style} />
+        <div
+          className="lm-shape-bg"
+          style={{ ...style, opacity: data.opacity ?? 1 }}
+        />
       )}
       {data.kind === "sticky" && <span className="lm-tape" />}
       <div
@@ -311,6 +366,12 @@ function BoardEditor() {
     host = useRef<HTMLDivElement>(null);
   const storage = useBoardStorage(board, setBoard);
   const leavingText = useRef(false);
+  const [connectionOverride, setConnectionOverride] = useState<
+    typeof defaults.connection | null
+  >(null);
+  const connection = connectionOverride ?? preferences.connection;
+  const [toolMenu, setToolMenu] = useState<string | null>(null);
+  const shapeHit = useRef<string | null>(null);
   const currentTab = new URLSearchParams(location.search).get("tab") || "main";
   const [tabs] = useState<{ id: string; title: string }[]>(() => {
     try {
@@ -339,7 +400,7 @@ function BoardEditor() {
       id === "main" ? "/lifemap/board" : "/lifemap/board?tab=" + id,
     );
   };
-  const [noteHeight, setNoteHeight] = useState(280);
+  const [noteHeight, setNoteHeight] = useState(0);
   useEffect(() => {
     const resize = (event: MessageEvent) => {
       if (
@@ -506,7 +567,6 @@ function BoardEditor() {
       nodes: [...b.nodes.map((n) => ({ ...n, selected: false })), node],
       edges: b.edges.map((e) => ({ ...e, selected: false })),
     }));
-    setTool("write");
     setQuick(null);
     if (!width && !["image", "ink", "polygon"].includes(kind))
       setEditing(node.id);
@@ -548,8 +608,28 @@ function BoardEditor() {
         {
           ...c,
           id: crypto.randomUUID(),
-          type: "default",
-          style: { stroke: "#8b8797", strokeWidth: 1.5 },
+          type: connection.type,
+          style: {
+            stroke: connection.color,
+            strokeWidth: connection.width,
+            strokeDasharray: connection.dash,
+          },
+          ...(connection.arrows !== "none"
+            ? {
+                markerEnd: {
+                  type: "arrowclosed" as never,
+                  color: connection.color,
+                },
+              }
+            : {}),
+          ...(connection.arrows === "both"
+            ? {
+                markerStart: {
+                  type: "arrowclosed" as never,
+                  color: connection.color,
+                },
+              }
+            : {}),
         },
       ],
     }));
@@ -691,9 +771,10 @@ function BoardEditor() {
     <main
       className={`lm-app${dark ? " lm-dark" : ""}`}
       style={
-        preferences.background
-          ? ({ "--lm-bg": preferences.background } as CSSProperties)
-          : undefined
+        {
+          "--lm-accent": preferences.accent,
+          "--lm-bg": preferences.background || undefined,
+        } as CSSProperties
       }
       onPaste={(e) => {
         if (
@@ -744,12 +825,12 @@ function BoardEditor() {
           <Waypoints size={22} />
           LifeMap
         </strong>
-        <button onClick={() => setSettings((open) => !open)}>
-          Einstellungen
-        </button>
-        <button onClick={() => setNotes((open) => !open)}>Notepad</button>
-        <button title="Strg+S" onClick={storage.retry}>
-          Speichern
+        <button
+          aria-label="Einstellungen"
+          title="Einstellungen"
+          onClick={() => setSettings((open) => !open)}
+        >
+          <Settings size={19} />
         </button>
         <a href="/lifemap" aria-label="LifeMap schließen">
           <X size={18} />
@@ -774,31 +855,72 @@ function BoardEditor() {
         >
           <Download size={18} />
         </button>
-      </header>
-      <nav className="lm-board-tabs" aria-label="LifeMap-Tabs">
-        {tabs.map(({ id, title }) => (
-          <button
-            key={id}
-            aria-current={id === currentTab ? "page" : undefined}
-            onClick={() => {
-              if (id !== currentTab) void openTab(id);
-            }}
-          >
-            {title}
+        <nav className="lm-board-tabs" aria-label="LifeMap-Tabs">
+          {tabs.map(({ id, title }) => (
+            <button
+              key={id}
+              aria-current={id === currentTab ? "page" : undefined}
+              onClick={() => {
+                if (id !== currentTab) void openTab(id);
+              }}
+            >
+              {title}
+            </button>
+          ))}
+          <button aria-label="Neuer LifeMap-Tab" onClick={() => void openTab()}>
+            +
           </button>
-        ))}
-        <button aria-label="Neuer LifeMap-Tab" onClick={() => void openTab()}>
-          +
-        </button>
-      </nav>
-      {notes && (
-        <aside className="lm-notepad" style={{ height: noteHeight }}>
+        </nav>
+      </header>
+      {
+        <aside
+          className="lm-notepad"
+          inert={!notes}
+          aria-hidden={!notes}
+          style={{
+            height: noteHeight,
+            visibility: notes && noteHeight ? "visible" : "hidden",
+          }}
+        >
           <iframe title="Kalender-Notepad" src="/lifemap?boardNotes=1" />
         </aside>
-      )}
+      }
       {settings && (
         <section className="lm-settings" aria-label="LifeMap-Einstellungen">
-          <button onClick={() => setSettings(false)}>Schließen</button>
+          <div className="lm-settings-heading">
+            <strong>LifeMap-Einstellungen</strong>
+            <button aria-label="Schließen" onClick={() => setSettings(false)}>
+              <X size={18} />
+            </button>
+          </div>
+          <label>
+            UI-Farbe{" "}
+            <input
+              type="color"
+              value={preferences.accent}
+              onChange={(e) => updatePreferences({ accent: e.target.value })}
+            />
+          </label>
+          <div className="lm-style-previews">
+            {["plain", "dots", "lines", "grid", "paper"].map((pattern) => (
+              <button
+                key={pattern}
+                title={pattern}
+                aria-label={
+                  {
+                    plain: "Glatt",
+                    dots: "Punkte",
+                    lines: "Linien",
+                    grid: "Raster",
+                    paper: "Papier",
+                  }[pattern]
+                }
+                className={"lm-preview lm-pattern-" + pattern}
+                aria-pressed={preferences.pattern === pattern}
+                onClick={() => updatePreferences({ pattern })}
+              />
+            ))}
+          </div>
           <label>
             Standardschrift{" "}
             <select
@@ -963,7 +1085,6 @@ function BoardEditor() {
           leavingText.current = Boolean(
             editing && !(e.target as HTMLElement).closest("textarea"),
           );
-          if (leavingText.current) setEditing("");
         }}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -975,7 +1096,8 @@ function BoardEditor() {
             insertImage(file);
           }
         }}
-        className={`lm-canvas${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}`}
+        style={{ "--lm-ui": preferences.accent } as CSSProperties}
+        className={`lm-canvas lm-pattern-${preferences.pattern} ${tool === "select" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}`}
         onDoubleClick={(e) => {
           if ((e.target as HTMLElement).classList.contains("react-flow__pane"))
             setQuick({ x: e.clientX, y: e.clientY });
@@ -986,7 +1108,26 @@ function BoardEditor() {
             value={{
               editing,
               begin,
-              end: () => setEditing(""),
+              end: () => {
+                setBoard((b) => {
+                  const empty = b.nodes.find(
+                    (n) =>
+                      n.id === editing &&
+                      n.data.kind === "text" &&
+                      !n.data.text.trim(),
+                  );
+                  return empty
+                    ? {
+                        ...b,
+                        nodes: b.nodes.filter((n) => n.id !== empty.id),
+                        edges: b.edges.filter(
+                          (e) => e.source !== empty.id && e.target !== empty.id,
+                        ),
+                      }
+                    : b;
+                });
+                setEditing("");
+              },
               patch,
               checkpoint,
             }}
@@ -1043,7 +1184,6 @@ function BoardEditor() {
                       targetHandle: "left",
                     });
                     connectFrom.current = null;
-                    setTool("select");
                   } else connectFrom.current = node.id;
                 }
               }}
@@ -1052,7 +1192,11 @@ function BoardEditor() {
                   leavingText.current = false;
                   return;
                 }
-                if (tool !== "write") {
+                if (
+                  tool !== "write" &&
+                  tool !== "connect" &&
+                  tool !== "paint"
+                ) {
                   setTool("write");
                   connectFrom.current = null;
                   return;
@@ -1089,7 +1233,7 @@ function BoardEditor() {
               deleteKeyCode={null}
               colorMode={dark ? "dark" : "light"}
             >
-              {(board.grid || preferences.pattern !== "plain") && (
+              {board.grid && (
                 <Background
                   variant={
                     preferences.pattern === "lines"
@@ -1118,6 +1262,11 @@ function BoardEditor() {
             className="lm-draw-layer"
             onPointerDown={(e) => {
               if (e.button !== 0) return;
+              const node = document
+                .elementsFromPoint(e.clientX, e.clientY)
+                .map((el) => el.closest(".react-flow__node"))
+                .find(Boolean);
+              shapeHit.current = node?.getAttribute("data-id") ?? null;
               if (tool === "ink") {
                 strokePoints.current = [[e.clientX, e.clientY]];
                 setStroke(strokePoints.current);
@@ -1153,18 +1302,43 @@ function BoardEditor() {
             onPointerUp={(e) => {
               const start = drawing.current;
               if (!start) return;
+              if (shapeHit.current && !leavingText.current) {
+                const hit = shapeHit.current;
+                setBoard((b) => ({
+                  ...b,
+                  nodes: b.nodes.map((n) => ({
+                    ...n,
+                    selected: n.id === hit,
+                  })),
+                }));
+                drawing.current = null;
+                setDraft(null);
+                setStroke([]);
+                return;
+              }
               const w = Math.abs(e.clientX - start.x),
                 h = Math.abs(e.clientY - start.y),
                 drag = w > 8 || h > 8;
-              if (!drag) {
-                setTool("write");
+              if (!drag && (tool === "ink" || leavingText.current)) {
                 drawing.current = null;
                 setDraft(null);
                 setStroke([]);
                 return;
               }
               if (tool === "ink") {
-                const points = strokePoints.current;
+                const raw = strokePoints.current;
+                const points =
+                  preferences.pen.straight && raw.length > 1
+                    ? [raw[0], raw[raw.length - 1]]
+                    : preferences.pen.smooth
+                      ? raw.map((point, i) => {
+                          if (!i || i === raw.length - 1) return point;
+                          return [
+                            (raw[i - 1][0] + point[0] * 2 + raw[i + 1][0]) / 4,
+                            (raw[i - 1][1] + point[1] * 2 + raw[i + 1][1]) / 4,
+                          ] as [number, number];
+                        })
+                      : raw;
                 if (points.length > 1) {
                   const x = Math.min(...points.map((p) => p[0])),
                     y = Math.min(...points.map((p) => p[1]));
@@ -1187,7 +1361,10 @@ function BoardEditor() {
                         ((p[0] - x) / width) * 100,
                         ((p[1] - y) / height) * 100,
                       ]),
-                      fill,
+                      fill: preferences.pen.color,
+                      strokeWidth: preferences.pen.width,
+                      opacity: preferences.pen.opacity,
+                      inkStyle: preferences.pen.style,
                     },
                   );
                   setTool("ink");
@@ -1219,8 +1396,9 @@ function BoardEditor() {
             <polyline
               points={stroke.join(" ")}
               fill="none"
-              stroke={fill}
-              strokeWidth={3}
+              stroke={preferences.pen.color}
+              strokeWidth={preferences.pen.width}
+              opacity={preferences.pen.opacity}
             />
           </svg>
         )}
@@ -1287,6 +1465,17 @@ function BoardEditor() {
                   />
                 </label>
               </div>
+              <label>
+                Deckkraft{" "}
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={data.opacity ?? 1}
+                  onChange={(e) => format({ opacity: +e.target.value })}
+                />
+              </label>
               <div className="lm-format-row">
                 <label>
                   Rand
@@ -1306,7 +1495,7 @@ function BoardEditor() {
                     type="number"
                     min={0}
                     max={12}
-                    step={0.5}
+                    step={1}
                     value={data.strokeWidth}
                     onChange={(e) =>
                       format({
@@ -1322,6 +1511,7 @@ function BoardEditor() {
                     type="number"
                     min={0}
                     max={200}
+                    step={5}
                     value={data.radius}
                     onChange={(e) =>
                       format({
@@ -1480,23 +1670,26 @@ function BoardEditor() {
                 <option value="7 5">Gestrichelt</option>
                 <option value="2 5">Gepunktet</option>
               </select>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={!!edge.markerEnd}
-                  onChange={(e) =>
-                    formatEdge({
-                      markerEnd: e.target.checked
-                        ? {
-                            type: "arrowclosed" as never,
-                            color: String(edge.style?.stroke),
-                          }
-                        : undefined,
-                    })
-                  }
-                />
-                Pfeilspitze
-              </label>
+              <select
+                aria-label="Pfeilspitzen"
+                value={
+                  edge.markerStart ? "both" : edge.markerEnd ? "end" : "none"
+                }
+                onChange={(e) => {
+                  const marker = {
+                    type: "arrowclosed" as never,
+                    color: String(edge.style?.stroke),
+                  };
+                  formatEdge({
+                    markerEnd: e.target.value === "none" ? undefined : marker,
+                    markerStart: e.target.value === "both" ? marker : undefined,
+                  });
+                }}
+              >
+                <option value="none">Ohne Pfeil</option>
+                <option value="end">Einseitiger Pfeil</option>
+                <option value="both">Beidseitiger Pfeil</option>
+              </select>
             </div>
           )}
         </aside>
@@ -1541,6 +1734,222 @@ function BoardEditor() {
             <Redo2 size={18} />
           </button>
         </div>
+        {(toolMenu || tool === "connect" || tool === "ink") && (
+          <div className="lm-tool-options">
+            {tool === "connect" && (
+              <>
+                <label>
+                  Form{" "}
+                  <select
+                    value={connection.type}
+                    onChange={(e) =>
+                      setConnectionOverride({
+                        ...connection,
+                        type: e.target.value,
+                      })
+                    }
+                  >
+                    <option value="default">Geschwungen</option>
+                    <option value="straight">Gerade</option>
+                    <option value="smoothstep">Abgewinkelt</option>
+                  </select>
+                </label>
+                <label>
+                  Strich{" "}
+                  <select
+                    value={connection.dash}
+                    onChange={(e) =>
+                      setConnectionOverride({
+                        ...connection,
+                        dash: e.target.value,
+                      })
+                    }
+                  >
+                    <option value="">Durchgezogen</option>
+                    <option value="7 5">Gestrichelt</option>
+                    <option value="2 5">Gepunktet</option>
+                  </select>
+                </label>
+                <label>
+                  Pfeile{" "}
+                  <select
+                    value={connection.arrows}
+                    onChange={(e) =>
+                      setConnectionOverride({
+                        ...connection,
+                        arrows: e.target.value,
+                      })
+                    }
+                  >
+                    <option value="none">Keine</option>
+                    <option value="end">Einseitig</option>
+                    <option value="both">Beidseitig</option>
+                  </select>
+                </label>
+                <label>
+                  Farbe{" "}
+                  <input
+                    type="color"
+                    value={connection.color}
+                    onChange={(e) =>
+                      setConnectionOverride({
+                        ...connection,
+                        color: e.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Stärke{" "}
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={12}
+                    step={0.5}
+                    value={connection.width}
+                    onChange={(e) =>
+                      setConnectionOverride({
+                        ...connection,
+                        width: +e.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <button onClick={() => updatePreferences({ connection })}>
+                  Als Standard
+                </button>
+              </>
+            )}
+            {tool === "ink" && (
+              <>
+                <label>
+                  Stift{" "}
+                  <select
+                    value={preferences.pen.style}
+                    onChange={(e) => {
+                      const styles: Record<string, [number, number]> = {
+                        pen: [3, 1],
+                        brush: [9, 0.9],
+                        marker: [12, 0.34],
+                        felt: [6, 1],
+                        water: [11, 0.42],
+                      };
+                      const [width, opacity] = styles[e.target.value];
+                      updatePreferences({
+                        pen: {
+                          ...preferences.pen,
+                          style: e.target.value,
+                          width,
+                          opacity,
+                        },
+                      });
+                    }}
+                  >
+                    <option value="pen">Stift</option>
+                    <option value="brush">Pinsel</option>
+                    <option value="marker">Textmarker</option>
+                    <option value="felt">Filzstift</option>
+                    <option value="water">Wasserfarbe</option>
+                  </select>
+                </label>
+                <label>
+                  Farbe{" "}
+                  <input
+                    type="color"
+                    value={preferences.pen.color}
+                    onChange={(e) =>
+                      updatePreferences({
+                        pen: { ...preferences.pen, color: e.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Dicke{" "}
+                  <input
+                    type="range"
+                    min={1}
+                    max={12}
+                    value={preferences.pen.width}
+                    onChange={(e) =>
+                      updatePreferences({
+                        pen: { ...preferences.pen, width: +e.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Deckkraft{" "}
+                  <input
+                    type="range"
+                    min={0.05}
+                    max={1}
+                    step={0.05}
+                    value={preferences.pen.opacity}
+                    onChange={(e) =>
+                      updatePreferences({
+                        pen: { ...preferences.pen, opacity: +e.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={preferences.pen.smooth}
+                    onChange={(e) =>
+                      updatePreferences({
+                        pen: { ...preferences.pen, smooth: e.target.checked },
+                      })
+                    }
+                  />{" "}
+                  Glätten
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={preferences.pen.straight}
+                    onChange={(e) =>
+                      updatePreferences({
+                        pen: { ...preferences.pen, straight: e.target.checked },
+                      })
+                    }
+                  />{" "}
+                  Gerade Linie
+                </label>
+              </>
+            )}
+            {toolMenu === "image" && (
+              <button onClick={() => fileInput.current?.click()}>
+                Bild auswählen
+              </button>
+            )}
+            {toolMenu && (
+              <button
+                title="Aus Leiste entfernen"
+                aria-label="Aus Leiste entfernen"
+                onClick={() => {
+                  updatePreferences({
+                    hidden: [...preferences.hidden, toolMenu],
+                  });
+                  setToolMenu(null);
+                  setTool("write");
+                }}
+              >
+                <Trash2 size={17} />
+              </button>
+            )}
+            <button
+              aria-label="Werkzeugoptionen schließen"
+              onClick={() => {
+                setToolMenu(null);
+                setTool("write");
+              }}
+            >
+              <X size={17} />
+            </button>
+          </div>
+        )}
         <nav
           ref={toolbar}
           className="lm-toolbar"
@@ -1558,7 +1967,16 @@ function BoardEditor() {
           }}
         >
           {tools
-            .filter(({ id }) => !preferences.hidden.includes(id))
+            .filter(
+              ({ id }) =>
+                !hiddenTools.includes(id) && !preferences.hidden.includes(id),
+            )
+            .sort(
+              (a, b) =>
+                (preferences.order.indexOf(a.id) + 1 ||
+                  100 + tools.indexOf(a)) -
+                (preferences.order.indexOf(b.id) + 1 || 100 + tools.indexOf(b)),
+            )
             .map(({ id, label, Icon }) => (
               <button
                 key={id}
@@ -1567,7 +1985,33 @@ function BoardEditor() {
                 aria-pressed={tool === id}
                 className={tool === id ? "active" : ""}
                 disabled={!storage.ready}
+                draggable
+                onDragStart={(e) =>
+                  e.dataTransfer.setData("application/x-lifemap-tool", id)
+                }
+                onDragOver={(e) => {
+                  if (
+                    e.dataTransfer.types.includes("application/x-lifemap-tool")
+                  )
+                    e.preventDefault();
+                }}
+                onDrop={(e) => {
+                  const moved = e.dataTransfer.getData(
+                    "application/x-lifemap-tool",
+                  );
+                  if (!moved || moved === id) return;
+                  e.preventDefault();
+                  const order = (
+                    preferences.order.length
+                      ? preferences.order
+                      : tools.map((t) => t.id)
+                  ).filter((t) => t !== moved);
+                  order.splice(order.indexOf(id), 0, moved);
+                  updatePreferences({ order });
+                }}
                 onClick={() => {
+                  setToolMenu(toolMenu === id ? null : id);
+                  if (id === "image") return;
                   if (id === "polygon") setForm(preferences.recent);
                   else setTool(id);
                   if (id === "paint") setColors(true);
@@ -1578,13 +2022,6 @@ function BoardEditor() {
                 <Icon size={21} strokeWidth={1.6} />
               </button>
             ))}
-          <button
-            aria-label="Bild einfügen"
-            title="Bild einfügen"
-            onClick={() => fileInput.current?.click()}
-          >
-            ▧
-          </button>
           {preferences.pinned && (
             <button
               title="Angeheftete freie Form"
@@ -1596,15 +2033,6 @@ function BoardEditor() {
               ⬡
             </button>
           )}
-          <span className="lm-toolbar-separator" />
-          <button
-            title="Farben"
-            aria-label="Farben"
-            className={colors ? "active" : ""}
-            onClick={() => setColors(!colors)}
-          >
-            <Palette size={21} />
-          </button>
           {colors && (
             <div className="lm-tool-palette">
               {palette.map((c) => (

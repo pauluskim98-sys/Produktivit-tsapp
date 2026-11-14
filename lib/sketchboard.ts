@@ -19,6 +19,8 @@ export type ShapeData = {
   stroke: string;
   strokeWidth: number;
   radius: number;
+  opacity?: number;
+  inkStyle?: string;
   color: string;
   fontSize: number;
   bold: boolean;
@@ -166,6 +168,14 @@ export function validateBoard(input: unknown): Board {
         stroke: d.stroke,
         strokeWidth: d.strokeWidth,
         radius: d.radius,
+        ...(typeof d.opacity === "number" && number(d.opacity, 0, 1)
+          ? { opacity: d.opacity }
+          : {}),
+        ...(["pen", "brush", "marker", "felt", "water"].includes(
+          d.inkStyle ?? "",
+        )
+          ? { inkStyle: d.inkStyle }
+          : {}),
         color: d.color,
         fontSize: d.fontSize,
         bold: d.bold,
@@ -212,6 +222,14 @@ export function validateBoard(input: unknown): Board {
       ...(e.markerEnd
         ? {
             markerEnd: {
+              type: "arrowclosed" as const,
+              color: String(e.style!.stroke),
+            },
+          }
+        : {}),
+      ...(e.markerStart
+        ? {
+            markerStart: {
               type: "arrowclosed" as const,
               color: String(e.style!.stroke),
             },
