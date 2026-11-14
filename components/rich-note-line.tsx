@@ -101,7 +101,7 @@ export default function RichNoteLine({text,runs,label,preferences,onChange,onBlu
     />
     {open && <div ref={menu} className="note-format selection-toolbar" aria-label="Markierten Text formatieren">
       <label>Schrift <select defaultValue="" onChange={(event)=>apply("fontName",noteFontCss[event.target.value as NoteFont])}>
-        <option disabled value="">Auswählen</option>{Object.entries(noteFonts).map(([key,name])=><option key={key} value={key}>{name}</option>)}
+        <option disabled value="">Auswählen</option>{Object.entries(noteFonts).map(([key,name])=><option key={key} value={key} style={{fontFamily:noteFontCss[key as NoteFont]}}>{name}</option>)}
       </select></label>
       <label>Größe <select defaultValue="" onChange={(event)=>apply("fontSize","7",Number(event.target.value))}>
         <option disabled value="">Auswählen</option>{[12,14,16,18,20,24,30].map((size)=><option key={size}>{size}</option>)}

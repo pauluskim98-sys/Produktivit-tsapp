@@ -7919,3 +7919,8 @@ button[hidden] {
 .lifemap-notes-frame .calendar-bottom-notes * { visibility: visible; }
 .lifemap-notes-frame .calendar-bottom-notes { position: fixed; inset: auto 0 0; z-index: 1000; margin: 0; max-height: none; overflow: auto; animation: none; }
 .lifemap-notes-frame .calendar-bottom-notes { max-height: none !important; }
+.notebook-workspace:has(.notebook-map-frame) > .inbox-notes {visibility:hidden;}
+.notebook-map-frame {grid-area:editor;width:100%;height:100%;min-height:150px;border:0;z-index:3;}
+.notepad-size-grip {position:absolute;top:0;left:50%;z-index:6;transform:translateX(-50%);cursor:ns-resize;touch-action:none;border:1px solid var(--line);border-radius:5px;background:var(--surface);font-size:11px;}
+.notepad-size-options {position:absolute;top:30px;left:50%;transform:translateX(-50%);z-index:9;display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:7px;background:var(--surface);border:1px solid var(--line);border-radius:8px;}
+.calendar-bottom-notes.notes-open:has(.notepad-size-grip) {min-height:0;}

@@ -33,7 +33,18 @@ export type ShapeData = {
   image?: string;
   points?: [number, number][];
 };
-export const boardFonts = ["System", "Arial", "Georgia", "Verdana", "Consolas"];
+export const boardFonts = [
+  "System",
+  "Arial",
+  "Georgia",
+  "Verdana",
+  "Consolas",
+  "Cambria",
+  "Trebuchet MS",
+  "Times New Roman",
+  "Courier New",
+  "Segoe UI",
+];
 export const validPoints = (points: unknown): points is [number, number][] =>
   Array.isArray(points) &&
   points.length >= 2 &&

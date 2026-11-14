@@ -1033,3 +1033,21 @@
   border-radius: 50%;
   border: 0;
 }
+.lm-header .lm-header-settings {
+  order: 99;
+}
+.lm-tab-item[data-selected] {
+  outline: 1px solid var(--lm-accent);
+  border-radius: 7px;
+}
+.lm-shape-content textarea {
+  user-select: text;
+  cursor: text;
+  pointer-events: auto;
+}
+.lm-shape-content > span:not(.lm-placeholder) {
+  width: auto;
+  max-width: 100%;
+  border-radius: 3px;
+  box-decoration-break: clone;
+}

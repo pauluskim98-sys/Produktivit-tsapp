@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { useDialog } from "./use-dialog";
-import { defaultNotePreferences, noteFonts, notePeriods, notePeriodNames, type NoteFont, type NotePreferences } from "@/lib/note-todos";
+import { defaultNotePreferences, noteFonts, noteFontCss, notePeriods, notePeriodNames, type NoteFont, type NotePreferences } from "@/lib/note-todos";
 
 export default function NoteSettings({value,onSave,onClose}:{value:NotePreferences;onSave:(value:NotePreferences)=>void;onClose:()=>void}){
   const [draft,setDraft]=useState(value);
@@ -16,7 +16,7 @@ export default function NoteSettings({value,onSave,onClose}:{value:NotePreferenc
           {Array.from({length:12},(_,i)=>i+8).map((hour)=><option key={hour} value={hour}>{hour}:00</option>)}
         </select></label>
         <label>Standardschrift <select value={draft.font} onChange={(event)=>setDraft({...draft,font:event.target.value as NoteFont})}>
-          {Object.entries(noteFonts).map(([id,name])=><option key={id} value={id}>{name}</option>)}
+          {Object.entries(noteFonts).map(([id,name])=><option key={id} value={id} style={{fontFamily:noteFontCss[id as NoteFont]}}>{name}</option>)}
         </select></label>
         <label>Schriftgröße <select value={draft.size} onChange={(event)=>setDraft({...draft,size:Number(event.target.value)})}>
           {[12,14,16,18,20,24].map((size)=><option key={size}>{size}</option>)}

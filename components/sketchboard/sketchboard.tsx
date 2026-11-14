@@ -422,7 +422,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         }
         style={{
           color: data.color,
-          background: data.textBackground,
+
           fontFamily: data.font === "System" ? undefined : data.font,
           fontSize: data.fontSize,
           fontWeight: data.bold ? 700 : 400,
@@ -446,7 +446,13 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
             onChange={(e) =>
               edit.patch(id, { text: e.target.value.slice(0, 50000) })
             }
-            onBlur={edit.end}
+            onBlur={(e) => {
+              if (!(
+                e.relatedTarget instanceof Element &&
+                e.relatedTarget.closest(".lm-format")
+              ))
+                edit.end();
+            }}
             onKeyDown={(e) => {
               e.stopPropagation();
               if (
@@ -461,7 +467,20 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         ) : (
           <span
             className={data.text ? "" : "lm-placeholder"}
-            style={data.text ? undefined : { fontSize: "0.7em" }}
+            style={
+              data.text
+                ? {
+                    background: data.textBackground,
+                    display: "inline",
+                    alignSelf:
+                      data.align === "left"
+                        ? "flex-start"
+                        : data.align === "right"
+                          ? "flex-end"
+                          : "center",
+                  }
+                : { fontSize: "0.7em" }
+            }
           >
             {data.text ||
               (data.kind === "sticky"
@@ -736,6 +755,7 @@ function BoardEditor() {
   const [toolMenu, setToolMenu] = useState<string | null>(null);
   const shapeHit = useRef<string | null>(null);
   const currentTab = new URLSearchParams(location.search).get("tab") || "main";
+  const [selectedTabs, setSelectedTabs] = useState<string[]>([]);
   const [tabs, setTabs] = useState<{ id: string; title: string }[]>(() => {
     try {
       return (
@@ -1145,6 +1165,10 @@ function BoardEditor() {
     }));
   };
   const begin = (id: string) => {
+    setBoard((b) => ({
+      ...b,
+      nodes: b.nodes.map((n) => ({ ...n, selected: n.id === id })),
+    }));
     checkpoint();
     setEditing(id);
   };
@@ -1221,7 +1245,18 @@ function BoardEditor() {
       }
       if (k === "delete" || k === "backspace") {
         e.preventDefault();
-        remove();
+        if (tool === "select" && selectedTabs.length) {
+          void (async () => {
+            if (!(await storage.finish())) return;
+            const next = tabs.filter((t) => !selectedTabs.includes(t.id));
+            if (!next.length)
+              next.push({ id: crypto.randomUUID(), title: "LifeMap" });
+            saveTabs(next);
+            setSelectedTabs([]);
+            if (selectedTabs.includes(currentTab))
+              location.assign("/lifemap/board?tab=" + next[0].id);
+          })();
+        } else remove();
       }
       if (k === " ") {
         e.preventDefault();
@@ -1480,15 +1515,14 @@ function BoardEditor() {
           LifeMap
         </strong>
         <button
+          className="lm-header-settings"
           aria-label="Einstellungen"
           title="Einstellungen"
           onClick={() => setSettings((open) => !open)}
         >
           <Settings size={19} />
         </button>
-        <a href="/lifemap" aria-label="LifeMap schließen">
-          <X size={18} />
-        </a>
+
         <span className="lm-save" role="status">
           {storage.status}
         </span>
@@ -1511,7 +1545,39 @@ function BoardEditor() {
         </button>
         <nav className="lm-board-tabs" aria-label="LifeMap-Tabs">
           {tabs.map(({ id, title }) => (
-            <div className="lm-tab-item" key={id}>
+            <div
+              className="lm-tab-item"
+              key={id}
+              data-selected={selectedTabs.includes(id) || undefined}
+              draggable={renaming !== id}
+              onDragStart={(e) => {
+                e.dataTransfer.setData(
+                  "application/x-lifemap-tab",
+                  JSON.stringify({ id, title, color: preferences.accent }),
+                );
+              }}
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes("application/x-lifemap-tab"))
+                  e.preventDefault();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                try {
+                  const source = JSON.parse(
+                    e.dataTransfer.getData("application/x-lifemap-tab"),
+                  ).id;
+                  const item = tabs.find((t) => t.id === source);
+                  if (!item || source === id) return;
+                  const next = tabs.filter((t) => t.id !== source);
+                  next.splice(
+                    next.findIndex((t) => t.id === id),
+                    0,
+                    item,
+                  );
+                  saveTabs(next);
+                } catch {}
+              }}
+            >
               {renaming === id ? (
                 <input
                   autoFocus
@@ -1531,6 +1597,12 @@ function BoardEditor() {
                   aria-expanded={tabMenu === id}
                   onClick={() => {
                     setTabMenu(null);
+                    if (tool === "select") {
+                      setSelectedTabs((t) =>
+                        t.includes(id) ? t.filter((s) => s !== id) : [...t, id],
+                      );
+                      return;
+                    }
                     if (id !== currentTab) void openTab(id);
                   }}
                   onContextMenu={(e) => {
@@ -1670,7 +1742,12 @@ function BoardEditor() {
               onChange={(e) => updatePreferences({ font: e.target.value })}
             >
               {boardFonts.map((font) => (
-                <option key={font}>{font}</option>
+                <option
+                  key={font}
+                  style={{ fontFamily: font === "System" ? "system-ui" : font }}
+                >
+                  {font}
+                </option>
               ))}
             </select>
           </label>
@@ -2452,7 +2529,7 @@ function BoardEditor() {
           </div>
         )}
       </div>
-      {(selected.length > 0 || selectedEdges.length > 0) && !editing && (
+      {(selected.length > 0 || selectedEdges.length > 0) && (
         <StoredPanel
           name="element"
           className="lm-format"
@@ -2810,7 +2887,14 @@ function BoardEditor() {
                     onChange={(e) => setCaption({ font: e.target.value })}
                   >
                     {boardFonts.map((font) => (
-                      <option key={font}>{font}</option>
+                      <option
+                        key={font}
+                        style={{
+                          fontFamily: font === "System" ? "system-ui" : font,
+                        }}
+                      >
+                        {font}
+                      </option>
                     ))}
                   </select>
                 </label>
