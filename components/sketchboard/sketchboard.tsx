@@ -36,6 +36,8 @@ import {
   Type,
   StickyNote,
   Waypoints,
+  Group,
+  Check,
   Palette,
   Undo2,
   Redo2,
@@ -83,7 +85,7 @@ import {
   validPoints,
 } from "@/lib/sketchboard";
 import { smoothStroke } from "./smooth-stroke";
-import { BoardEdge } from "./board-edge";
+import { BoardEdge, boardEdgePath } from "./board-edge";
 import { useBoardStorage } from "./use-board-storage";
 import { StickyPaper, stickyStyles } from "./sticky-paper";
 import { SymbolArt, symbols } from "./symbols";
@@ -232,11 +234,34 @@ function FormatSamples({
     </span>
   );
 }
+function StandardButton({
+  onSave,
+  saved = false,
+}: {
+  onSave: () => void;
+  saved?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="lm-standard"
+      title="Als Standard speichern"
+      onClick={onSave}
+      aria-pressed={saved}
+    >
+      <Check size={16} aria-hidden /> Standard
+    </button>
+  );
+}
 const defaults = {
+  elementStyles: {} as Partial<Record<ShapeKind, Partial<ShapeData>>>,
+  lineCaption: null as Omit<LineLabel, "text"> | null,
+  paint: { mode: "fill", opacity: 1, width: 2, color: palette[0] },
+  symbol: "Sonne",
   corkConnection: {
     type: "default",
     color: "#ad303b",
-    width: 3.5,
+    width: 5,
     dash: "",
     arrows: "none",
   },
@@ -245,7 +270,7 @@ const defaults = {
   connection: {
     type: "default",
     color: "#8b8797",
-    width: 3,
+    width: 5,
     dash: "",
     arrows: "none",
   },
@@ -328,7 +353,7 @@ function StoredPanel({
         ...(size
           ? {
               width: Math.min(size.width, innerWidth - 16),
-              height: size.height,
+              height: name === "element" ? undefined : size.height,
             }
           : {}),
         overflow: "auto",
@@ -417,10 +442,14 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   const edit = useContext(EditContext),
     editing = edit.editing === id;
   const area = useRef<HTMLTextAreaElement>(null);
+  const titleField = useRef<HTMLInputElement>(null);
+  const breakAt = data.text.indexOf("\n");
+  const heading = breakAt < 0 ? data.text : data.text.slice(0, breakAt);
+  const body = breakAt < 0 ? "" : data.text.slice(breakAt + 1);
   useEffect(() => {
     if (editing) {
-      area.current?.focus();
-      const input = area.current;
+      const input = titleField.current;
+      input?.focus();
       if (input)
         input.setSelectionRange(input.value.length, input.value.length);
     }
@@ -428,6 +457,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   const style: CSSProperties = {
     background: data.fill,
     borderColor: data.stroke,
+    boxSizing: "border-box",
     borderWidth: data.strokeWidth,
     borderRadius: data.kind === "ellipse" ? "50%" : data.radius,
   };
@@ -614,33 +644,64 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         data.kind === "ink" ||
         data.kind === "media" ||
         data.kind === "symbol" ? null : editing ? (
-          <textarea
-            ref={area}
-            aria-label="Text bearbeiten"
-            className="nodrag nopan nowheel"
-            value={data.text}
-            placeholder="Dein Gedanke …"
-            onChange={(e) =>
-              edit.patch(id, { text: e.target.value.slice(0, 50000) })
-            }
+          <div
+            className="lm-live-note nodrag nopan nowheel"
             onBlur={(e) => {
-              if (!(
-                e.relatedTarget instanceof Element &&
-                e.relatedTarget.closest(".lm-format")
-              ))
-                edit.end();
-            }}
-            onKeyDown={(e) => {
-              e.stopPropagation();
               if (
-                e.key === "Escape" ||
-                (e.key === "Enter" && (e.ctrlKey || e.metaKey))
-              ) {
-                e.preventDefault();
+                !e.currentTarget.contains(e.relatedTarget) &&
+                !(
+                  e.relatedTarget instanceof Element &&
+                  e.relatedTarget.closest(".lm-format,.color-popup")
+                )
+              )
                 edit.end();
-              }
             }}
-          />
+          >
+            <input
+              ref={titleField}
+              className="lm-live-title"
+              maxLength={Math.max(0, 49999 - body.length)}
+              style={{ background: data.textBackground }}
+              aria-label="Überschrift"
+              placeholder="Überschrift"
+              value={heading}
+              onChange={(e) =>
+                edit.patch(id, {
+                  text: e.target.value + (breakAt < 0 ? "" : "\n" + body),
+                })
+              }
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (breakAt < 0) edit.patch(id, { text: heading + "\n" });
+                  area.current?.focus();
+                } else if (e.key === "Escape") edit.end();
+              }}
+            />
+            <textarea
+              ref={area}
+              aria-label="Text bearbeiten"
+              className="nodrag nopan nowheel"
+              value={body}
+              placeholder="Dein Gedanke …"
+              onChange={(e) =>
+                edit.patch(id, {
+                  text: (heading + "\n" + e.target.value).slice(0, 50000),
+                })
+              }
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (
+                  e.key === "Escape" ||
+                  (e.key === "Enter" && (e.ctrlKey || e.metaKey))
+                ) {
+                  e.preventDefault();
+                  edit.end();
+                }
+              }}
+            />
+          </div>
         ) : (
           <span
             className={data.text ? "" : "lm-placeholder"}
@@ -988,6 +1049,10 @@ function BoardEditor() {
   const [paintMode, setPaintMode] = useState("fill");
   const [paintOpacity, setPaintOpacity] = useState(1);
   const [paintWidth, setPaintWidth] = useState(2);
+  const [penOverride, setPenOverride] = useState<typeof defaults.pen | null>(
+    null,
+  );
+  const pen = penOverride ?? preferences.pen;
   const openTab = async (id?: string) => {
     if (!(await storage.finish())) return;
     if (!id) {
@@ -1039,8 +1104,8 @@ function BoardEditor() {
   const strokePoints = useRef<[number, number][]>([]);
   const displayStroke = (points: [number, number][]) => {
     if (points.length < 3) return points;
-    if (preferences.pen.straight) return [points[0], points.at(-1)!];
-    if (!preferences.pen.smooth) return points;
+    if (pen.straight) return [points[0], points.at(-1)!];
+    if (!pen.smooth) return points;
     return smoothStroke(points);
   };
   const toolbar = useRef<HTMLElement>(null);
@@ -1132,6 +1197,12 @@ function BoardEditor() {
     try {
       const saved = JSON.parse(localStorage.getItem(preferenceKey) || "{}");
       setPreferences({ ...defaults, ...saved });
+      const paint = saved.paint ?? defaults.paint;
+      setPaintMode(paint.mode);
+      setPaintOpacity(paint.opacity);
+      setPaintWidth(paint.width);
+      setFill(paint.color);
+      if (saved.symbol) setSymbol(saved.symbol);
     } catch {
       /* Use defaults. */
     }
@@ -1190,7 +1261,31 @@ function BoardEditor() {
     start: { x: number; y: number };
     nodes: ShapeNode[];
   } | null>(null);
+  const [groupPicking, setGroupPicking] = useState(false);
+  const groupActive =
+    !!groupId && selected.every((n) => n.data.group === groupId);
   const makeGroup = () => {
+    if (groupActive && !groupPicking) {
+      checkpoint();
+      setBoard((b) => ({
+        ...b,
+        nodes: b.nodes.map((n) =>
+          n.data.group === groupId
+            ? { ...n, data: { ...n.data, group: undefined } }
+            : n,
+        ),
+      }));
+      setGroupPicking(false);
+      return;
+    }
+    if (tool !== "select" && !groupPicking) {
+      setTool("hand");
+      setToolMenu(null);
+      connectFrom.current = null;
+      setGroupPicking(true);
+      return;
+    }
+    setGroupPicking(false);
     if (selected.length < 2) return;
     checkpoint();
     const keys = new Set(selected.map((n) => n.id));
@@ -1321,6 +1416,10 @@ function BoardEditor() {
       italic:
         (tabStyle?.textStyle ?? preferences.textStyle) === "italic" ||
         (tabStyle?.textStyle ?? preferences.textStyle) === "bold-italic",
+      ...preferences.elementStyles[kind],
+      ...(preferences.elementStyles[kind]?.fontSize !== undefined
+        ? { fontSize: preferences.elementStyles[kind]!.fontSize! / zoom }
+        : {}),
       ...extra,
     };
     node.selected = true;
@@ -1372,6 +1471,9 @@ function BoardEditor() {
           ...c,
           id: crypto.randomUUID(),
           type: connection.type,
+          ...(preferences.lineCaption
+            ? { data: { caption: { ...preferences.lineCaption, text: "" } } }
+            : {}),
           style: {
             stroke: connection.color,
             strokeWidth: connection.width,
@@ -1498,12 +1600,7 @@ function BoardEditor() {
         return;
       }
       if (!storage.ready) return;
-      if (
-        tool === "select" &&
-        e.key.toLowerCase() === "g" &&
-        !e.ctrlKey &&
-        !e.metaKey
-      ) {
+      if (e.key.toLowerCase() === "g" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         makeGroup();
         return;
@@ -1572,6 +1669,7 @@ function BoardEditor() {
           !(e.target as HTMLElement).closest("button,a"))
       ) {
         e.preventDefault();
+        setGroupPicking(false);
         setEditing("");
         setTool("hand");
         setToolMenu(null);
@@ -1866,6 +1964,17 @@ function BoardEditor() {
             <Waypoints size={22} />
             LifeMap
           </strong>
+          <button
+            type="button"
+            aria-label={groupActive ? "Gruppe auflösen" : "Gruppieren"}
+            title={
+              groupPicking ? "Gruppenauswahl abschließen (G)" : "Gruppieren (G)"
+            }
+            aria-pressed={groupActive || groupPicking}
+            onClick={makeGroup}
+          >
+            <Group size={19} />
+          </button>
           <button
             className="lm-header-settings"
             aria-label="Einstellungen"
@@ -2356,8 +2465,8 @@ function BoardEditor() {
             const edge = target!.classList.contains("react-flow__edge");
             setLinkHover({
               id: edge ? "line:" + id : id,
-              x: edge ? e.clientX : bounds.right - 16,
-              y: edge ? e.clientY - 11 : bounds.top + 16,
+              x: edge ? e.clientX : (bounds.left + bounds.right) / 2,
+              y: edge ? e.clientY - 11 : bounds.bottom - 8,
             });
           } else setLinkHover(null);
           if (tool === "connect" && connectFrom.current)
@@ -2377,7 +2486,7 @@ function BoardEditor() {
         tabIndex={-1}
         onPointerDownCapture={(e) => {
           leavingText.current = Boolean(
-            editing && !(e.target as HTMLElement).closest("textarea"),
+            editing && !(e.target as HTMLElement).closest(".lm-live-note"),
           );
         }}
         onDragOver={(e) => {
@@ -2492,9 +2601,10 @@ function BoardEditor() {
                   nodes: applyNodeChanges(
                     changes.filter(
                       (change) =>
-                        !("id" in change) ||
-                        (!change.id.startsWith("line:") &&
-                          !previewNodes.some((n) => n.id === change.id)),
+                        !(groupPicking && change.type === "select") &&
+                        (!("id" in change) ||
+                          (!change.id.startsWith("line:") &&
+                            !previewNodes.some((n) => n.id === change.id))),
                     ),
                     b.nodes,
                   ),
@@ -2556,6 +2666,19 @@ function BoardEditor() {
               }}
               onSelectionDragStart={checkpoint}
               onNodeClick={(_, node) => {
+                if (groupPicking) {
+                  setBoard((b) => ({
+                    ...b,
+                    nodes: b.nodes.map((n) => ({
+                      ...n,
+                      selected:
+                        n.id === node.id
+                          ? !selected.some((item) => item.id === n.id)
+                          : selected.some((item) => item.id === n.id),
+                    })),
+                  }));
+                  return;
+                }
                 if (leavingText.current) {
                   leavingText.current = false;
                   return;
@@ -2874,10 +2997,10 @@ function BoardEditor() {
                         ((p[0] - x) / width) * 100,
                         ((p[1] - y) / height) * 100,
                       ]),
-                      fill: preferences.pen.color,
-                      strokeWidth: preferences.pen.width,
-                      opacity: preferences.pen.opacity,
-                      inkStyle: preferences.pen.style,
+                      fill: pen.color,
+                      strokeWidth: pen.width,
+                      opacity: pen.opacity,
+                      inkStyle: pen.style,
                     },
                   );
                   setTool("ink");
@@ -3083,9 +3206,9 @@ function BoardEditor() {
             <polyline
               points={displayStroke(stroke).join(" ")}
               fill="none"
-              stroke={preferences.pen.color}
-              strokeWidth={preferences.pen.width}
-              opacity={preferences.pen.opacity}
+              stroke={pen.color}
+              strokeWidth={pen.width}
+              opacity={pen.opacity}
             />
           </svg>
         )}
@@ -3095,35 +3218,84 @@ function BoardEditor() {
           (() => {
             const id = connectFrom.current;
             const node = board.nodes.find((n) => n.id === id);
-            const origin = node
+            const hit = document
+              .elementsFromPoint(linkPointer.x, linkPointer.y)
+              .map((el) =>
+                el.closest(".react-flow__node-shape,.react-flow__edge"),
+              )
+              .find(Boolean);
+            const hitId = hit?.getAttribute("data-id");
+            const destination = board.nodes.find(
+              (n) => n.id === hitId && n.id !== id,
+            );
+            const edgePoint =
+              hit?.classList.contains("react-flow__edge") &&
+              hitId &&
+              id !== "line:" + hitId
+                ? anchors[hitId]
+                : undefined;
+            const start = node
               ? {
-                  x: node.position.x + (node.width ?? 0) / 2,
+                  x: node.position.x + (node.width ?? 0),
                   y: node.position.y + (node.height ?? 0) / 2,
                 }
               : anchors[id.slice(5)];
-            if (!origin) return null;
-            const a = flow.flowToScreenPosition(origin),
-              b = linkPointer;
-            const middle = (a.x + b.x) / 2;
-            const path =
-              connection.type === "straight"
-                ? `M${a.x} ${a.y} L${b.x} ${b.y}`
-                : connection.type === "default"
-                  ? `M${a.x} ${a.y} C${middle} ${a.y} ${middle} ${b.y} ${b.x} ${b.y}`
-                  : `M${a.x} ${a.y} H${middle} V${b.y} H${b.x}`;
+            if (!start) return null;
+            const end = destination
+              ? {
+                  x: destination.position.x,
+                  y: destination.position.y + (destination.height ?? 0) / 2,
+                }
+              : (edgePoint ??
+                flow.screenToFlowPosition(linkPointer, { snapToGrid: false }));
+            const [path] = boardEdgePath(connection.type, {
+              sourceX: start.x,
+              sourceY: start.y,
+              targetX: end.x,
+              targetY: end.y,
+              sourcePosition: node ? Position.Right : Position.Top,
+              targetPosition: edgePoint ? Position.Top : Position.Left,
+            });
+            const { x, y, zoom } = flow.getViewport();
+            const bounds = host.current?.getBoundingClientRect();
+            const thread = preferences.pattern === "cork";
             return (
               <svg className="lm-link-preview" aria-hidden>
+                <defs>
+                  <marker
+                    id="lm-preview-arrow"
+                    viewBox="-10 -10 20 20"
+                    markerWidth="12.5"
+                    markerHeight="12.5"
+                    markerUnits="userSpaceOnUse"
+                    orient="auto-start-reverse"
+                  >
+                    <polyline
+                      points="-5,-4 0,0 -5,4 -5,-4"
+                      fill={connection.color}
+                      stroke={connection.color}
+                    />
+                  </marker>
+                </defs>
                 <path
+                  transform={`translate(${x + (bounds?.left ?? 0)} ${y + (bounds?.top ?? 0)}) scale(${zoom})`}
+                  className={
+                    thread ? "react-flow__edge-path lm-thread" : undefined
+                  }
                   d={path}
                   fill="none"
                   stroke={connection.color}
-                  strokeWidth={connection.width * board.viewport.zoom}
-                  strokeDasharray={
-                    connection.dash
-                      ? connection.dash
-                          .split(" ")
-                          .map((n) => Number(n) * board.viewport.zoom)
-                          .join(" ")
+                  strokeWidth={connection.width}
+                  strokeLinecap={thread ? "round" : undefined}
+                  strokeDasharray={thread ? undefined : connection.dash}
+                  markerEnd={
+                    connection.arrows !== "none"
+                      ? "url(#lm-preview-arrow)"
+                      : undefined
+                  }
+                  markerStart={
+                    connection.arrows === "both"
+                      ? "url(#lm-preview-arrow)"
                       : undefined
                   }
                 />
@@ -3313,11 +3485,12 @@ function BoardEditor() {
                           );
                           return total + across * down;
                         }, 0);
-                      const best = selected[0]
-                        ? candidates[0]
-                        : candidates.reduce((a, b) =>
-                            overlap(b) < overlap(a) ? b : a,
-                          );
+                      const nearby = selected[0]
+                        ? candidates.slice(0, 4)
+                        : candidates;
+                      const best = nearby.reduce((a, b) =>
+                        overlap(b) < overlap(a) ? b : a,
+                      );
                       return {
                         ...best,
                         right: "auto",
@@ -3329,7 +3502,7 @@ function BoardEditor() {
             }
           >
             <div
-              className="lm-actions lm-format-grip"
+              className="lm-format-grip lm-format-drag-edge"
               onPointerDown={(e) => {
                 if (
                   e.button !== 0 ||
@@ -3365,27 +3538,7 @@ function BoardEditor() {
                 if (!(e.target as HTMLElement).closest("button"))
                   setFormatPosition(null);
               }}
-            >
-              <span aria-hidden="true" className="lm-grip-dots">
-                ···
-              </span>
-              {tool === "select" && selected.length > 1 && (
-                <button onClick={makeGroup}>Gruppieren · G</button>
-              )}
-              <button
-                title="Auswahl aufheben"
-                aria-label="Auswahl aufheben"
-                onClick={() =>
-                  setBoard((b) => ({
-                    ...b,
-                    nodes: b.nodes.map((n) => ({ ...n, selected: false })),
-                    edges: b.edges.map((e) => ({ ...e, selected: false })),
-                  }))
-                }
-              >
-                <X size={16} />
-              </button>
-            </div>
+            ></div>
             {data && (
               <>
                 {data.kind === "sticky" && (
@@ -3441,72 +3594,78 @@ function BoardEditor() {
                           />
                         </button>
                       ))}
-                    </div>
-                    <label className="lm-sticky-import">
-                      Form importieren{" "}
-                      <input
-                        type="file"
-                        accept="image/png,image/webp"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          e.target.value = "";
-                          if (!file) return;
-                          if (
-                            file.size > 650_000 ||
-                            !["image/png", "image/webp"].includes(file.type)
-                          ) {
-                            setStickyError(
-                              "PNG oder WebP mit transparentem Hintergrund, bis 650 KB.",
-                            );
-                            return;
-                          }
-                          const ids = new Set(selected.map((node) => node.id));
-                          const reader = new FileReader();
-                          reader.onerror = () =>
-                            setStickyError(
-                              "Die Datei konnte nicht gelesen werden.",
-                            );
-                          reader.onload = () => {
-                            const src = reader.result;
-                            if (!validPicture(src)) {
+                      <label
+                        className="lm-import-tile"
+                        title="Notizzettel importieren"
+                      >
+                        <Plus size={19} aria-hidden />
+                        <input
+                          type="file"
+                          aria-label="Notizzettel importieren"
+                          accept="image/png,image/webp"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!file) return;
+                            if (
+                              file.size > 650_000 ||
+                              !["image/png", "image/webp"].includes(file.type)
+                            ) {
                               setStickyError(
-                                "Die Datei konnte nicht als Vorlage gelesen werden.",
+                                "PNG oder WebP mit transparentem Hintergrund, bis 650 KB.",
                               );
                               return;
                             }
-                            const next = [
-                              ...stickyImports,
-                              { name: file.name.slice(0, 90), src },
-                            ];
-                            try {
-                              localStorage.setItem(
-                                "lifemap-note-templates",
-                                JSON.stringify(next),
-                              );
-                              setStickyImports(next);
-                              setStickyError("");
-                              checkpoint();
-                              setBoard((b) => ({
-                                ...b,
-                                nodes: b.nodes.map((n) =>
-                                  ids.has(n.id) && n.data.kind === "sticky"
-                                    ? {
-                                        ...n,
-                                        data: { ...n.data, stickyMask: src },
-                                      }
-                                    : n,
-                                ),
-                              }));
-                            } catch {
+                            const ids = new Set(
+                              selected.map((node) => node.id),
+                            );
+                            const reader = new FileReader();
+                            reader.onerror = () =>
                               setStickyError(
-                                "Der lokale Vorlagenspeicher ist voll.",
+                                "Die Datei konnte nicht gelesen werden.",
                               );
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        }}
-                      />
-                    </label>
+                            reader.onload = () => {
+                              const src = reader.result;
+                              if (!validPicture(src)) {
+                                setStickyError(
+                                  "Die Datei konnte nicht als Vorlage gelesen werden.",
+                                );
+                                return;
+                              }
+                              const next = [
+                                ...stickyImports,
+                                { name: file.name.slice(0, 90), src },
+                              ];
+                              try {
+                                localStorage.setItem(
+                                  "lifemap-note-templates",
+                                  JSON.stringify(next),
+                                );
+                                setStickyImports(next);
+                                setStickyError("");
+                                checkpoint();
+                                setBoard((b) => ({
+                                  ...b,
+                                  nodes: b.nodes.map((n) =>
+                                    ids.has(n.id) && n.data.kind === "sticky"
+                                      ? {
+                                          ...n,
+                                          data: { ...n.data, stickyMask: src },
+                                        }
+                                      : n,
+                                  ),
+                                }));
+                              } catch {
+                                setStickyError(
+                                  "Der lokale Vorlagenspeicher ist voll.",
+                                );
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                      </label>
+                    </div>
                     {stickyError && <small role="alert">{stickyError}</small>}
                   </section>
                 )}
@@ -3548,7 +3707,14 @@ function BoardEditor() {
                   <FormatSamples
                     name="Randstärke"
                     value={data.strokeWidth}
-                    onChange={(strokeWidth) => format({ strokeWidth })}
+                    onChange={(strokeWidth) =>
+                      format({
+                        strokeWidth,
+                        ...(data.stroke === "transparent"
+                          ? { stroke: data.color }
+                          : {}),
+                      })
+                    }
                   />
                 </div>
                 <div className="lm-compact-format">
@@ -3697,6 +3863,51 @@ function BoardEditor() {
                     <ArrowDownToLine size={15} />
                     Nach hinten
                   </button>
+                  <StandardButton
+                    onSave={() => {
+                      const {
+                        fill,
+                        stroke,
+                        strokeWidth,
+                        radius,
+                        opacity,
+                        color,
+                        font,
+                        fontSize,
+                        align,
+                        bold,
+                        italic,
+                        underline,
+                        textBackground,
+                        stickyStyle,
+                        stickyMask,
+                        paper,
+                      } = data;
+                      updatePreferences({
+                        elementStyles: {
+                          ...preferences.elementStyles,
+                          [data.kind]: {
+                            fill,
+                            stroke,
+                            strokeWidth,
+                            radius,
+                            opacity,
+                            color,
+                            font,
+                            fontSize: fontSize * flow.getViewport().zoom,
+                            align,
+                            bold,
+                            italic,
+                            underline,
+                            textBackground,
+                            stickyStyle,
+                            stickyMask,
+                            paper,
+                          },
+                        },
+                      });
+                    }}
+                  />
                 </div>
               </>
             )}
@@ -3872,6 +4083,31 @@ function BoardEditor() {
                   <option value="end">Einseitiger Pfeil</option>
                   <option value="both">Beidseitiger Pfeil</option>
                 </select>
+                <StandardButton
+                  onSave={() => {
+                    const { text: _text, ...lineCaption } = caption;
+                    const line = {
+                      type: edge.type ?? "default",
+                      color: String(edge.style?.stroke ?? connection.color),
+                      width: Number(
+                        edge.style?.strokeWidth ?? connection.width,
+                      ),
+                      dash: String(edge.style?.strokeDasharray ?? ""),
+                      arrows: edge.markerStart
+                        ? "both"
+                        : edge.markerEnd
+                          ? "end"
+                          : "none",
+                    };
+                    updatePreferences({
+                      ...(corkMode
+                        ? { corkConnection: line }
+                        : { connection: line }),
+                      lineCaption,
+                    });
+                    setConnectionOverride(null);
+                  }}
+                />
               </div>
             )}
           </StoredPanel>
@@ -4015,17 +4251,17 @@ function BoardEditor() {
                     }
                   />
                 </label>
-                <button
-                  onClick={() =>
+                <StandardButton
+                  saved={!connectionOverride}
+                  onSave={() => {
                     updatePreferences(
                       corkMode
                         ? { corkConnection: connection }
                         : { connection },
-                    )
-                  }
-                >
-                  Immer
-                </button>
+                    );
+                    setConnectionOverride(null);
+                  }}
+                />
               </>
             )}
             {tool === "ink" && (
@@ -4045,11 +4281,9 @@ function BoardEditor() {
                       type="button"
                       title={label}
                       aria-label={label}
-                      aria-pressed={preferences.pen.style === style}
+                      aria-pressed={pen.style === style}
                       onClick={() =>
-                        updatePreferences({
-                          pen: { ...preferences.pen, style, width, opacity },
-                        })
+                        setPenOverride({ ...pen, style, width, opacity })
                       }
                     >
                       <i style={{ width, height: width, opacity }} />
@@ -4058,11 +4292,9 @@ function BoardEditor() {
                 </div>
                 <ColorSwatches
                   name="Stift"
-                  value={preferences.pen.color}
+                  value={pen.color}
                   onChange={(e) =>
-                    updatePreferences({
-                      pen: { ...preferences.pen, color: e.target.value },
-                    })
+                    setPenOverride({ ...pen, color: e.target.value })
                   }
                 />
                 <label>
@@ -4071,11 +4303,9 @@ function BoardEditor() {
                     type="range"
                     min={1}
                     max={12}
-                    value={preferences.pen.width}
+                    value={pen.width}
                     onChange={(e) =>
-                      updatePreferences({
-                        pen: { ...preferences.pen, width: +e.target.value },
-                      })
+                      setPenOverride({ ...pen, width: +e.target.value })
                     }
                   />
                 </label>
@@ -4086,22 +4316,18 @@ function BoardEditor() {
                     min={0.05}
                     max={1}
                     step={0.05}
-                    value={preferences.pen.opacity}
+                    value={pen.opacity}
                     onChange={(e) =>
-                      updatePreferences({
-                        pen: { ...preferences.pen, opacity: +e.target.value },
-                      })
+                      setPenOverride({ ...pen, opacity: +e.target.value })
                     }
                   />
                 </label>
                 <label>
                   <input
                     type="checkbox"
-                    checked={preferences.pen.smooth}
+                    checked={pen.smooth}
                     onChange={(e) =>
-                      updatePreferences({
-                        pen: { ...preferences.pen, smooth: e.target.checked },
-                      })
+                      setPenOverride({ ...pen, smooth: e.target.checked })
                     }
                   />{" "}
                   Glätten
@@ -4109,26 +4335,84 @@ function BoardEditor() {
                 <label>
                   <input
                     type="checkbox"
-                    checked={preferences.pen.straight}
+                    checked={pen.straight}
                     onChange={(e) =>
-                      updatePreferences({
-                        pen: { ...preferences.pen, straight: e.target.checked },
-                      })
+                      setPenOverride({ ...pen, straight: e.target.checked })
                     }
                   />{" "}
                   Gerade Linie
                 </label>
+                <StandardButton
+                  saved={!penOverride}
+                  onSave={() => {
+                    updatePreferences({ pen });
+                    setPenOverride(null);
+                  }}
+                />
               </>
             )}
             {toolMenu === "symbols" && (
-              <div className="lm-symbol-picker">
-                <label className="lm-symbol-import">
-                  Symbol importieren
+              <div
+                className="lm-symbol-picker"
+                aria-label="Symbolgalerie"
+                tabIndex={0}
+              >
+                {mediaError && <span role="alert">{mediaError}</span>}
+                {pinSymbol && (
+                  <button
+                    className="lm-symbol-import"
+                    onClick={() => {
+                      const next = [...new Set([...pinnedSymbols, pinSymbol])];
+                      setPinnedSymbols(next);
+                      localStorage.setItem(
+                        "lifemap-pinned-symbols",
+                        JSON.stringify(next),
+                      );
+                      setPinSymbol(null);
+                    }}
+                  >
+                    „{pinSymbol}“ zur Werkzeugleiste
+                  </button>
+                )}
+                {[...Object.keys(customSymbols), ...Object.keys(symbols)].map(
+                  (value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      aria-pressed={symbol === value}
+                      aria-label={value}
+                      title={value}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setPinSymbol(value);
+                      }}
+                      onClick={() => setSymbol(value)}
+                    >
+                      {customSymbols[value] ? (
+                        <img
+                          className="lm-custom-symbol"
+                          alt=""
+                          src={customSymbols[value]}
+                        />
+                      ) : (
+                        <SymbolArt
+                          name={value}
+                          stroke="currentColor"
+                          fill="none"
+                        />
+                      )}
+                    </button>
+                  ),
+                )}
+                <label className="lm-import-tile" title="Symbol importieren">
+                  <Plus size={19} aria-hidden />
                   <input
                     type="file"
+                    aria-label="Symbol importieren"
                     accept="image/png,image/jpeg,image/webp,image/gif"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
+                      e.target.value = "";
                       if (!file) return;
                       const reader = new FileReader();
                       reader.onload = () => {
@@ -4161,53 +4445,10 @@ function BoardEditor() {
                     }}
                   />
                 </label>
-                {mediaError && <span role="alert">{mediaError}</span>}
-                {pinSymbol && (
-                  <button
-                    className="lm-symbol-import"
-                    onClick={() => {
-                      const next = [...new Set([...pinnedSymbols, pinSymbol])];
-                      setPinnedSymbols(next);
-                      localStorage.setItem(
-                        "lifemap-pinned-symbols",
-                        JSON.stringify(next),
-                      );
-                      setPinSymbol(null);
-                    }}
-                  >
-                    „{pinSymbol}“ zur Werkzeugleiste
-                  </button>
-                )}
-                {[...Object.keys(symbols), ...Object.keys(customSymbols)].map(
-                  (value) => (
-                    <button
-                      type="button"
-                      key={value}
-                      aria-pressed={symbol === value}
-                      aria-label={value}
-                      title={value}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setPinSymbol(value);
-                      }}
-                      onClick={() => setSymbol(value)}
-                    >
-                      {customSymbols[value] ? (
-                        <img
-                          className="lm-custom-symbol"
-                          alt=""
-                          src={customSymbols[value]}
-                        />
-                      ) : (
-                        <SymbolArt
-                          name={value}
-                          stroke="currentColor"
-                          fill="none"
-                        />
-                      )}
-                    </button>
-                  ),
-                )}
+                <StandardButton
+                  saved={symbol === preferences.symbol}
+                  onSave={() => updatePreferences({ symbol })}
+                />
               </div>
             )}
             {toolMenu === "image" && (
@@ -4416,6 +4657,18 @@ function BoardEditor() {
                       onChange={(e) => setPaintOpacity(+e.target.value)}
                     />
                   </label>
+                  <StandardButton
+                    onSave={() =>
+                      updatePreferences({
+                        paint: {
+                          mode: paintMode,
+                          opacity: paintOpacity,
+                          width: paintWidth,
+                          color: fill,
+                        },
+                      })
+                    }
+                  />
                   {paintMode === "stroke" && (
                     <label>
                       Randstärke{" "}

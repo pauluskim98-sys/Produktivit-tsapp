@@ -8,6 +8,20 @@ import {
 } from "@xyflow/react";
 import type { LineLabel } from "@/lib/sketchboard";
 
+export function boardEdgePath(
+  route: string | undefined,
+  points: Parameters<typeof getBezierPath>[0],
+) {
+  if (route === "straight") return getStraightPath(points);
+  if (route === "step" || route === "smoothstep") {
+    return getSmoothStepPath({
+      ...points,
+      borderRadius: route === "step" ? 0 : 8,
+    });
+  }
+  return getBezierPath(points);
+}
+
 export function BoardEdge(props: EdgeProps) {
   const { id, style, markerEnd, markerStart } = props;
   const data = props.data as
@@ -20,15 +34,7 @@ export function BoardEdge(props: EdgeProps) {
         startLink?: (id: string) => void;
       }
     | undefined;
-  const [path, x, y] =
-    data?.route === "straight"
-      ? getStraightPath(props)
-      : data?.route === "step" || data?.route === "smoothstep"
-        ? getSmoothStepPath({
-            ...props,
-            borderRadius: data.route === "step" ? 0 : 8,
-          })
-        : getBezierPath(props);
+  const [path, x, y] = boardEdgePath(data?.route, props);
   const line = useRef<SVGPathElement>(null);
   useLayoutEffect(() => {
     const middle = line.current?.getPointAtLength(

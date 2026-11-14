@@ -16,7 +16,8 @@ export function StickyPaper({
   paper,
   className,
 }: {
-  paper: Pick<ShapeData, "fill" | "stickyStyle" | "stickyMask" | "paper">;
+  paper: Pick<ShapeData, "fill" | "stickyStyle" | "stickyMask" | "paper"> &
+    Partial<Pick<ShapeData, "stroke" | "strokeWidth">>;
   className?: string;
 }) {
   const style = paper.stickyStyle ?? "pin";
@@ -60,8 +61,10 @@ export function StickyPaper({
       <path
         d={outline}
         fill={paper.fill}
-        stroke="#473c50"
-        strokeOpacity=".24"
+        stroke={paper.stroke ?? "#473c50"}
+        strokeWidth={paper.strokeWidth ?? 1}
+        strokeOpacity={paper.stroke ? 1 : 0.24}
+        vectorEffect="non-scaling-stroke"
       />
       {paper.paper !== "plain" &&
         (paper.paper === "lines" ||

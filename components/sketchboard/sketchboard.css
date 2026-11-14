@@ -1411,3 +1411,88 @@
   max-width: 140px;
   font-size: 11px;
 }
+
+.lm-format-drag-edge {
+  position: absolute;
+  inset: 0 8px auto;
+  height: 7px;
+}
+.lm-live-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  min-height: 0;
+  width: 100%;
+}
+.lm-app .lm-live-note .lm-live-title {
+  color: inherit;
+  font: inherit;
+  font-size: 1.15em;
+  font-weight: 700;
+  text-align: inherit;
+  border: 0;
+  padding: 0;
+  outline: none;
+  width: 100%;
+}
+.lm-link-preview {
+  opacity: 1;
+}
+.lm-header button[aria-pressed="true"] {
+  background: var(--lm-accent-soft, #ebe2f8);
+  color: var(--lm-accent, #7849ae);
+}
+
+.lm-sticky-art {
+  filter: drop-shadow(0 9px 8px #28202c40) drop-shadow(0 2px 2px #28202c28);
+}
+.lm-sticky-gallery .lm-sticky-surface {
+  filter: drop-shadow(0 4px 2px #231e354a);
+}
+.lm-import-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  min-height: 32px;
+  border: 1px dashed var(--lm-line);
+  border-radius: 9px;
+  color: var(--lm-accent);
+  cursor: pointer;
+}
+.lm-import-tile:focus-within,
+.lm-import-tile:hover {
+  border-color: var(--lm-accent);
+  background: var(--lm-active);
+}
+.lm-import-tile input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.lm-sticky-gallery .lm-import-tile {
+  flex: 0 0 48px;
+}
+.lm-symbol-picker {
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+.lm-sticky-gallery {
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+}
+.lm-symbol-picker .lm-standard {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+.lm-app button.lm-standard {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.lm-standard svg {
+  color: #27814e;
+}
