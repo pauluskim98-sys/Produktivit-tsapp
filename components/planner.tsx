@@ -596,6 +596,8 @@ export default function Planner() {
   const calendarNoteKeys = [anchor, `week:${periodRange(`week:${anchor}`)!.start}`, `month:${periodRange(`month:${anchor}`)!.start}`];
   const calendarNoteKey = calendarNoteKeys[plannerNotePeriod==="day"?0:plannerNotePeriod==="week"?1:2];
   const [noteTabs,setNoteTabs]=useState<string[]>([]);
+  const [selectedNotes,setSelectedNotes]=useState<string[]>([]);
+  useEffect(()=>{if(!selectionMode)setSelectedNotes([]);},[selectionMode]);
   const [activeNote,setActiveNote]=useState<string|null>(null);
   const [freshNote,setFreshNote]=useState<string|null>(null);
   const [notebookOpen,setNotebookOpen]=useState(false);
@@ -634,6 +636,23 @@ export default function Planner() {
       setStorageOpen(true);
     }
   };
+  useEffect(()=>{
+    if(!selectionMode||!selectedNotes.length)return;
+    const keydown=(event:KeyboardEvent)=>{
+      if(!["Delete","Backspace"].includes(event.key)||(event.target instanceof Element&&event.target.closest("input,textarea,select,[contenteditable]")))return;
+      event.preventDefault();event.stopImmediatePropagation();
+      const entries=selectedNotes.filter(key=>notebookFolder(key)).map(key=>[key,state.dayNotes[key]] as const);
+      const apply=async(restore:boolean)=>{
+        await Promise.all(entries.map(([date,value])=>api("/api/notes",{date,content:restore?value:""})));
+        setState(current=>({...current,dayNotes:{...current.dayNotes,...Object.fromEntries(entries.map(([key,value])=>[key,restore?value:""]))}}));
+      };
+      setSelectedNotes([]);
+      if(!entries.length)return;
+      void apply(false).then(()=>record({undo:()=>apply(true),redo:()=>apply(false)})).catch(handleError);
+    };
+    window.addEventListener("keydown",keydown,true);
+    return()=>window.removeEventListener("keydown",keydown,true);
+  },[selectionMode,selectedNotes,state.dayNotes]);
   const areaSelection = useAreaSelection(selectionMode, selectedIds, (ids, keepMode) => {
     setSelectedIds(ids);
     setPicked(ids[0] || null);
@@ -2669,6 +2688,9 @@ export default function Planner() {
                   setNotebookOpen((open)=>!open);
                   if(!notebookOpen && visibleNotesPosition==="below" && !notesPanelRef.current?.closest("main")?.scrollTop)toggleNotes();
                 }}
+                selectionMode={selectionMode} selectedNotes={selectedNotes}
+                onSelectNote={key=>setSelectedNotes(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])}
+                onMoveNotes={(keys,before)=>setNoteTabs(current=>{const next=current.filter(key=>!keys.includes(key));const index=next.indexOf(before);next.splice(index<0?next.length:index,0,...keys);return next;})}
                 values={state.dayNotes} calendarKeys={calendarNoteKeys} pinned={calendarNoteKey} tabs={visibleNoteTabs} active={plannerNoteKey}
                 onOpen={(key)=>{
                   openNote(key);

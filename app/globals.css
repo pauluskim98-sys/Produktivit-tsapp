@@ -7940,3 +7940,5 @@ button[hidden] {
 .line-options button {padding:3px;min-height:25px;}
 .line-options button[aria-pressed=true] {background:var(--lm-active);color:var(--lm-accent);}
 .lm-app .lm-tool-palette {width:max-content;max-width:90vw;}
+
+.notebook-tab[data-selected] {outline:2px solid var(--accent,#547662);outline-offset:1px;border-radius:8px;}

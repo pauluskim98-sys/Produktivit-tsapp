@@ -16,6 +16,10 @@ export function notebookTitle(key: string, value: string) {
 export default function NotebookNavigation({
   open,
   onToggle,
+  selectionMode,
+  selectedNotes,
+  onSelectNote,
+  onMoveNotes,
   values,
   calendarKeys,
   pinned,
@@ -28,6 +32,10 @@ export default function NotebookNavigation({
 }: {
   open: boolean;
   onToggle: () => void;
+  selectionMode: boolean;
+  selectedNotes: string[];
+  onSelectNote: (key: string) => void;
+  onMoveNotes: (keys: string[], before: string) => void;
   values: Record<string, string>;
   calendarKeys: string[];
   pinned: string;
@@ -277,6 +285,31 @@ export default function NotebookNavigation({
             className="notebook-tab"
             key={key}
             data-active={(!map && active === key) || undefined}
+            data-selected={selectedNotes.includes(key) || undefined}
+            draggable={!!notebookFolder(key)}
+            onDragStart={(e) => {
+              e.dataTransfer.setData("application/x-lifemap-note-order", key);
+            }}
+            onDragOver={(e) => {
+              if (
+                e.dataTransfer.types.includes(
+                  "application/x-lifemap-note-order",
+                )
+              )
+                e.preventDefault();
+            }}
+            onDrop={(e) => {
+              const source = e.dataTransfer.getData(
+                "application/x-lifemap-note-order",
+              );
+              if (!source || !tabs.includes(source)) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const moving = selectedNotes.includes(source)
+                ? tabs.filter((item) => selectedNotes.includes(item))
+                : [source];
+              if (!moving.includes(key)) onMoveNotes(moving, key);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               beginSize(key);
@@ -286,6 +319,10 @@ export default function NotebookNavigation({
               type="button"
               aria-current={!map && active === key ? "page" : undefined}
               onClick={() => {
+                if (selectionMode && notebookFolder(key)) {
+                  onSelectNote(key);
+                  return;
+                }
                 setMap(null);
                 onOpen(key);
               }}

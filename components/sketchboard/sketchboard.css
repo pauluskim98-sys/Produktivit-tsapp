@@ -5,7 +5,8 @@
   --lm-muted: #97929f;
   --lm-line: #e9e5ee;
   --lm-accent: #936bd0;
-  --lm-active: #eee5fa;
+  --lm-active: color-mix(in srgb, var(--lm-accent) 15%, var(--lm-panel));
+  --lm-accent-soft: color-mix(in srgb, var(--lm-accent) 20%, transparent);
   position: fixed;
   inset: 0;
   display: flex;
@@ -21,7 +22,7 @@
   --lm-ink: #eeeaf5;
   --lm-muted: #aaa5b8;
   --lm-line: #42404e;
-  --lm-active: #514065;
+  --lm-active: color-mix(in srgb, var(--lm-accent) 32%, var(--lm-panel));
   --lm-accent: #c6a3fa;
 }
 .lm-app * {
@@ -80,7 +81,7 @@
 }
 .lm-header a svg,
 .lm-header strong svg {
-  color: #9681ac;
+  color: var(--lm-accent);
 }
 .lm-header a:hover {
   color: var(--lm-accent);
@@ -118,12 +119,12 @@
 }
 .lm-canvas .react-flow__edge.selected .react-flow__edge-path {
   stroke: var(--lm-accent);
-  filter: drop-shadow(0 0 2px #b9a3db);
+  filter: drop-shadow(0 0 2px var(--lm-accent));
 }
 .lm-canvas .react-flow__selection,
 .lm-canvas .react-flow__nodesselection-rect {
   border: 1px solid var(--lm-accent);
-  background: #a68bd21c;
+  background: var(--lm-accent-soft);
 }
 .lm-canvas .react-flow__attribution {
   font-size: 9px;
@@ -253,7 +254,7 @@
   max-width: 450px;
 }
 .lm-empty svg {
-  color: #b59ecb;
+  color: var(--lm-accent);
 }
 .lm-empty h1 {
   font-size: 24px;
@@ -277,7 +278,7 @@
   position: fixed;
   pointer-events: none;
   border: 1px solid var(--lm-accent);
-  background: #bda5e62a;
+  background: var(--lm-accent-soft);
   border-radius: 8px;
   z-index: 6;
 }
@@ -601,7 +602,7 @@
   background: #8881;
 }
 .lm-form-editor circle {
-  fill: #514264;
+  fill: var(--lm-accent);
   cursor: move;
 }
 .lm-notepad {
@@ -630,7 +631,7 @@
   border-bottom: 1px solid #8883;
 }
 .lm-board-tabs button[aria-current="page"] {
-  background: #9576c22b;
+  background: var(--lm-accent-soft);
 }
 .lm-crosshair
   :is(.react-flow__pane, .react-flow__node, .react-flow__selection) {
@@ -799,7 +800,7 @@
 }
 .lm-draft {
   border-radius: 0;
-  border: 1.5px solid #a58bc7;
+  border: 1.5px solid var(--lm-accent);
 }
 .lm-draft[data-preview="rounded"] {
   border-radius: 24px;
@@ -1959,7 +1960,7 @@
   border-radius: 8px !important;
 }
 .lm-representation-frame:hover {
-  background: #9360c91e !important;
+  background: var(--lm-accent-soft) !important;
 }
 
 .lm-shape-content {
@@ -2096,5 +2097,123 @@
   cursor: pointer;
 }
 .lm-border-menu button:is(:hover, [aria-pressed="true"]) {
-  background: #eee7f7;
+  background: color-mix(in srgb, var(--lm-accent) 16%, white);
+}
+
+.lm-selection-marquee {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border: 1px solid var(--lm-accent);
+  background: var(--lm-accent-soft);
+}
+.lm-app .lm-teleporter-button[data-selected] {
+  outline: 2px solid var(--lm-accent);
+  outline-offset: 3px;
+  background: var(--lm-active);
+}
+.lm-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--lm-accent) !important;
+}
+
+.lm-app input:is([type="range"], [type="checkbox"], [type="radio"]) {
+  accent-color: var(--lm-accent);
+}
+.lm-live-note :focus::placeholder {
+  color: transparent;
+  opacity: 0;
+}
+.lm-live-note :is(input, textarea) {
+  caret-color: var(--lm-ink);
+}
+.lm-native-hand .react-flow__pane {
+  cursor: grab !important;
+}
+.lm-native-hand .react-flow__pane:active {
+  cursor: grabbing !important;
+}
+.lm-canvas .react-flow__attribution:empty {
+  display: none;
+}
+.lm-toolbar > .lm-dock-grip {
+  width: 23px;
+  padding: 1px;
+  min-height: 23px;
+  cursor: grab;
+  touch-action: none;
+  color: var(--lm-muted);
+}
+.lm-toolbar > .lm-dock-grip:active {
+  cursor: grabbing;
+}
+.lm-bottom[data-dock="top"] .lm-toolbar {
+  position: fixed;
+  top: 67px;
+  bottom: auto;
+}
+.lm-bottom[data-dock="top"] .lm-tool-options {
+  position: fixed;
+  top: 124px;
+  bottom: auto;
+}
+.lm-bottom:is([data-dock="left"], [data-dock="right"]) .lm-toolbar {
+  position: fixed;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  flex-direction: column;
+  max-height: calc(100vh - 115px);
+  overflow-y: auto;
+}
+.lm-bottom[data-dock="left"] .lm-toolbar {
+  left: 10px;
+  right: auto;
+}
+.lm-bottom[data-dock="right"] .lm-toolbar {
+  right: 10px;
+  left: auto;
+}
+.lm-bottom:is([data-dock="left"], [data-dock="right"]) .lm-toolbar-separator {
+  flex: 0 0 1px;
+  width: 24px;
+  height: 1px;
+}
+.lm-bottom:is([data-dock="left"], [data-dock="right"]) .lm-toolbar-drop {
+  left: 5px;
+  right: 5px;
+  width: auto;
+  height: 0;
+  bottom: auto;
+}
+.lm-bottom:is([data-dock="left"], [data-dock="right"]) .lm-toolbar-drop::after {
+  top: 0;
+  bottom: auto;
+  left: 0;
+  right: 0;
+  width: auto;
+  height: 2px;
+}
+.lm-bottom[data-dock="left"] .lm-tool-options {
+  position: fixed;
+  left: 65px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+.lm-bottom[data-dock="right"] .lm-tool-options {
+  position: fixed;
+  left: auto;
+  right: 65px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+.lm-audio-menu {
+  display: flex;
+  gap: 4px;
+}
+.lm-media-card audio {
+  width: 100%;
+  max-width: 100%;
+  min-height: 36px;
 }

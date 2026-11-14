@@ -91,6 +91,7 @@ export function BoardEdge(props: EdgeProps) {
   const data = props.data as
     | {
         route?: string;
+        moveSelected?: (dx: number, dy: number) => void;
         sourceRotation?: number;
         targetRotation?: number;
         sourcePoint?: { x: number; y: number };
@@ -121,6 +122,8 @@ export function BoardEdge(props: EdgeProps) {
     },
   );
   const line = useRef<SVGPathElement>(null);
+  const moveStart = useRef<{ x: number; y: number } | null>(null);
+  const moved = useRef(false);
   useLayoutEffect(() => {
     const middle = line.current?.getPointAtLength(
       line.current.getTotalLength() / 2,
@@ -204,6 +207,33 @@ export function BoardEdge(props: EdgeProps) {
         stroke="transparent"
         strokeWidth={20}
         pointerEvents="stroke"
+        onPointerDown={(event) => {
+          moved.current = false;
+          if (event.button !== 0 || !data?.moveSelected) return;
+          event.stopPropagation();
+          moveStart.current = { x: event.clientX, y: event.clientY };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerUp={(event) => {
+          const start = moveStart.current;
+          moveStart.current = null;
+          if (!start) return;
+          const dx = event.clientX - start.x,
+            dy = event.clientY - start.y;
+          if (Math.hypot(dx, dy) < 4) return;
+          moved.current = true;
+          data?.moveSelected?.(dx, dy);
+        }}
+        onPointerCancel={() => {
+          moveStart.current = null;
+          moved.current = false;
+        }}
+        onClickCapture={(event) => {
+          if (moved.current) {
+            event.stopPropagation();
+            moved.current = false;
+          }
+        }}
         onClick={
           data?.connectTo
             ? (event) => {

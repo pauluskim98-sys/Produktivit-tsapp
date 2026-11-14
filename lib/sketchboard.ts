@@ -40,7 +40,11 @@ export type ShapeData = {
   group?: string;
   curved?: boolean;
   rotation?: number;
-  media?: { kind: "video" | "document" | "link"; url: string; name: string };
+  media?: {
+    kind: "video" | "document" | "link" | "audio";
+    url: string;
+    name: string;
+  };
   textBackground?: string;
   kind: ShapeKind;
   text: string;
@@ -106,7 +110,7 @@ export function validMedia(
   if (!value || typeof value !== "object") return false;
   const { kind, url, name } = value as NonNullable<ShapeData["media"]>;
   if (
-    !["video", "document", "link"].includes(kind) ||
+    !["video", "document", "link", "audio"].includes(kind) ||
     typeof url !== "string" ||
     typeof name !== "string" ||
     name.length > 255
@@ -118,10 +122,14 @@ export function validMedia(
       url.length <= 6_000_000 &&
       (kind === "video"
         ? /^data:video\/(mp4|webm);base64,[A-Za-z0-9+/]+=*$/.test(url)
-        : kind === "document" &&
-          /^data:application\/(pdf|octet-stream);base64,[A-Za-z0-9+/]+=*$/.test(
-            url,
-          ))
+        : kind === "audio"
+          ? /^data:audio\/(mpeg|mp3|mp4|x-m4a|aac|wav|wave|x-wav|ogg|opus|webm|flac|x-flac);base64,[A-Za-z0-9+/]+=*$/.test(
+              url,
+            )
+          : kind === "document" &&
+            /^data:application\/(pdf|octet-stream);base64,[A-Za-z0-9+/]+=*$/.test(
+              url,
+            ))
     );
   try {
     return (

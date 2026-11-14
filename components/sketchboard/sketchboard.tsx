@@ -37,6 +37,10 @@ import {
   Circle,
   Link2,
   Zap,
+  AudioLines,
+  Mic,
+  Grip,
+  StopCircle,
   RotateCw,
   Brush,
   Highlighter,
@@ -516,6 +520,7 @@ const defaults = {
   hidden: ["text"] as string[],
   toolbarVersion: 1,
   toolbarOrder: [] as string[],
+  toolbarDock: "bottom" as "bottom" | "top" | "left" | "right",
   recent: initialPoints,
   pinned: null as PolygonPoint[] | null,
   recentForms: [] as PolygonPoint[][],
@@ -1402,7 +1407,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         minHeight={50}
         maxWidth={10000}
         maxHeight={10000}
-        color="#9774d1"
+        color="var(--lm-accent)"
         onResizeStart={() => edit.checkpoint()}
       />
       {!editing &&
@@ -1819,7 +1824,14 @@ function MediaCard({
         }
       }}
     >
-      {playable ? (
+      {media.kind === "audio" ? (
+        <audio
+          className="nodrag nopan"
+          controls
+          preload="metadata"
+          src={media.url}
+        />
+      ) : playable ? (
         <video
           className="nodrag nopan"
           controls={playing}
@@ -2153,6 +2165,76 @@ function BoardEditor() {
   const [toolMenu, setToolMenu] = useState<string | null>(null);
   const shapeHit = useRef<string | null>(null);
   const [selectedTabs, setSelectedTabs] = useState<string[]>([]);
+  const [selectedJumps, setSelectedJumps] = useState<string[]>([]);
+  const [selectionBox, setSelectionBox] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  const selectionStart = useRef<Point | null>(null);
+  const selectionSuppressed = useRef(false);
+  const selectableLineNodes = (snapshot: Board, lines: string[]) => {
+    const ids = new Set<string>(),
+      seen = new Set<string>();
+    const visit = (id: string) => {
+      if (!id.startsWith("line:")) {
+        ids.add(id);
+        return;
+      }
+      if (seen.has(id)) return;
+      seen.add(id);
+      const edge = snapshot.edges.find((edge) => edge.id === id.slice(5));
+      if (edge) {
+        visit(edge.source);
+        visit(edge.target);
+      }
+    };
+    for (const id of lines) visit("line:" + id);
+    return ids;
+  };
+  const moveSelection = (dx: number, dy: number) => {
+    const linked = selectableLineNodes(
+      board,
+      selectedEdges.map((edge) => edge.id),
+    );
+    const ids = new Set([...linked, ...members.map((node) => node.id)]);
+    if (!ids.size && !selectedJumps.length) return;
+    checkpoint();
+    setBoard((b) => ({
+      ...b,
+      nodes: b.nodes.map((node) =>
+        ids.has(node.id)
+          ? {
+              ...node,
+              position: { x: node.position.x + dx, y: node.position.y + dy },
+            }
+          : node.data.jumps?.some((jump) => selectedJumps.includes(jump.id))
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  jumps: node.data.jumps.map((jump) =>
+                    selectedJumps.includes(jump.id)
+                      ? {
+                          ...jump,
+                          sourceOffset: {
+                            x:
+                              (jump.sourceOffset?.x ?? (node.width ?? 0) / 2) +
+                              dx,
+                            y:
+                              (jump.sourceOffset?.y ??
+                                (node.height ?? 0) - 10) + dy,
+                          },
+                        }
+                      : jump,
+                  ),
+                },
+              }
+            : node,
+      ),
+    }));
+  };
   const [tabs, setTabs] = useState<{ id: string; title: string }[]>(() => {
     try {
       return (
@@ -2518,6 +2600,13 @@ function BoardEditor() {
     teleportDrag.current = null;
     event.currentTarget.style.transform = "";
     if (!drag || !teleportMoved.current) return;
+    if (tool === "select" && selectedJumps.includes(jump.id) && !drag.resize) {
+      moveSelection(
+        drag.nextOffset.x - drag.offset.x,
+        drag.nextOffset.y - drag.offset.y,
+      );
+      return;
+    }
     const offset =
       node.data.kind === "jump-anchor" || jump.sourceGroup
         ? drag.nextOffset
@@ -2574,8 +2663,83 @@ function BoardEditor() {
     return smoothStroke(points);
   };
   const toolbar = useRef<HTMLElement>(null);
+  const dockDrag = useRef<{ x: number; y: number } | null>(null);
+  const verticalToolbar =
+    preferences.toolbarDock === "left" || preferences.toolbarDock === "right";
+  const [audioMenu, setAudioMenu] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const audioSession = useRef(0);
+  useEffect(
+    () => () => {
+      audioSession.current++;
+      const active = recorder.current;
+      if (active) {
+        active.onstop = null;
+        if (active.state !== "inactive") active.stop();
+        active.stream.getTracks().forEach((track) => track.stop());
+      }
+    },
+    [],
+  );
+  const recordAudio = async () => {
+    if (recorder.current?.state === "recording") {
+      recorder.current.stop();
+      return;
+    }
+    if (recording) return;
+    const token = ++audioSession.current;
+    setRecording(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (token !== audioSession.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      let active: MediaRecorder;
+      try {
+        active = new MediaRecorder(stream);
+      } catch (error) {
+        stream.getTracks().forEach((track) => track.stop());
+        throw error;
+      }
+      const chunks: Blob[] = [];
+      let total = 0;
+      recorder.current = active;
+      active.ondataavailable = (event) => {
+        chunks.push(event.data);
+        total += event.data.size;
+        if (total >= 4_000_000 && active.state === "recording") active.stop();
+      };
+      active.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setRecording(false);
+        recorder.current = null;
+        if (!chunks.length) return;
+        const type = (active.mimeType || chunks[0].type || "audio/webm").split(
+          ";",
+        )[0];
+        handleMediaFile(new File(chunks, "Aufnahme", { type }), "audio");
+      };
+      active.onerror = () => {
+        if (active.state !== "inactive") active.stop();
+        else {
+          stream.getTracks().forEach((track) => track.stop());
+          setRecording(false);
+          recorder.current = null;
+        }
+        setMediaError("Die Aufnahme wurde unterbrochen.");
+      };
+      active.start(500);
+    } catch {
+      setRecording(false);
+      setMediaError(
+        "Das Mikrofon ist nicht verfügbar oder wurde nicht freigegeben.",
+      );
+    }
+  };
   const fileInput = useRef<HTMLInputElement>(null);
-  const mediaKind = useRef<"image" | "video" | "document">("image");
+  const mediaKind = useRef<"image" | "video" | "document" | "audio">("image");
   const [importNotes, setImportNotes] = useState<Record<string, string>>({});
   const [mediaError, setMediaError] = useState("");
   const addMedia = (media: NonNullable<ShapeData["media"]>) => {
@@ -2651,7 +2815,9 @@ function BoardEditor() {
         ? "image/png,image/jpeg,image/webp,image/gif"
         : kind === "video"
           ? "video/mp4,video/webm"
-          : ".pdf,.docx,.xlsx,.pptx,.txt";
+          : kind === "audio"
+            ? "audio/*,.mp3,.m4a,.wav,.ogg,.webm,.flac,.aac"
+            : ".pdf,.docx,.xlsx,.pptx,.txt";
     input.accept = accept;
     const picker = (
       window as Window & {
@@ -2934,7 +3100,8 @@ function BoardEditor() {
     }));
   };
   const remove = () => {
-    if (!selected.length && !selectedEdges.length) return;
+    if (!selected.length && !selectedEdges.length && !selectedJumps.length)
+      return;
     checkpoint();
     setBoard((b) => {
       const gone = new Set(members.map((n) => n.id));
@@ -2943,7 +3110,28 @@ function BoardEditor() {
           gone.add("line:" + e.id);
       return {
         ...b,
-        nodes: b.nodes.filter((n) => !gone.has(n.id)),
+        nodes: b.nodes
+          .filter(
+            (n) =>
+              !gone.has(n.id) &&
+              !(
+                n.data.kind === "jump-anchor" &&
+                n.data.jumps?.every((jump) => selectedJumps.includes(jump.id))
+              ),
+          )
+          .map((n) =>
+            n.data.jumps?.some((jump) => selectedJumps.includes(jump.id))
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    jumps: n.data.jumps.filter(
+                      (jump) => !selectedJumps.includes(jump.id),
+                    ),
+                  },
+                }
+              : n,
+          ),
         edges: b.edges.filter((e) => !gone.has("line:" + e.id)),
       };
     });
@@ -3300,16 +3488,48 @@ function BoardEditor() {
         else if (k === "y") undo(true);
         else if (k === "c") copy();
         else if (k === "d") paste({ nodes: selected, edges: board.edges });
-        else
+        else {
           setBoard((b) => ({
             ...b,
-            nodes: b.nodes.map((n) => ({ ...n, selected: true })),
-            edges: b.edges.map((e) => ({ ...e, selected: true })),
+            nodes: b.nodes.map((n) => ({
+              ...n,
+              selected:
+                n.data.kind !== "connection-anchor" &&
+                !collapsedGroups.has(n.data.group ?? ""),
+            })),
+            edges: b.edges.map((edge) => ({ ...edge, selected: true })),
           }));
+          if (tool === "select") {
+            setSelectedTabs(
+              tabs.map((tab) => tab.id).filter((id) => id !== "main"),
+            );
+            setSelectedJumps(
+              board.nodes.flatMap(
+                (node) => node.data.jumps?.map((jump) => jump.id) ?? [],
+              ),
+            );
+          }
+        }
+        return;
+      }
+      if (
+        tool === "select" &&
+        !mod &&
+        ["arrowleft", "arrowright", "arrowup", "arrowdown"].includes(k) &&
+        (members.length || selectedEdges.length || selectedJumps.length)
+      ) {
+        e.preventDefault();
+        const n = (e.shiftKey ? 20 : 5) / board.viewport.zoom;
+        moveSelection(
+          k === "arrowleft" ? -n : k === "arrowright" ? n : 0,
+          k === "arrowup" ? -n : k === "arrowdown" ? n : 0,
+        );
         return;
       }
       if (k === "delete" || k === "backspace") {
         e.preventDefault();
+        remove();
+        setSelectedJumps([]);
         if (tool === "select" && selectedTabs.length) {
           void (async () => {
             if (!(await storage.finish())) return;
@@ -3321,7 +3541,7 @@ function BoardEditor() {
             if (selectedTabs.includes(currentTab))
               location.assign("/lifemap/board?tab=" + next[0].id);
           })();
-        } else remove();
+        }
       }
       if (k === " ") {
         e.preventDefault();
@@ -3850,7 +4070,7 @@ function BoardEditor() {
     x: number;
   } | null>(null);
   const dragGhost = useRef<HTMLCanvasElement | null>(null);
-  const dragSlot = (clientX: number) => {
+  const dragSlot = (clientX: number, clientY: number) => {
     const items = [
       ...(toolbar.current?.querySelectorAll<HTMLElement>(
         ":scope > [data-toolbar-id]",
@@ -3858,7 +4078,9 @@ function BoardEditor() {
     ];
     const index = items.findIndex((el) => {
       const bounds = el.getBoundingClientRect();
-      return clientX < bounds.left + bounds.width / 2;
+      return verticalToolbar
+        ? clientY < bounds.top + bounds.height / 2
+        : clientX < bounds.left + bounds.width / 2;
     });
     return index < 0 ? items.length : index;
   };
@@ -3935,9 +4157,113 @@ function BoardEditor() {
     setPreview(null);
     setDrawPolygon(null);
     setGroupPicking(false);
+    setSelectedJumps([]);
+    setSelectedTabs([]);
   };
   return (
     <main
+      onPointerDownCapture={(event) => {
+        if (
+          tool !== "select" ||
+          event.button !== 0 ||
+          !(event.target instanceof Element) ||
+          !event.target.closest(".react-flow__pane,.lm-board-tabs") ||
+          event.target.closest(
+            "button,input,.react-flow__node,.react-flow__edge",
+          )
+        )
+          return;
+        selectionStart.current = { x: event.clientX, y: event.clientY };
+      }}
+      onPointerMoveCapture={(event) => {
+        const start = selectionStart.current;
+        if (!start || !event.buttons) return;
+        const w = Math.abs(event.clientX - start.x),
+          h = Math.abs(event.clientY - start.y);
+        if (w + h < 6) return;
+        setSelectionBox({
+          x: Math.min(start.x, event.clientX),
+          y: Math.min(start.y, event.clientY),
+          w,
+          h,
+        });
+      }}
+      onPointerUpCapture={(event) => {
+        const start = selectionStart.current;
+        selectionStart.current = null;
+        setSelectionBox(null);
+        if (
+          !start ||
+          Math.abs(event.clientX - start.x) +
+            Math.abs(event.clientY - start.y) <
+            6
+        )
+          return;
+        const left = Math.min(start.x, event.clientX),
+          right = Math.max(start.x, event.clientX),
+          top = Math.min(start.y, event.clientY),
+          bottom = Math.max(start.y, event.clientY);
+        const overlaps = (item: Element) => {
+          const r = item.getBoundingClientRect();
+          return (
+            r.left <= right &&
+            r.right >= left &&
+            r.top <= bottom &&
+            r.bottom >= top &&
+            r.width + r.height > 0
+          );
+        };
+        const ids = (selector: string, key: string) =>
+          Array.from(event.currentTarget.querySelectorAll(selector))
+            .filter(overlaps)
+            .map((item) => item.getAttribute(key));
+        const nodes = ids(".react-flow__node-shape", "data-id"),
+          jumps = ids("[data-lm-jump-id]", "data-lm-jump-id"),
+          tabIds = ids("[data-lm-tab-id]", "data-lm-tab-id");
+        const lines = Array.from(
+          event.currentTarget.querySelectorAll<SVGPathElement>(
+            ".react-flow__edge-path",
+          ),
+        )
+          .filter((path) => {
+            if (!overlaps(path)) return false;
+            const m = path.getScreenCTM();
+            if (!m) return false;
+            const len = path.getTotalLength();
+            for (let i = 0; i <= 64; i++) {
+              const p = path
+                .getPointAtLength((len * i) / 64)
+                .matrixTransform(m);
+              if (p.x >= left && p.x <= right && p.y >= top && p.y <= bottom)
+                return true;
+            }
+            return false;
+          })
+          .map((path) => path.closest("[data-id]")?.getAttribute("data-id"));
+        setBoard((b) => ({
+          ...b,
+          nodes: b.nodes.map((n) => ({
+            ...n,
+            selected:
+              n.selected ||
+              (nodes.includes(n.id) && n.data.kind !== "connection-anchor"),
+          })),
+          edges: b.edges.map((edge) => ({
+            ...edge,
+            selected: edge.selected || lines.includes(edge.id),
+          })),
+        }));
+        setSelectedJumps((old) => [
+          ...new Set([...old, ...jumps.filter((id): id is string => !!id)]),
+        ]);
+        setSelectedTabs((old) => [
+          ...new Set([...old, ...tabIds.filter((id): id is string => !!id)]),
+        ]);
+        selectionSuppressed.current = true;
+        window.setTimeout(() => {
+          selectionSuppressed.current = false;
+        }, 0);
+      }}
       onContextMenuCapture={(event) => {
         const hit = event.target as Element;
         if (
@@ -3957,6 +4283,11 @@ function BoardEditor() {
         fitVisibleBoard();
       }}
       onClickCapture={(e) => {
+        if (selectionSuppressed.current) {
+          e.stopPropagation();
+          selectionSuppressed.current = false;
+          return;
+        }
         const hit = e.target as Element;
         if (
           !hit.closest(
@@ -4073,6 +4404,7 @@ function BoardEditor() {
               <div
                 className="lm-tab-item"
                 key={id}
+                data-lm-tab-id={id === "main" ? undefined : id}
                 data-selected={selectedTabs.includes(id) || undefined}
                 draggable={renaming !== id}
                 onDragStart={(e) => {
@@ -4093,13 +4425,16 @@ function BoardEditor() {
                     const source = JSON.parse(
                       e.dataTransfer.getData("application/x-lifemap-tab"),
                     ).id;
-                    const item = tabs.find((t) => t.id === source);
-                    if (!item || source === id) return;
-                    const next = tabs.filter((t) => t.id !== source);
+                    const moving = selectedTabs.includes(source)
+                      ? selectedTabs
+                      : [source];
+                    const items = tabs.filter((tab) => moving.includes(tab.id));
+                    if (!items.length || moving.includes(id)) return;
+                    const next = tabs.filter((t) => !moving.includes(t.id));
                     next.splice(
                       next.findIndex((t) => t.id === id),
                       0,
-                      item,
+                      ...items,
                     );
                     saveTabs(next);
                   } catch {}
@@ -4129,6 +4464,7 @@ function BoardEditor() {
                         return;
                       }
                       if (tool === "select") {
+                        if (id === "main") return;
                         setSelectedTabs((t) =>
                           t.includes(id)
                             ? t.filter((s) => s !== id)
@@ -4445,7 +4781,11 @@ function BoardEditor() {
                 ]);
             }}
           >
-            <polygon points={form.join(" ")} fill={fill} stroke="#514264" />
+            <polygon
+              points={form.join(" ")}
+              fill={fill}
+              stroke="var(--lm-accent)"
+            />
             {form.map(([x, y], i) => (
               <circle
                 key={i}
@@ -4512,6 +4852,7 @@ function BoardEditor() {
       )}
       <div
         ref={host}
+        onPointerLeave={() => setLinkHover(null)}
         onPointerMove={(e) => {
           const target = document
             .elementsFromPoint(e.clientX, e.clientY)
@@ -4562,7 +4903,7 @@ function BoardEditor() {
             "--lm-board-zoom": board.viewport.zoom,
           } as CSSProperties
         }
-        className={`lm-canvas lm-pattern-${preferences.pattern} ${tool === "select" || tool === "paint" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}${tool === "jump" ? " lm-jump-mode" : ""}`}
+        className={`lm-canvas ${["hand", "write"].includes(tool) ? "lm-native-hand" : ""} lm-pattern-${preferences.pattern} ${tool === "select" || tool === "paint" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}${tool === "jump" ? " lm-jump-mode" : ""}`}
         onDoubleClick={(e) => {
           if ((e.target as HTMLElement).classList.contains("react-flow__pane"))
             setQuick({ x: e.clientX, y: e.clientY });
@@ -4670,6 +5011,14 @@ function BoardEditor() {
                   ...e.data,
                   startLink: previewEdgeIds.has(e.id) ? undefined : startLink,
                   route: e.type,
+                  moveSelected:
+                    tool === "select" && e.selected
+                      ? (dx: number, dy: number) =>
+                          moveSelection(
+                            dx / board.viewport.zoom,
+                            dy / board.viewport.zoom,
+                          )
+                      : undefined,
                   sourceRotation:
                     board.nodes.find(
                       (n) =>
@@ -4740,6 +5089,22 @@ function BoardEditor() {
               }))}
               edgeTypes={edgeTypes}
               onEdgeClick={(_, e) => {
+                if (tool === "select") {
+                  setBoard((b) => ({
+                    ...b,
+                    edges: b.edges.map((edge) =>
+                      edge.id === e.id
+                        ? {
+                            ...edge,
+                            selected: !selectedEdges.some(
+                              (old) => old.id === e.id,
+                            ),
+                          }
+                        : edge,
+                    ),
+                  }));
+                  return;
+                }
                 if (
                   tool === "connect" &&
                   connectFrom.current &&
@@ -4769,15 +5134,7 @@ function BoardEditor() {
                     changes.filter(
                       (change) =>
                         !(
-                          (groupPicking ||
-                            confirmGroup ||
-                            (tool === "select" &&
-                              change.type === "select" &&
-                              !change.selected &&
-                              selected.length >= 2 &&
-                              changes.every(
-                                (c) => c.type === "select" && !c.selected,
-                              ))) &&
+                          (groupPicking || tool === "select" || confirmGroup) &&
                           change.type === "select"
                         ) &&
                         (!("id" in change) ||
@@ -4852,6 +5209,19 @@ function BoardEditor() {
               }}
               onSelectionDragStart={checkpoint}
               onNodeClick={(event, node) => {
+                if (tool === "select" && !groupPicking) {
+                  setBoard((b) => ({
+                    ...b,
+                    nodes: b.nodes.map((n) => ({
+                      ...n,
+                      selected:
+                        n.id === node.id
+                          ? !selected.some((old) => old.id === n.id)
+                          : selected.some((old) => old.id === n.id),
+                    })),
+                  }));
+                  return;
+                }
                 if (representation) {
                   if (node.data.group) chooseRepresentation(node.data.group);
                   return;
@@ -5022,7 +5392,7 @@ function BoardEditor() {
                 !editing && (tool === "select" || tool === "connect")
               }
               elementsSelectable={!shapeTool && tool !== "paint"}
-              selectionOnDrag={tool === "select"}
+              selectionOnDrag={false}
               selectionMode={SelectionMode.Partial}
               multiSelectionKeyCode="Shift"
               selectionKeyCode={null}
@@ -5183,7 +5553,7 @@ function BoardEditor() {
                   ref={i === 0 ? polygonStart : undefined}
                   r={i === 0 ? 7 : 4}
                   fill="#fff"
-                  stroke="#6e55a5"
+                  stroke="var(--lm-accent)"
                   strokeWidth={2}
                 />
               ))}
@@ -5796,7 +6166,7 @@ function BoardEditor() {
                     0,
                   )}
                   fill={fill}
-                  stroke="#a58bc7"
+                  stroke="var(--lm-accent)"
                   vectorEffect="non-scaling-stroke"
                 />
               </svg>
@@ -5917,6 +6287,8 @@ function BoardEditor() {
                 key={jump.id}
                 type="button"
                 className="lm-placed-jump lm-teleporter-button"
+                data-lm-jump-id={jump.id}
+                data-selected={selectedJumps.includes(jump.id) || undefined}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -5955,6 +6327,15 @@ function BoardEditor() {
                   event.currentTarget.style.scale = String(jump.size ?? 1);
                 }}
                 onClick={(event) => {
+                  if (tool === "select") {
+                    if (!teleportMoved.current)
+                      setSelectedJumps((old) =>
+                        old.includes(jump.id)
+                          ? old.filter((id) => id !== jump.id)
+                          : [...old, jump.id],
+                      );
+                    return;
+                  }
                   if (
                     (event.detail === 0 ||
                       (!teleportMoved.current && !teleportResize.current)) &&
@@ -5976,6 +6357,18 @@ function BoardEditor() {
             );
           }),
         )}
+      {selectionBox && (
+        <div
+          className="lm-selection-marquee"
+          aria-hidden
+          style={{
+            left: selectionBox.x,
+            top: selectionBox.y,
+            width: selectionBox.w,
+            height: selectionBox.h,
+          }}
+        />
+      )}
       {teleportFormat && formattedTeleport && formattedTeleportNode && (
         <StoredPanel
           name="teleporter"
@@ -6250,9 +6643,15 @@ function BoardEditor() {
           <div
             ref={borderMenu}
             className="lm-border-menu"
+
             role="group"
             aria-label="Randart"
-            style={borderPicker}
+            style={
+              {
+                ...borderPicker,
+                "--lm-accent": preferences.accent,
+              } as CSSProperties
+            }
           >
             {(
               [
@@ -7161,7 +7560,7 @@ function BoardEditor() {
           </button>
         </div>
       )}
-      <div className="lm-bottom">
+      <div className="lm-bottom" data-dock={preferences.toolbarDock}>
         <div className="lm-history">
           <button
             aria-label="Rückgängig"
@@ -7766,6 +8165,30 @@ function BoardEditor() {
                 >
                   <Link2 size={19} />
                 </button>
+                <button
+                  type="button"
+                  title="Audio"
+                  aria-label="Audio"
+                  aria-expanded={audioMenu}
+                  onClick={() => setAudioMenu((open) => !open)}
+                >
+                  <AudioLines size={19} />
+                </button>
+                {(audioMenu || recording) && (
+                  <div className="lm-audio-menu">
+                    <button type="button" onClick={() => void recordAudio()}>
+                      {recording ? <StopCircle size={16} /> : <Mic size={16} />}{" "}
+                      {recording ? "Aufnahme beenden" : "Aufnehmen"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={recording}
+                      onClick={() => void pickMedia("audio")}
+                    >
+                      Datei öffnen
+                    </button>
+                  </div>
+                )}
                 {mediaError && <span role="alert">{mediaError}</span>}
               </div>
             )}
@@ -7812,7 +8235,7 @@ function BoardEditor() {
               )
             ) {
               e.preventDefault();
-              const slot = dragSlot(e.clientX);
+              const slot = dragSlot(e.clientX, e.clientY);
               const nav = e.currentTarget.getBoundingClientRect();
               const items = e.currentTarget.querySelectorAll<HTMLElement>(
                 ":scope > [data-toolbar-id]",
@@ -7821,8 +8244,15 @@ function BoardEditor() {
                 after = items[slot - 1]?.getBoundingClientRect();
               setToolbarDrop({
                 slot,
-                x:
-                  before && after
+                x: verticalToolbar
+                  ? before && after
+                    ? (before.top + after.bottom) / 2 - nav.top
+                    : before
+                      ? before.top - nav.top - 2
+                      : after
+                        ? after.bottom - nav.top + 2
+                        : 5
+                  : before && after
                     ? (before.left + after.right) / 2 - nav.left
                     : before
                       ? before.left - nav.left - 2
@@ -7837,7 +8267,7 @@ function BoardEditor() {
             const moved = e.dataTransfer.getData("application/x-lifemap-tool");
             if (moved && visibleToolbar.includes(moved)) {
               e.preventDefault();
-              const slot = dragSlot(e.clientX);
+              const slot = dragSlot(e.clientX, e.clientY);
               const next = visibleToolbar.filter((id) => id !== moved);
               next.splice(
                 slot - (visibleToolbar.indexOf(moved) < slot ? 1 : 0),
@@ -7851,7 +8281,7 @@ function BoardEditor() {
             const name = e.dataTransfer.getData("application/x-lifemap-symbol");
             if (name && symbolNames.includes(name)) {
               e.preventDefault();
-              attachSymbol(name, dragSlot(e.clientX));
+              attachSymbol(name, dragSlot(e.clientX, e.clientY));
               return;
             }
             if (!raw) return;
@@ -7863,7 +8293,7 @@ function BoardEditor() {
             ) {
               const order = [...visibleToolbar];
               order.splice(
-                dragSlot(e.clientX),
+                dragSlot(e.clientX, e.clientY),
                 0,
                 "form:" + JSON.stringify(points),
               );
@@ -7875,6 +8305,49 @@ function BoardEditor() {
             }
           }}
         >
+          <button
+            type="button"
+            className="lm-dock-grip"
+            aria-label="Werkzeugleiste an einen Rand ziehen"
+            title="Werkzeugleiste verschieben"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              dockDrag.current = { x: e.clientX, y: e.clientY };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerUp={(e) => {
+              const start = dockDrag.current;
+              dockDrag.current = null;
+              if (
+                !start ||
+                Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6
+              )
+                return;
+              const edges = [
+                ["top", e.clientY],
+                ["bottom", innerHeight - e.clientY],
+                ["left", e.clientX],
+                ["right", innerWidth - e.clientX],
+              ] as const;
+              const [toolbarDock] = [...edges].sort((a, b) => a[1] - b[1])[0];
+              toolbarPreferences({ toolbarDock });
+            }}
+            onKeyDown={(e) => {
+              const dock = {
+                ArrowUp: "top",
+                ArrowDown: "bottom",
+                ArrowLeft: "left",
+                ArrowRight: "right",
+              }[e.key] as typeof preferences.toolbarDock | undefined;
+              if (dock) {
+                e.stopPropagation();
+                e.preventDefault();
+                toolbarPreferences({ toolbarDock: dock });
+              }
+            }}
+          >
+            <Grip size={15} />
+          </button>
           {visibleToolbar.map((id) => (
             <Fragment key={id}>
               {id === firstStyleTool && (
@@ -7886,7 +8359,11 @@ function BoardEditor() {
           {toolbarDrop && (
             <i
               className="lm-toolbar-drop"
-              style={{ left: toolbarDrop.x }}
+              style={
+                verticalToolbar
+                  ? { top: toolbarDrop.x }
+                  : { left: toolbarDrop.x }
+              }
               aria-hidden
             />
           )}
