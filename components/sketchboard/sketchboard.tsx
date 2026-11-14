@@ -34,7 +34,7 @@ import {
   Square,
   RectangleHorizontal,
   Circle,
-  Ellipsis,
+  Link2,
   Brush,
   Highlighter,
   Pencil,
@@ -84,6 +84,7 @@ import {
   type Board,
   connectionWeight,
   type UnderlineStyle,
+  type BoardJump,
   type ShapeData,
   type ShapeKind,
   type ShapeNode,
@@ -104,6 +105,7 @@ import "@xyflow/react/dist/style.css";
 import "./sketchboard.css";
 
 type Tool =
+  | "jump"
   | "eraser"
   | "symbols"
   | "write"
@@ -374,6 +376,27 @@ const defaults = {
   recentForms: [] as PolygonPoint[][],
   pinnedForms: [] as PolygonPoint[][],
 };
+function OvalIcon({
+  size = 21,
+  strokeWidth = 1.6,
+}: {
+  size?: number;
+  strokeWidth?: number;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      aria-hidden
+    >
+      <ellipse cx="12" cy="12" rx="9" ry="6" />
+    </svg>
+  );
+}
 function FreeformIcon({
   size = 21,
   strokeWidth = 1.6,
@@ -433,11 +456,12 @@ const tools = [
     Icon: RectangleHorizontal,
   },
   { id: "circle", label: "Kreis", Icon: Circle },
-  { id: "ellipse", label: "Oval (O)", Icon: Ellipsis },
+  { id: "ellipse", label: "Oval (O)", Icon: OvalIcon },
   { id: "diamond", label: "Raute", Icon: Diamond },
   { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
   { id: "text", label: "Text (T)", Icon: Type },
   { id: "connect", label: "Verbindung (L)", Icon: Waypoints },
+  { id: "jump", label: "Sprungbutton", Icon: Link2 },
   { id: "image", label: "Medium einfügen", Icon: ImagePlus },
 ] as const;
 function StoredPanel({
@@ -1011,6 +1035,8 @@ const EditContext = createContext({
   patch: (_id: string, _data: Partial<ShapeData>) => {},
   checkpoint: () => {},
   link: (_id: string) => {},
+  inspect: (_id: string): boolean => false,
+  jump: (_jump: BoardJump) => {},
 });
 function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   const edit = useContext(EditContext),
@@ -1087,6 +1113,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       data-paper={data.paper ?? "plain"}
       onDoubleClick={(e) => {
         e.stopPropagation();
+        if (edit.inspect(id)) return;
         if (!["image", "ink", "media", "symbol"].includes(data.kind))
           edit.begin(id);
       }}
@@ -1234,7 +1261,19 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       )}
       <div
         ref={content}
-        className="lm-shape-content nowheel"
+        className="lm-shape-content"
+        onWheelCapture={(event) => {
+          const box = event.currentTarget;
+          if (
+            !event.ctrlKey &&
+            Math.abs(event.deltaY) > Math.abs(event.deltaX) * 2 &&
+            box.scrollHeight > box.clientHeight &&
+            ((event.deltaY > 0 &&
+              box.scrollTop + box.clientHeight < box.scrollHeight - 1) ||
+              (event.deltaY < 0 && box.scrollTop > 0))
+          )
+            event.stopPropagation();
+        }}
         data-default-ink={
           data.color === "#29352f" && data.fill === "transparent"
             ? "true"
@@ -1359,6 +1398,26 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           </span>
         )}
       </div>
+      {!!data.jumps?.length && (
+        <div className="lm-node-jumps nodrag nopan">
+          {data.jumps
+            .filter((link) => !link.sourceGroup)
+            .map((link) => (
+              <button
+                type="button"
+                key={link.id}
+                title={link.label}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  edit.jump(link);
+                }}
+              >
+                <Link2 size={12} />
+                {link.label}
+              </button>
+            ))}
+        </div>
+      )}
       {[Position.Top, Position.Right, Position.Bottom, Position.Left].map(
         (position) => (
           <Handle
@@ -1725,6 +1784,167 @@ function BoardEditor() {
       id === "main" ? "/lifemap/board" : "/lifemap/board?tab=" + id,
     );
   };
+  type JumpLocation = Pick<BoardJump, "node" | "group" | "point">;
+  type JumpDraft = { tab: string; source: JumpLocation; label: string };
+  const [jumpDraft, setJumpDraft] = useState<JumpDraft | null>(null);
+  const [jumpTab, setJumpTab] = useState<string | null>(null);
+  const [jumpLabel, setJumpLabel] = useState("Weiter");
+  const sourceGroupFrame = jumpDraft?.source.group
+    ? groupBounds(jumpDraft.source.group)
+    : null;
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("lifemap-jump-draft");
+      if (!raw) return;
+      sessionStorage.removeItem("lifemap-jump-draft");
+      const draft = JSON.parse(raw) as JumpDraft;
+      setJumpDraft(draft);
+      setJumpLabel(draft.label);
+      setTool("jump");
+      setToolMenu("jump");
+    } catch {}
+  }, []);
+  function groupBounds(id: string) {
+    const list = board.nodes.filter((n) => n.data.group === id);
+    if (!list.length) return null;
+    const x = Math.min(...list.map((n) => n.position.x)),
+      y = Math.min(...list.map((n) => n.position.y));
+    return {
+      x,
+      y,
+      width: Math.max(...list.map((n) => n.position.x + (n.width ?? 0))) - x,
+      height: Math.max(...list.map((n) => n.position.y + (n.height ?? 0))) - y,
+    };
+  }
+  const groupAt = (p: Point) =>
+    [
+      ...new Set(
+        board.nodes.map((n) => n.data.group).filter((id): id is string => !!id),
+      ),
+    ].find((id) => {
+      const b = groupBounds(id);
+      return (
+        b &&
+        p.x >= b.x &&
+        p.x <= b.x + b.width &&
+        p.y >= b.y &&
+        p.y <= b.y + b.height
+      );
+    });
+  const jumpView = (location: JumpLocation) => {
+    const bounds = location.group ? groupBounds(location.group) : null;
+    const node = location.node
+      ? board.nodes.find((n) => n.id === location.node)
+      : null;
+    if (bounds)
+      void flow.fitBounds(bounds, {
+        padding: 0.35,
+        duration: 420,
+      });
+    else if (node)
+      void flow.fitBounds(
+        {
+          ...node.position,
+          width: node.width ?? 100,
+          height: node.height ?? 70,
+        },
+        { padding: 0.75, duration: 420 },
+      );
+    else if (location.point)
+      void flow.setCenter(location.point.x, location.point.y, {
+        zoom: 1.4,
+        duration: 420,
+      });
+  };
+  useEffect(() => {
+    if (!storage.ready) return;
+    try {
+      const raw = sessionStorage.getItem("lifemap-jump-view");
+      if (!raw) return;
+      sessionStorage.removeItem("lifemap-jump-view");
+      jumpView(JSON.parse(raw));
+    } catch {}
+  }, [storage.ready]);
+  const followJump = async (jump: BoardJump) => {
+    if (jump.tab === currentTab) {
+      jumpView(jump);
+      return;
+    }
+    sessionStorage.setItem("lifemap-jump-view", JSON.stringify(jump));
+    await openTab(jump.tab);
+  };
+  const pickJump = async (destination: JumpLocation, tab = currentTab) => {
+    if (!jumpDraft) {
+      setJumpDraft({ tab: currentTab, source: destination, label: jumpLabel });
+      return;
+    }
+    const jump: BoardJump = {
+      ...destination,
+      id: crypto.randomUUID(),
+      tab,
+      label: jumpLabel.trim().slice(0, 80) || "Weiter",
+      sourceGroup: jumpDraft.source.group,
+    };
+    const append = (b: Board) => {
+      const host =
+        b.nodes.find((n) => n.id === jumpDraft.source.node) ??
+        b.nodes.find(
+          (n) =>
+            n.data.group === jumpDraft.source.group && !!jumpDraft.source.group,
+        );
+      if (!host) throw Error("Das Startelement ist nicht mehr vorhanden.");
+      return {
+        ...b,
+        nodes: b.nodes.map((n) =>
+          n.id === host.id
+            ? {
+                ...n,
+                data: { ...n.data, jumps: [...(n.data.jumps ?? []), jump] },
+              }
+            : n,
+        ),
+      };
+    };
+    try {
+      if (jumpDraft.tab === currentTab) {
+        const next = append(current.current);
+        checkpoint();
+        setBoard(next);
+      } else {
+        const url = "/api/sketchboard?tab=" + encodeURIComponent(jumpDraft.tab);
+        let saved = false;
+        for (let retry = 0; retry < 2 && !saved; retry++) {
+          const response = await fetch(url, { cache: "no-store" });
+          if (!response.ok)
+            throw Error("Start-Tab konnte nicht geladen werden.");
+          const { board: source, revision } = await response.json();
+          const result = await fetch(url, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              board: append(validateBoard(source)),
+              revision,
+            }),
+          });
+          saved = result.ok;
+          if (!saved && result.status !== 409)
+            throw Error("Sprungbutton konnte nicht gespeichert werden.");
+        }
+        if (!saved) throw Error("Der Start-Tab wurde gleichzeitig bearbeitet.");
+      }
+      setJumpDraft(null);
+      setJumpTab(null);
+      setTool("hand");
+      setToolMenu(null);
+      setMediaError("");
+    } catch (err) {
+      setMediaError(
+        err instanceof Error
+          ? err.message
+          : "Sprungbutton konnte nicht gespeichert werden.",
+      );
+    }
+  };
   const [noteHeight, setNoteHeight] = useState(0);
   useEffect(() => {
     const resize = (event: MessageEvent) => {
@@ -1902,6 +2122,8 @@ function BoardEditor() {
   const selected = board.nodes.filter((n) => n.selected),
     selectedEdges = board.edges.filter((e) => e.selected),
     data = selected[0]?.data;
+  const [shownGroup, setShownGroup] = useState<string | null>(null);
+  const [groupFlash, setGroupFlash] = useState<string[]>([]);
   const groupId = selected[0]?.data.group;
   const selectedGroups = new Set(
     selected.flatMap((n) => (n.data.group ? [n.data.group] : [])),
@@ -1932,7 +2154,7 @@ function BoardEditor() {
       setGroupPicking(false);
       return;
     }
-    if (tool !== "select" && !groupPicking) {
+    if (tool !== "select" && !groupPicking && !confirmGroup) {
       setTool("hand");
       setToolMenu(null);
       connectFrom.current = null;
@@ -1945,6 +2167,7 @@ function BoardEditor() {
     checkpoint();
     const keys = new Set(selected.map((n) => n.id));
     const existing = new Set(selected.map((n) => n.data.group).filter(Boolean));
+    setGroupFlash(selected.map((n) => n.id));
     const group = crypto.randomUUID();
     setBoard((b) => ({
       ...b,
@@ -1955,6 +2178,11 @@ function BoardEditor() {
       ),
     }));
   };
+  useEffect(() => {
+    if (!groupFlash.length) return;
+    const timer = window.setTimeout(() => setGroupFlash([]), 330);
+    return () => window.clearTimeout(timer);
+  }, [groupFlash]);
   const formatTarget = selected[0]?.id ?? selectedEdges[0]?.id;
   useEffect(() => setFormatPosition(null), [formatTarget]);
   const snapshot = (): HistoryEntry => ({
@@ -2390,6 +2618,9 @@ function BoardEditor() {
         e.preventDefault();
         setGroupPicking(false);
         setConfirmGroup(false);
+        setJumpDraft(null);
+        setJumpTab(null);
+        setShownGroup(null);
         setEditing("");
         setTool("hand");
         setToolMenu(null);
@@ -2574,6 +2805,7 @@ function BoardEditor() {
     }
   });
   const shapeTool = ![
+    "jump",
     "eraser",
     "write",
     "paint",
@@ -2679,7 +2911,7 @@ function BoardEditor() {
   const toolSection = (id: string) =>
     id === "sticky"
       ? 1
-      : ["connect", "paint", "ink", "image"].includes(id)
+      : ["symbols", "connect", "jump", "paint", "ink", "image"].includes(id)
         ? 2
         : 0;
   const toolRank = (id: string) =>
@@ -2696,7 +2928,28 @@ function BoardEditor() {
         toolSection(a.id) - toolSection(b.id) ||
         toolRank(a.id) - toolRank(b.id),
     );
-  const firstStyleTool = toolbarTools.find(
+  const symbolsTool = toolbarTools.find((t) => t.id === "symbols");
+  const jumpTool = toolbarTools.find((t) => t.id === "jump");
+  const orderedTools = toolbarTools.filter(
+    (t) => t !== symbolsTool && t !== jumpTool,
+  );
+  if (symbolsTool)
+    orderedTools.splice(
+      orderedTools.findIndex((t) => toolSection(t.id) === 2) < 0
+        ? orderedTools.length
+        : orderedTools.findIndex((t) => toolSection(t.id) === 2),
+      0,
+      symbolsTool,
+    );
+  if (jumpTool) {
+    const connectIndex = orderedTools.findIndex((t) => t.id === "connect");
+    orderedTools.splice(
+      connectIndex >= 0 ? connectIndex + 1 : orderedTools.length,
+      0,
+      jumpTool,
+    );
+  }
+  const firstStyleTool = orderedTools.find(
     ({ id }) => toolSection(id) === 2,
   )?.id;
   const templateNames = galleryOrder(
@@ -2753,6 +3006,8 @@ function BoardEditor() {
     setEditing("");
     setTool("hand");
     setToolMenu(null);
+    setJumpDraft(null);
+    setJumpTab(null);
     setQuick(null);
     setColors(false);
     connectFrom.current = null;
@@ -2941,6 +3196,10 @@ function BoardEditor() {
                     aria-expanded={tabMenu === id}
                     onClick={() => {
                       setTabMenu(null);
+                      if (tool === "jump" && jumpDraft) {
+                        setJumpTab(id);
+                        return;
+                      }
                       if (tool === "select") {
                         setSelectedTabs((t) =>
                           t.includes(id)
@@ -3359,7 +3618,7 @@ function BoardEditor() {
             "--lm-board-zoom": board.viewport.zoom,
           } as CSSProperties
         }
-        className={`lm-canvas lm-pattern-${preferences.pattern} ${tool === "select" || tool === "paint" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}`}
+        className={`lm-canvas lm-pattern-${preferences.pattern} ${tool === "select" || tool === "paint" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}${tool === "jump" ? " lm-jump-mode" : ""}`}
         onDoubleClick={(e) => {
           if ((e.target as HTMLElement).classList.contains("react-flow__pane"))
             setQuick({ x: e.clientX, y: e.clientY });
@@ -3393,12 +3652,23 @@ function BoardEditor() {
               patch,
               checkpoint,
               link: startLink,
+              inspect: (id) => {
+                const node = board.nodes.find((n) => n.id === id);
+                const group = node?.data.representGroup ?? node?.data.group;
+                if (!group) return false;
+                setShownGroup(group);
+                return true;
+              },
+              jump: (link) => void followJump(link),
             }}
           >
             <ReactFlow<ShapeNode>
               nodes={[
                 ...board.nodes.map((n) => ({
                   ...n,
+                  className: groupFlash.includes(n.id)
+                    ? "lm-group-flash"
+                    : undefined,
                   style: {
                     ...n.style,
                     opacity: fade(n.id),
@@ -3560,7 +3830,26 @@ function BoardEditor() {
               }}
               onSelectionDragStart={checkpoint}
               onNodeClick={(event, node) => {
+                if (
+                  tool !== "jump" &&
+                  node.data.representGroup &&
+                  !event.ctrlKey
+                ) {
+                  setShownGroup(node.data.representGroup);
+                  return;
+                }
+                if (tool === "jump") {
+                  void pickJump({ node: node.id });
+                  return;
+                }
+                if (event.ctrlKey && node.data.group) {
+                  checkpoint();
+                  patch(node.id, { group: undefined });
+                  return;
+                }
                 if (groupPicking) {
+                  if (!selected.some((n) => n.id === node.id))
+                    setGroupFlash([node.id]);
                   setBoard((b) => ({
                     ...b,
                     nodes: b.nodes.map((n) => ({
@@ -3606,7 +3895,17 @@ function BoardEditor() {
                 if (tool === "connect")
                   connectTo(node.id, { x: event.clientX, y: event.clientY });
               }}
-              onPaneClick={() => {
+              onPaneClick={(event) => {
+                if (tool === "jump") {
+                  const point = flow.screenToFlowPosition(
+                    { x: event.clientX, y: event.clientY },
+                    { snapToGrid: false },
+                  );
+                  const group = groupAt(point);
+                  if (jumpDraft || group)
+                    void pickJump(group ? { group } : { point });
+                  return;
+                }
                 if (
                   (groupPicking || tool === "select") &&
                   selected.length >= 2 &&
@@ -4383,6 +4682,136 @@ function BoardEditor() {
           </div>
         )}
       </div>
+      {shownGroup &&
+        (() => {
+          const list = board.nodes.filter((n) => n.data.group === shownGroup);
+          const b = groupBounds(shownGroup);
+          if (!b) return null;
+          const scale = Math.min(
+            1.7,
+            (innerWidth * 0.72) / Math.max(1, b.width),
+            (innerHeight * 0.65) / Math.max(1, b.height),
+          );
+          return (
+            <div
+              className="lm-group-overlay"
+              onClick={() => setShownGroup(null)}
+            >
+              <section
+                role="dialog"
+                aria-label="Elementgruppe"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: b.width * scale + 32,
+                  height: b.height * scale + 48,
+                }}
+              >
+                <button
+                  type="button"
+                  className="lm-group-overlay-close"
+                  aria-label="Schließen"
+                  onClick={() => setShownGroup(null)}
+                >
+                  <X size={17} />
+                </button>
+                <div
+                  className="lm-group-overlay-content"
+                  style={{
+                    width: b.width,
+                    height: b.height,
+                    transform: "scale(" + scale + ")",
+                  }}
+                >
+                  {list.map((n) => (
+                    <div
+                      key={n.id}
+                      className="lm-group-overlay-item"
+                      style={{
+                        left: n.position.x - b.x,
+                        top: n.position.y - b.y,
+                        width: n.width,
+                        height: n.height,
+                        background:
+                          n.data.kind === "text" ? "transparent" : n.data.fill,
+                        borderRadius:
+                          n.data.kind === "circle" || n.data.kind === "ellipse"
+                            ? "50%"
+                            : n.data.radius,
+                        color: n.data.color,
+                        fontSize: n.data.fontSize,
+                        fontFamily:
+                          n.data.font === "System" ? undefined : n.data.font,
+                      }}
+                    >
+                      {n.data.image ? (
+                        <img src={n.data.image} alt="" />
+                      ) : n.data.kind === "symbol" ? (
+                        <SymbolArt
+                          name={n.data.text}
+                          stroke={n.data.color}
+                          fill={n.data.fill}
+                        />
+                      ) : (
+                        n.data.text
+                      )}
+                      {n.data.jumps?.map((link) => (
+                        <button
+                          key={link.id}
+                          type="button"
+                          onClick={() => {
+                            setShownGroup(null);
+                            void followJump(link);
+                          }}
+                        >
+                          {link.label}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          );
+        })()}
+      {board.nodes
+        .flatMap((n) => n.data.jumps ?? [])
+        .filter((jump) => jump.sourceGroup)
+        .map((jump) => {
+          const bounds = groupBounds(jump.sourceGroup!);
+          if (!bounds) return null;
+          const p = flow.flowToScreenPosition({
+            x: bounds.x + bounds.width / 2,
+            y: bounds.y,
+          });
+          return (
+            <button
+              key={jump.id}
+              type="button"
+              className="lm-group-jump"
+              style={{ left: p.x, top: p.y }}
+              onClick={() => void followJump(jump)}
+            >
+              <Link2 size={13} />
+              {jump.label}
+            </button>
+          );
+        })}
+      {sourceGroupFrame &&
+        jumpDraft?.tab === currentTab &&
+        (() => {
+          const origin = flow.flowToScreenPosition(sourceGroupFrame);
+          return (
+            <div
+              className="lm-group-frame lm-jump-source"
+              style={{
+                left: origin.x,
+                top: origin.y,
+                width: sourceGroupFrame.width * board.viewport.zoom,
+                height: sourceGroupFrame.height * board.viewport.zoom,
+              }}
+            />
+          );
+        })()}
       {groupId &&
         members.length > 1 &&
         (() => {
@@ -4894,6 +5323,36 @@ function BoardEditor() {
                     </label>
                   )}
                 </>
+                {selected.length === 1 && (
+                  <label className="lm-represent-group">
+                    Elementgruppe repräsentieren{" "}
+                    <select
+                      value={data.representGroup ?? ""}
+                      onChange={(e) =>
+                        format({ representGroup: e.target.value || undefined })
+                      }
+                    >
+                      <option value="">Keine</option>
+                      {[
+                        ...new Set(
+                          board.nodes
+                            .map((n) => n.data.group)
+                            .filter(
+                              (id): id is string => !!id && id !== data.group,
+                            ),
+                        ),
+                      ].map((id, i) => (
+                        <option key={id} value={id}>
+                          {board.nodes
+                            .find(
+                              (n) => n.data.group === id && n.data.text.trim(),
+                            )
+                            ?.data.text.split("\n")[0] || "Gruppe " + (i + 1)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <div className="lm-format-row">
                   <button
                     onClick={() => {
@@ -5302,7 +5761,12 @@ function BoardEditor() {
           </button>
         </div>
         {(toolMenu || tool === "connect" || tool === "ink") && (
-          <div className="lm-tool-options">
+          <div
+            className={
+              "lm-tool-options" +
+              (["ink", "eraser"].includes(tool) ? " lm-pen-panel" : "")
+            }
+          >
             {tool === "connect" && (
               <>
                 <span className="line-options" role="group" aria-label="Form">
@@ -5483,34 +5947,80 @@ function BoardEditor() {
                     }
                   />
                 </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={pen.smooth}
-                    onChange={(e) =>
-                      setPenOverride({ ...pen, smooth: e.target.checked })
-                    }
-                  />{" "}
-                  Glätten
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={pen.straight}
-                    onChange={(e) =>
-                      setPenOverride({ ...pen, straight: e.target.checked })
-                    }
-                  />{" "}
-                  Gerade Linie
-                </label>
-                <StandardButton
-                  saved={!penOverride}
-                  onSave={() => {
-                    updatePreferences({ pen });
-                    setPenOverride(null);
-                  }}
-                />
+                <div className="lm-pen-secondary">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={pen.smooth}
+                      onChange={(e) =>
+                        setPenOverride({ ...pen, smooth: e.target.checked })
+                      }
+                    />{" "}
+                    Glätten
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={pen.straight}
+                      onChange={(e) =>
+                        setPenOverride({ ...pen, straight: e.target.checked })
+                      }
+                    />{" "}
+                    Gerade Linie
+                  </label>
+                  <StandardButton
+                    saved={!penOverride}
+                    onSave={() => {
+                      updatePreferences({ pen });
+                      setPenOverride(null);
+                    }}
+                  />
+                </div>
               </>
+            )}
+            {tool === "jump" && (
+              <div className="lm-jump-options">
+                <span>
+                  {jumpDraft
+                    ? "Ziel anklicken"
+                    : "Startelement oder Gruppe anklicken"}
+                </span>
+                <input
+                  aria-label="Beschriftung des Sprungbuttons"
+                  value={jumpLabel}
+                  maxLength={80}
+                  onChange={(e) => setJumpLabel(e.target.value)}
+                />
+                {jumpTab && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Tab als Ziel bestätigen"
+                      onClick={() => void pickJump({}, jumpTab)}
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (jumpTab === currentTab) {
+                          setJumpTab(null);
+                          return;
+                        }
+                        if (jumpDraft)
+                          sessionStorage.setItem(
+                            "lifemap-jump-draft",
+                            JSON.stringify({ ...jumpDraft, label: jumpLabel }),
+                          );
+                        void openTab(jumpTab);
+                      }}
+                    >
+                      Tab öffnen
+                    </button>
+                  </>
+                )}
+                {mediaError && <span role="alert">{mediaError}</span>}
+              </div>
             )}
             {toolMenu === "polygon" && (
               <div className="lm-form-picker" aria-label="Formvorlagen">
@@ -5854,6 +6364,8 @@ function BoardEditor() {
               aria-label="Werkzeugoptionen schließen"
               onClick={() => {
                 setToolMenu(null);
+                setJumpDraft(null);
+                setJumpTab(null);
                 setTool("write");
               }}
             >
@@ -5889,7 +6401,7 @@ function BoardEditor() {
             if (validPoints(points)) pinPolygon(points);
           }}
         >
-          {toolbarTools.map(({ id, label, Icon }) => (
+          {orderedTools.map(({ id, label, Icon }) => (
             <Fragment key={id}>
               {(id === "sticky" ||
                 (preferences.hidden.includes("sticky") &&

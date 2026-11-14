@@ -19,7 +19,18 @@ export const shapeKinds = [
 ] as const;
 export type ShapeKind = (typeof shapeKinds)[number];
 export type UnderlineStyle = "solid" | "wavy" | "dashed" | "double";
+export type BoardJump = {
+  id: string;
+  label: string;
+  tab: string;
+  node?: string;
+  group?: string;
+  sourceGroup?: string;
+  point?: { x: number; y: number };
+};
 export type ShapeData = {
+  representGroup?: string;
+  jumps?: BoardJump[];
   group?: string;
   curved?: boolean;
   media?: { kind: "video" | "document" | "link"; url: string; name: string };
@@ -304,6 +315,38 @@ export function validateBoard(input: unknown): Board {
         ...(validMedia(d.media) ? { media: d.media } : {}),
         ...(validPoints(d.points) ? { points: d.points } : {}),
         ...(d.curved === true ? { curved: true } : {}),
+        ...(typeof d.representGroup === "string" &&
+        d.representGroup.length <= 80
+          ? { representGroup: d.representGroup }
+          : {}),
+        ...(Array.isArray(d.jumps)
+          ? {
+              jumps: d.jumps.slice(0, 50).flatMap((link) => {
+                if (
+                  !link ||
+                  typeof link.id !== "string" ||
+                  typeof link.label !== "string" ||
+                  typeof link.tab !== "string" ||
+                  !/^(main|[a-f0-9-]{36})$/.test(link.tab)
+                )
+                  return [];
+                const clean: BoardJump = {
+                  id: link.id.slice(0, 80),
+                  label: link.label.slice(0, 80),
+                  tab: link.tab,
+                };
+                for (const key of ["node", "group", "sourceGroup"] as const)
+                  if (typeof link[key] === "string")
+                    clean[key] = link[key].slice(0, 80);
+                if (
+                  number(link.point?.x, -1e10, 1e10) &&
+                  number(link.point?.y, -1e10, 1e10)
+                )
+                  clean.point = { x: link.point!.x, y: link.point!.y };
+                return [clean];
+              }),
+            }
+          : {}),
       },
     };
   });

@@ -1642,3 +1642,136 @@
   color: var(--lm-accent);
   flex: none;
 }
+
+.lm-jump-mode .react-flow__pane,
+.lm-jump-mode .react-flow__node {
+  cursor: crosshair;
+}
+.lm-jump-options,
+.lm-pen-secondary {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+.lm-pen-panel {
+  display: grid;
+  grid-auto-flow: column;
+  align-items: start;
+}
+.lm-pen-secondary {
+  grid-column: 1/-1;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--lm-line);
+}
+.lm-ink-brush {
+  filter: drop-shadow(0 1px 1px currentColor);
+}
+.lm-ink-felt {
+  stroke-linecap: square;
+  stroke-linejoin: bevel;
+}
+.lm-ink-marker {
+  stroke-linecap: butt;
+  stroke-linejoin: bevel;
+  mix-blend-mode: multiply;
+}
+.lm-ink-water {
+  filter: blur(1.55px);
+}
+.lm-group-frame {
+  border-width: 2px;
+}
+.lm-group-flash .lm-shape {
+  animation: lm-member-added 0.32s ease-out;
+}
+@keyframes lm-member-added {
+  45% {
+    scale: 1.07;
+  }
+}
+.lm-node-jumps {
+  position: absolute;
+  z-index: 5;
+  bottom: 5px;
+  left: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.lm-node-jumps button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-line);
+  font-size: 11px;
+  padding: 1px 5px;
+}
+.lm-group-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: #231c3944;
+  display: grid;
+  place-items: center;
+}
+.lm-group-overlay section {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--lm-panel);
+  box-shadow: 0 15px 54px #1d183650;
+}
+.lm-group-overlay-close {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  z-index: 2;
+}
+.lm-group-overlay-content {
+  position: absolute;
+  left: 16px;
+  top: 30px;
+  transform-origin: top left;
+}
+.lm-group-overlay-item {
+  position: absolute;
+  border: 1px solid var(--lm-line);
+  overflow: auto;
+  padding: 8px;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+}
+.lm-group-overlay-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.lm-represent-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lm-jump-mode .react-flow__pane,
+.lm-jump-mode .react-flow__node {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M12 7h5a5 5 0 0 1 0 10h-5M12 7H7a5 5 0 0 0 0 10h5m-4-5h8' fill='none' stroke='%23764bbb' stroke-width='2'/%3E%3C/svg%3E")
+      12 12,
+    crosshair;
+}
+.lm-jump-source {
+  border: 3px solid var(--lm-accent);
+}
+.lm-group-jump {
+  position: fixed;
+  z-index: 9;
+  translate: -50% -90%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-line);
+  padding: 3px 7px;
+}

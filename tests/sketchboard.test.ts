@@ -137,3 +137,20 @@ test("curved shapes and folders survive a round trip", () => {
   assert.equal(saved.nodes[1].data.kind, "folder");
   assert.equal(saved.nodes[1].data.text, "Reise");
 });
+
+test("group representations and jump destinations survive saving", () => {
+  const node = newShape("rectangle", 0, 0);
+  node.data.representGroup = "group-1";
+  node.data.jumps = [
+    {
+      id: "jump-1",
+      label: "Weiter",
+      tab: "main",
+      point: { x: 25, y: 72 },
+      sourceGroup: "group-2",
+    },
+  ];
+  const restored = validateBoard({ ...emptyBoard(), nodes: [node] });
+  assert.equal(restored.nodes[0].data.representGroup, "group-1");
+  assert.deepEqual(restored.nodes[0].data.jumps, node.data.jumps);
+});
