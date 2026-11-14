@@ -1806,9 +1806,6 @@
   border: 0;
 }
 
-.lm-toolbar {
-  position: relative;
-}
 .lm-toolbar-drop {
   width: 0;
   align-self: stretch;
