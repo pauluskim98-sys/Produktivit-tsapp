@@ -459,7 +459,10 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
             }}
           />
         ) : (
-          <span className={data.text ? "" : "lm-placeholder"}>
+          <span
+            className={data.text ? "" : "lm-placeholder"}
+            style={data.text ? undefined : { fontSize: "0.7em" }}
+          >
             {data.text ||
               (data.kind === "sticky"
                 ? "Deine Notiz"
@@ -2085,6 +2088,19 @@ function BoardEditor() {
         {shapeTool && storage.ready && (
           <div
             className="lm-draw-layer"
+            onDoubleClick={(e) => {
+              const id = shapeHit.current;
+              const node = board.nodes.find((n) => n.id === id);
+              if (
+                !node ||
+                tool === "ink" ||
+                ["image", "ink", "media"].includes(node.data.kind)
+              )
+                return;
+              e.stopPropagation();
+              setTool("write");
+              begin(node.id);
+            }}
             onPointerDown={(e) => {
               if (e.button !== 0) return;
               const node = document
@@ -2127,7 +2143,7 @@ function BoardEditor() {
             onPointerUp={(e) => {
               const start = drawing.current;
               if (!start) return;
-              if (shapeHit.current && !leavingText.current) {
+              if (tool !== "ink" && shapeHit.current && !leavingText.current) {
                 const hit = shapeHit.current;
                 setBoard((b) => ({
                   ...b,
@@ -2150,7 +2166,7 @@ function BoardEditor() {
                     strokePoints.current.some(
                       ([x, y]) => Math.hypot(x - start.x, y - start.y) > 8,
                     ));
-              if (!drag || leavingText.current) {
+              if (!drag || (leavingText.current && tool !== "ink")) {
                 if (!leavingText.current) setTool("hand");
                 drawing.current = null;
                 setDraft(null);
