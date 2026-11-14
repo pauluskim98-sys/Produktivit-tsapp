@@ -35,6 +35,7 @@ import {
   RectangleHorizontal,
   Circle,
   Link2,
+  Zap,
   Brush,
   Highlighter,
   Pencil,
@@ -210,11 +211,13 @@ function FormatSamples({
   value,
   onChange,
   rounded = false,
+  onPick,
 }: {
   name: string;
   value: number;
   onChange: (n: number) => void;
   rounded?: boolean;
+  onPick?: () => void;
 }) {
   const values = rounded ? [0, 32, 96] : [1, 3, 7];
   const closest = values.reduce((a, b) =>
@@ -233,7 +236,10 @@ function FormatSamples({
           }
           aria-label={name + " " + (i + 1)}
           aria-pressed={n === closest}
-          onClick={() => onChange(n)}
+          onClick={() => {
+            onChange(n);
+            onPick?.();
+          }}
         >
           <svg
             width="28"
@@ -290,12 +296,17 @@ function UnderlinePicker({
   value,
   onChange,
   border = false,
+  openFrom,
 }: {
   border?: boolean;
+  openFrom?: number;
   value?: UnderlineStyle;
   onChange: (style?: UnderlineStyle) => void;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (openFrom) setOpen(true);
+  }, [openFrom]);
   return (
     <span
       className="lm-underline-picker"
@@ -303,19 +314,21 @@ function UnderlinePicker({
         if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
       }}
     >
-      <button
-        type="button"
-        aria-label={border ? "Randart" : "Unterstreichung"}
-        aria-pressed={!!value}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        {border ? (
-          <PatternSample style={value ?? "solid"} />
-        ) : (
-          <Underline size={15} />
-        )}
-      </button>
+      {!border && (
+        <button
+          type="button"
+          aria-label={border ? "Randart" : "Unterstreichung"}
+          aria-pressed={!!value}
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {border ? (
+            <PatternSample style={value ?? "solid"} />
+          ) : (
+            <Underline size={15} />
+          )}
+        </button>
+      )}
       {open && (
         <span
           role="group"
@@ -502,7 +515,7 @@ const tools = [
   { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
   { id: "text", label: "Text (T)", Icon: Type },
   { id: "connect", label: "Verbindung (L)", Icon: Waypoints },
-  { id: "jump", label: "Interner Sprungbutton", Icon: Link2 },
+  { id: "jump", label: "Teleporter", Icon: Zap },
   { id: "image", label: "Medium einfügen", Icon: ImagePlus },
 ] as const;
 function StoredPanel({
@@ -2093,6 +2106,12 @@ function BoardEditor() {
   };
   const [jumpDraft, setJumpDraft] = useState<JumpDraft | null>(null);
   const [jumpTab, setJumpTab] = useState<string | null>(null);
+  const [stamp, setStamp] = useState<Point | null>(null);
+  useEffect(() => {
+    if (!stamp) return;
+    const timer = window.setTimeout(() => setStamp(null), 1050);
+    return () => window.clearTimeout(timer);
+  }, [stamp]);
   const [jumpLabel, setJumpLabel] = useState("Weiter");
   const sourceGroupFrame = jumpDraft?.source.group
     ? groupBounds(jumpDraft.source.group)
@@ -2267,6 +2286,13 @@ function BoardEditor() {
         }
         if (!saved) throw Error("Der Start-Tab wurde gleichzeitig bearbeitet.");
       }
+      setStamp(
+        jumpDraft.tab === currentTab && jumpDraft.position
+          ? flow.flowToScreenPosition(jumpDraft.position)
+          : destination.point
+            ? flow.flowToScreenPosition(destination.point)
+            : { x: innerWidth / 2, y: innerHeight / 2 },
+      );
       setJumpDraft(null);
       setJumpTab(null);
       setTool("hand");
@@ -2287,6 +2313,85 @@ function BoardEditor() {
           : "Sprungbutton konnte nicht gespeichert werden.",
       );
     }
+  };
+  const teleportMoved = useRef(false);
+  const teleportDrag = useRef<{
+    id: number;
+    start: Point;
+    zoom: number;
+    offset: Point;
+    size: number;
+    resize: boolean;
+    nextOffset: Point;
+    nextSize: number;
+  } | null>(null);
+  const startTeleportDrag = (
+    event: React.PointerEvent,
+    node: ShapeNode,
+    jump: BoardJump,
+    resize: boolean,
+  ) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    const owner = event.currentTarget.closest("button")!;
+    owner.setPointerCapture(event.pointerId);
+    teleportMoved.current = false;
+    const offset = jump.sourceOffset ?? { x: 0, y: 0 },
+      size = jump.size ?? 1;
+    teleportDrag.current = {
+      id: event.pointerId,
+      start: { x: event.clientX, y: event.clientY },
+      zoom: flow.getViewport().zoom,
+      offset,
+      size,
+      resize,
+      nextOffset: offset,
+      nextSize: size,
+    };
+  };
+  const moveTeleport = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = teleportDrag.current;
+    if (!drag || drag.id !== event.pointerId) return;
+    const x = event.clientX - drag.start.x,
+      y = event.clientY - drag.start.y;
+    if (Math.hypot(x, y) < 4 && !teleportMoved.current) return;
+    teleportMoved.current = true;
+    if (drag.resize) {
+      drag.nextSize = Math.max(0.6, Math.min(2.5, drag.size + (x + y) / 100));
+      event.currentTarget.style.scale = String(drag.nextSize);
+    } else {
+      drag.nextOffset = {
+        x: drag.offset.x + x / drag.zoom,
+        y: drag.offset.y + y / drag.zoom,
+      };
+      event.currentTarget.style.transform =
+        "translate(" + x + "px," + y + "px)";
+    }
+  };
+  const endTeleportDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    node: ShapeNode,
+    jump: BoardJump,
+  ) => {
+    const drag = teleportDrag.current;
+    teleportDrag.current = null;
+    event.currentTarget.style.transform = "";
+    if (!drag || !teleportMoved.current) return;
+    const offset =
+      node.data.kind === "jump-anchor" || jump.sourceGroup
+        ? drag.nextOffset
+        : {
+            x: Math.min(node.width ?? 0, Math.max(0, drag.nextOffset.x)),
+            y: Math.min(node.height ?? 0, Math.max(0, drag.nextOffset.y)),
+          };
+    checkpoint();
+    patch(node.id, {
+      jumps: node.data.jumps?.map((item) =>
+        item.id === jump.id
+          ? { ...item, sourceOffset: offset, size: drag.nextSize }
+          : item,
+      ),
+    });
   };
   const [noteHeight, setNoteHeight] = useState(0);
   useEffect(() => {
@@ -2488,6 +2593,32 @@ function BoardEditor() {
     selectedEdges = board.edges.filter((e) => e.selected),
     data = selected[0]?.data;
   const [shownGroup, setShownGroup] = useState<string | null>(null);
+  const [representation, setRepresentation] = useState<string | null>(null);
+  const collapsedGroups = new Set(
+    board.nodes
+      .map((n) => n.data.representGroup)
+      .filter((id): id is string => !!id),
+  );
+  const chooseRepresentation = (group: string) => {
+    if (
+      !representation ||
+      board.nodes.some((n) => n.id === representation && n.data.group === group)
+    )
+      return;
+    checkpoint();
+    setBoard((b) => ({
+      ...b,
+      nodes: b.nodes.map((n) =>
+        n.id === representation
+          ? { ...n, data: { ...n.data, representGroup: group } }
+          : n.data.representGroup === group
+            ? { ...n, data: { ...n.data, representGroup: undefined } }
+            : n,
+      ),
+    }));
+    setRepresentation(null);
+  };
+  const [borderPicker, setBorderPicker] = useState(0);
   const [groupFlash, setGroupFlash] = useState<string[]>([]);
   const groupId = selected[0]?.data.group;
   const selectedGroups = new Set(
@@ -2533,6 +2664,12 @@ function BoardEditor() {
     const keys = new Set(selected.map((n) => n.id));
     const existing = new Set(selected.map((n) => n.data.group).filter(Boolean));
     setGroupFlash(selected.map((n) => n.id));
+    setStamp(
+      flow.flowToScreenPosition({
+        x: Math.min(...selected.map((n) => n.position.x)),
+        y: Math.min(...selected.map((n) => n.position.y)),
+      }),
+    );
     const group = crypto.randomUUID();
     setBoard((b) => ({
       ...b,
@@ -3014,6 +3151,7 @@ function BoardEditor() {
         setJumpDraft(null);
         setJumpTab(null);
         setShownGroup(null);
+        setRepresentation(null);
         setEditing("");
         setTool("hand");
         setToolMenu(null);
@@ -3762,6 +3900,34 @@ function BoardEditor() {
                     {title}
                   </button>
                 )}
+                {jumpTab === id && (
+                  <div className="lm-tab-menu lm-teleport-tab">
+                    <button
+                      type="button"
+                      aria-label="Tab als Ziel bestätigen"
+                      onClick={() => void pickJump({}, jumpTab)}
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (jumpTab === currentTab) {
+                          setJumpTab(null);
+                          return;
+                        }
+                        if (jumpDraft)
+                          sessionStorage.setItem(
+                            "lifemap-jump-draft",
+                            JSON.stringify({ ...jumpDraft, label: jumpLabel }),
+                          );
+                        void openTab(jumpTab);
+                      }}
+                    >
+                      Tab öffnen
+                    </button>
+                  </div>
+                )}
                 {tabMenu === id && (
                   <div className="lm-tab-menu">
                     <button
@@ -3859,15 +4025,6 @@ function BoardEditor() {
                   "LifeMap")
                 : "LifeMap-Einstellungen"}
             </strong>
-            <button
-              aria-label="Schließen"
-              onClick={() => {
-                setSettings(false);
-                setSettingsTab(null);
-              }}
-            >
-              <X size={18} />
-            </button>
           </div>
           <label>
             UI-Farbe{" "}
@@ -4137,8 +4294,18 @@ function BoardEditor() {
           )
             return;
           e.preventDefault();
-          setImportError("");
-          setImportAt({ x: e.clientX, y: e.clientY });
+          if (e.shiftKey) {
+            setImportError("");
+            setImportAt({ x: e.clientX, y: e.clientY });
+            return;
+          }
+          void flow.fitView({
+            nodes: board.nodes
+              .filter((n) => !collapsedGroups.has(n.data.group ?? ""))
+              .map((n) => ({ id: n.id })),
+            padding: 0.2,
+            duration: 350,
+          });
         }}
         tabIndex={-1}
         onPointerDownCapture={(e) => {
@@ -4210,6 +4377,8 @@ function BoardEditor() {
               nodes={[
                 ...board.nodes.map((n) => ({
                   ...n,
+                  hidden:
+                    !representation && collapsedGroups.has(n.data.group ?? ""),
                   selectable:
                     n.data.kind === "connection-anchor" ? false : n.selectable,
                   className: groupFlash.includes(n.id)
@@ -4218,7 +4387,11 @@ function BoardEditor() {
                   style: {
                     ...n.style,
                     opacity:
-                      n.data.kind === "connection-anchor" ? 0 : fade(n.id),
+                      n.data.kind === "connection-anchor"
+                        ? 0
+                        : representation && !n.data.group
+                          ? 0.24
+                          : fade(n.id),
                     pointerEvents:
                       n.data.kind === "connection-anchor" || fade(n.id) === 0
                         ? ("none" as const)
@@ -4253,7 +4426,14 @@ function BoardEditor() {
                     ? 0.38
                     : fade("line:" + e.id),
                 },
-                hidden: fade("line:" + e.id) === 0,
+                hidden:
+                  fade("line:" + e.id) === 0 ||
+                  (!representation &&
+                    board.nodes.some(
+                      (n) =>
+                        collapsedGroups.has(n.data.group ?? "") &&
+                        (n.id === e.source || n.id === e.target),
+                    )),
                 data: {
                   ...e.data,
                   startLink: previewEdgeIds.has(e.id) ? undefined : startLink,
@@ -4414,6 +4594,10 @@ function BoardEditor() {
               }}
               onSelectionDragStart={checkpoint}
               onNodeClick={(event, node) => {
+                if (representation) {
+                  if (node.data.group) chooseRepresentation(node.data.group);
+                  return;
+                }
                 if (
                   tool !== "jump" &&
                   node.data.representGroup &&
@@ -4487,6 +4671,10 @@ function BoardEditor() {
                   connectTo(node.id, { x: event.clientX, y: event.clientY });
               }}
               onPaneClick={(event) => {
+                if (representation) {
+                  setRepresentation(null);
+                  return;
+                }
                 if (tool === "web-link") {
                   const url = linkToPlace.current;
                   const media = {
@@ -5372,14 +5560,6 @@ function BoardEditor() {
                   height: b.height * scale + 48,
                 }}
               >
-                <button
-                  type="button"
-                  className="lm-group-overlay-close"
-                  aria-label="Schließen"
-                  onClick={() => setShownGroup(null)}
-                >
-                  <X size={17} />
-                </button>
                 <div
                   className="lm-group-overlay-content"
                   style={{
@@ -5462,28 +5642,54 @@ function BoardEditor() {
             </button>
           );
         })}
-      {board.nodes.flatMap((node) =>
-        (node.data.jumps ?? [])
-          .filter((jump) => jump.sourceOffset)
-          .map((jump) => {
-            const p = flow.flowToScreenPosition({
-              x: node.position.x + jump.sourceOffset!.x,
-              y: node.position.y + jump.sourceOffset!.y,
-            });
-            return (
-              <button
-                key={jump.id}
-                type="button"
-                className="lm-placed-jump"
-                style={{ left: p.x, top: p.y }}
-                onClick={() => void followJump(jump)}
-              >
-                <Link2 size={13} />
-                {jump.label}
-              </button>
-            );
-          }),
-      )}
+      {board.nodes
+        .filter((node) => !collapsedGroups.has(node.data.group ?? ""))
+        .flatMap((node) =>
+          (node.data.jumps ?? [])
+            .filter((jump) => jump.sourceOffset)
+            .map((jump) => {
+              const p = flow.flowToScreenPosition({
+                x: node.position.x + jump.sourceOffset!.x,
+                y: node.position.y + jump.sourceOffset!.y,
+              });
+              return (
+                <button
+                  key={jump.id}
+                  type="button"
+                  className="lm-placed-jump"
+                  style={{ left: p.x, top: p.y, scale: jump.size ?? 1 }}
+                  onPointerDown={(event) =>
+                    startTeleportDrag(event, node, jump, false)
+                  }
+                  onPointerMove={moveTeleport}
+                  onPointerUp={(event) => endTeleportDrag(event, node, jump)}
+                  onPointerCancel={(event) => {
+                    teleportDrag.current = null;
+                    teleportMoved.current = false;
+                    event.currentTarget.style.transform = "";
+                    event.currentTarget.style.scale = String(jump.size ?? 1);
+                  }}
+                  onClick={(event) => {
+                    if (
+                      !teleportMoved.current &&
+                      !(event.target as Element).closest(".lm-teleport-resize")
+                    )
+                      void followJump(jump);
+                  }}
+                >
+                  <Zap size={13} />
+                  {jump.label}
+                  <span
+                    className="lm-teleport-resize"
+                    title="Teleportergröße ändern"
+                    onPointerDown={(event) =>
+                      startTeleportDrag(event, node, jump, true)
+                    }
+                  />
+                </button>
+              );
+            }),
+        )}
       {jumpDraft?.tab === currentTab &&
         jumpDraft.position &&
         (() => {
@@ -5563,7 +5769,45 @@ function BoardEditor() {
             />
           );
         })()}
-      {groupId &&
+      {representation &&
+        [
+          ...new Set(
+            board.nodes
+              .map((n) => n.data.group)
+              .filter((id): id is string => !!id),
+          ),
+        ].map((id) => {
+          const bounds = groupBounds(id);
+          if (!bounds) return null;
+          const point = flow.flowToScreenPosition(bounds);
+          return (
+            <button
+              type="button"
+              className="lm-representation-frame"
+              key={id}
+              aria-label="Gruppe auswählen"
+              style={{
+                left: point.x,
+                top: point.y,
+                width: bounds.width * board.viewport.zoom,
+                height: bounds.height * board.viewport.zoom,
+              }}
+              onClick={() => chooseRepresentation(id)}
+            />
+          );
+        })}
+      {stamp && (
+        <div
+          className="lm-success-stamp"
+          role="status"
+          aria-label="Gespeichert"
+          style={{ left: stamp.x, top: stamp.y }}
+        >
+          <Check size={19} />
+        </div>
+      )}
+      {!representation &&
+        groupId &&
         members.length > 1 &&
         (() => {
           const left = Math.min(...members.map((n) => n.position.x)),
@@ -5625,7 +5869,8 @@ function BoardEditor() {
           <Waypoints size={15} />
         </button>
       )}
-      {(tool !== "connect" || selectedEdges.length > 0) &&
+      {!representation &&
+        (tool !== "connect" || selectedEdges.length > 0) &&
         (selected.some((n) => n.data.kind !== "connection-anchor") ||
           selectedEdges.length > 0) && (
           <StoredPanel
@@ -5953,6 +6198,7 @@ function BoardEditor() {
                   />
                   <FormatSamples
                     name="Randstärke"
+                    onPick={() => setBorderPicker((v) => v + 1)}
                     value={data.strokeWidth}
                     onChange={(strokeWidth) =>
                       format({
@@ -5965,6 +6211,7 @@ function BoardEditor() {
                   />
                   <UnderlinePicker
                     border
+                    openFrom={borderPicker}
                     value={data.borderStyle}
                     onChange={(borderStyle) =>
                       format({
@@ -6123,36 +6370,27 @@ function BoardEditor() {
                     </label>
                   )}
                 </>
-                {selected.length === 1 && (
-                  <label className="lm-represent-group">
-                    Elementgruppe repräsentieren{" "}
-                    <select
-                      value={data.representGroup ?? ""}
-                      onChange={(e) =>
-                        format({ representGroup: e.target.value || undefined })
-                      }
-                    >
-                      <option value="">Keine</option>
-                      {[
-                        ...new Set(
-                          board.nodes
-                            .map((n) => n.data.group)
-                            .filter(
-                              (id): id is string => !!id && id !== data.group,
-                            ),
-                        ),
-                      ].map((id, i) => (
-                        <option key={id} value={id}>
-                          {board.nodes
-                            .find(
-                              (n) => n.data.group === id && n.data.text.trim(),
-                            )
-                            ?.data.text.split("\n")[0] || "Gruppe " + (i + 1)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
+                {selected.length === 1 &&
+                  board.nodes.some(
+                    (n) => n.data.group && n.data.group !== data.group,
+                  ) && (
+                    <div className="lm-represent-group">
+                      <button
+                        type="button"
+                        onClick={() => setRepresentation(selected[0].id)}
+                      >
+                        Elementgruppe repräsentieren
+                      </button>
+                      {data.representGroup && (
+                        <button
+                          type="button"
+                          onClick={() => format({ representGroup: undefined })}
+                        >
+                          Gruppe wieder anzeigen
+                        </button>
+                      )}
+                    </div>
+                  )}
                 <div className="lm-format-row">
                   <button
                     onClick={() => {
@@ -6803,34 +7041,6 @@ function BoardEditor() {
                   maxLength={80}
                   onChange={(e) => setJumpLabel(e.target.value)}
                 />
-                {jumpTab && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Tab als Ziel bestätigen"
-                      onClick={() => void pickJump({}, jumpTab)}
-                    >
-                      <Check size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (jumpTab === currentTab) {
-                          setJumpTab(null);
-                          return;
-                        }
-                        if (jumpDraft)
-                          sessionStorage.setItem(
-                            "lifemap-jump-draft",
-                            JSON.stringify({ ...jumpDraft, label: jumpLabel }),
-                          );
-                        void openTab(jumpTab);
-                      }}
-                    >
-                      Tab öffnen
-                    </button>
-                  </>
-                )}
                 {mediaError && <span role="alert">{mediaError}</span>}
               </div>
             )}
@@ -7175,17 +7385,6 @@ function BoardEditor() {
                 {mediaError && <span role="alert">{mediaError}</span>}
               </div>
             )}
-            <button
-              aria-label="Werkzeugoptionen schließen"
-              onClick={() => {
-                setToolMenu(null);
-                setJumpDraft(null);
-                setJumpTab(null);
-                setTool("write");
-              }}
-            >
-              <X size={17} />
-            </button>
           </div>
         )}
         <nav

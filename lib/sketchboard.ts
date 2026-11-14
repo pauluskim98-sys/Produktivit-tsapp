@@ -29,6 +29,7 @@ export type BoardJump = {
   node?: string;
   group?: string;
   sourceGroup?: string;
+  size?: number;
   sourceOffset?: { x: number; y: number };
   point?: { x: number; y: number };
 };
@@ -362,6 +363,7 @@ export function validateBoard(input: unknown): Board {
                     x: link.sourceOffset!.x,
                     y: link.sourceOffset!.y,
                   };
+                if (number(link.size, 0.6, 2.5)) clean.size = link.size;
                 return [clean];
               }),
             }
