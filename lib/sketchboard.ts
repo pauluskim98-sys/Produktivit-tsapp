@@ -8,11 +8,13 @@ export const shapeKinds = [
   "text",
   "sticky",
   "image",
+  "media",
   "polygon",
   "ink",
 ] as const;
 export type ShapeKind = (typeof shapeKinds)[number];
 export type ShapeData = {
+  media?: { kind: "video" | "document" | "link"; url: string; name: string };
   textBackground?: string;
   kind: ShapeKind;
   text: string;
@@ -44,6 +46,36 @@ export const validPicture = (src: unknown): src is string =>
   typeof src === "string" &&
   src.length <= 900_000 &&
   /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(src);
+export function validMedia(
+  value: unknown,
+): value is NonNullable<ShapeData["media"]> {
+  if (!value || typeof value !== "object") return false;
+  const { kind, url, name } = value as NonNullable<ShapeData["media"]>;
+  if (
+    !["video", "document", "link"].includes(kind) ||
+    typeof url !== "string" ||
+    typeof name !== "string" ||
+    name.length > 255
+  )
+    return false;
+  if (url.startsWith("data:"))
+    return (
+      url.length <= 6_000_000 &&
+      (kind === "video"
+        ? /^data:video\/(mp4|webm);base64,[A-Za-z0-9+/]+=*$/.test(url)
+        : kind === "document" &&
+          /^data:application\/(pdf|octet-stream);base64,[A-Za-z0-9+/]+=*$/.test(
+            url,
+          ))
+    );
+  try {
+    return (
+      url.length <= 2048 && ["https:", "http:"].includes(new URL(url).protocol)
+    );
+  } catch {
+    return false;
+  }
+}
 export type LineLabel = {
   text: string;
   size: number;
@@ -207,6 +239,7 @@ export function validateBoard(input: unknown): Board {
           : {}),
         ...(d.font && boardFonts.includes(d.font) ? { font: d.font } : {}),
         ...(validPicture(d.image) ? { image: d.image } : {}),
+        ...(validMedia(d.media) ? { media: d.media } : {}),
         ...(validPoints(d.points) ? { points: d.points } : {}),
       },
     };

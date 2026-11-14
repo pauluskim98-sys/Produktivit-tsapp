@@ -73,7 +73,12 @@ import {
   type ShapeKind,
   type ShapeNode,
 } from "@/lib/sketchboard";
-import { boardFonts, validPicture, validPoints } from "@/lib/sketchboard";
+import {
+  boardFonts,
+  validMedia,
+  validPicture,
+  validPoints,
+} from "@/lib/sketchboard";
 import { BoardEdge } from "./board-edge";
 import { useBoardStorage } from "./use-board-storage";
 import { listenForViewSwipe } from "@/lib/lifemap-swipe";
@@ -131,7 +136,7 @@ const tools = [
   { id: "diamond", label: "Raute", Icon: Diamond },
   { id: "text", label: "Text (T)", Icon: Type },
   { id: "connect", label: "Verbindung (L)", Icon: Waypoints },
-  { id: "image", label: "Bild einfügen", Icon: ImagePlus },
+  { id: "image", label: "Medium einfügen", Icon: ImagePlus },
   { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
 ] as const;
 const hiddenTools = ["write", "select", "hand"];
@@ -212,7 +217,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       className={`lm-shape lm-${data.kind}${selected ? " lm-selected" : ""}`}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        if (!["image", "ink"].includes(data.kind)) edit.begin(id);
+        if (!["image", "ink", "media"].includes(data.kind)) edit.begin(id);
       }}
     >
       <NodeResizer
@@ -259,7 +264,9 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
             }}
           />
         ))}
-      {data.kind === "image" && data.image ? (
+      {data.media ? (
+        <MediaCard media={data.media} />
+      ) : data.kind === "image" && data.image ? (
         <img
           className="lm-shape-bg lm-picture"
           src={data.image}
@@ -337,7 +344,9 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
               : "center",
         }}
       >
-        {data.kind === "image" || data.kind === "ink" ? null : editing ? (
+        {data.kind === "image" ||
+        data.kind === "ink" ||
+        data.kind === "media" ? null : editing ? (
           <textarea
             ref={area}
             aria-label="Text bearbeiten"
@@ -401,6 +410,69 @@ function LineAnchor() {
         isConnectable={false}
       />
     </>
+  );
+}
+function MediaCard({ media }: { media: NonNullable<ShapeData["media"]> }) {
+  const [playing, setPlaying] = useState(false);
+  const url = media.url.startsWith("data:") ? null : new URL(media.url);
+  const videoId =
+    url &&
+    (url.hostname === "youtu.be"
+      ? url.pathname.slice(1)
+      : ["youtube.com", "www.youtube.com", "m.youtube.com"].includes(
+            url.hostname,
+          )
+        ? url.searchParams.get("v") ||
+          url.pathname.match(/^\/(shorts|embed)\/([^/]+)/)?.[2]
+        : null);
+  const thumbnail =
+    videoId && /^[\w-]{11}$/.test(videoId)
+      ? "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
+      : null;
+  const playable =
+    media.kind === "video" && (!url || /\.(mp4|webm)$/i.test(url.pathname));
+  const open = () => {
+    if (!url) {
+      const a = document.createElement("a");
+      a.href = media.url;
+      a.download = media.name;
+      a.click();
+    } else window.open(url.href, "_blank", "noopener,noreferrer");
+  };
+  return (
+    <div className="lm-media-card">
+      {playable ? (
+        <video
+          className="nodrag nopan"
+          controls={playing}
+          preload="metadata"
+          src={media.url}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            setPlaying(true);
+            void e.currentTarget.play().catch(() => {});
+          }}
+        />
+      ) : thumbnail ? (
+        <img
+          src={thumbnail}
+          alt=""
+          draggable={false}
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <span>
+          {media.kind === "document"
+            ? "Dokument"
+            : media.kind === "video"
+              ? "Video"
+              : "Link"}
+        </span>
+      )}
+      <button className="nodrag nopan" onClick={open} title={media.name}>
+        {media.name} ↗
+      </button>
+    </div>
   );
 }
 const nodeTypes = { shape: Shape, anchor: LineAnchor };
@@ -671,6 +743,81 @@ function BoardEditor() {
   };
   const toolbar = useRef<HTMLElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const mediaKind = useRef<"image" | "video" | "document">("image");
+  const [mediaLink, setMediaLink] = useState("");
+  const [mediaError, setMediaError] = useState("");
+  const addMedia = (media: NonNullable<ShapeData["media"]>) => {
+    if (!validMedia(media)) {
+      setMediaError("Ungültige Datei oder Webadresse.");
+      return;
+    }
+    add("media", innerWidth / 2 - 130, innerHeight / 2 - 90, 260, 170, {
+      media,
+    });
+    setMediaLink("");
+    setMediaError("");
+    setToolMenu(null);
+  };
+  const handleMediaFile = (file: File, kind: typeof mediaKind.current) => {
+    if (kind === "image") {
+      insertImage(file);
+      return;
+    }
+    if (file.size > 4_400_000) {
+      setMediaError("Dateien über 4,4 MB bitte als Link einfügen.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      addMedia({
+        kind,
+        url:
+          kind === "document" && !file.type.includes("pdf")
+            ? url.replace(/^data:[^;]+;/, "data:application/octet-stream;")
+            : url,
+        name: file.name,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+  const pickMedia = async (kind: typeof mediaKind.current) => {
+    mediaKind.current = kind;
+    const input = fileInput.current;
+    if (!input) return;
+    const accept =
+      kind === "image"
+        ? "image/png,image/jpeg,image/webp,image/gif"
+        : kind === "video"
+          ? "video/mp4,video/webm"
+          : ".pdf,.docx,.xlsx,.pptx,.txt";
+    input.accept = accept;
+    const picker = (
+      window as Window & {
+        showOpenFilePicker?: (
+          options: object,
+        ) => Promise<{ getFile: () => Promise<File> }[]>;
+      }
+    ).showOpenFilePicker;
+    if (kind === "image" && picker) {
+      try {
+        const [file] = await picker.call(window, {
+          startIn: "pictures",
+          types: [
+            {
+              description: "Bilder",
+              accept: { "image/*": [".png", ".jpeg", ".jpg", ".webp", ".gif"] },
+            },
+          ],
+        });
+        if (file) handleMediaFile(await file.getFile(), kind);
+        return;
+      } catch (error) {
+        if ((error as DOMException).name === "AbortError") return;
+      }
+    }
+    input.click();
+  };
   const touchStart = useRef<number | null>(null);
   useEffect(() => {
     try {
@@ -912,6 +1059,19 @@ function BoardEditor() {
   }, [dark]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
+      if (
+        preview &&
+        ["Enter", "Delete", "Backspace", "Escape"].includes(e.key) &&
+        !(e.target as HTMLElement).closest(
+          "input,textarea,select,[contenteditable]",
+        )
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === "Enter") mergePreview();
+        else setPreview(null);
+        return;
+      }
       const key = e.key.toLowerCase();
       if (
         (e.ctrlKey || e.metaKey) &&
@@ -1124,6 +1284,16 @@ function BoardEditor() {
     }) ?? [];
   const renderedEdges = [...board.edges, ...(preview?.board.edges ?? [])];
   const previewEdgeIds = new Set(preview?.board.edges.map((e) => e.id));
+  const mergePreview = () => {
+    if (!preview) return;
+    checkpoint();
+    setBoard((b) => ({
+      ...b,
+      nodes: [...b.nodes, ...previewNodes],
+      edges: [...b.edges, ...preview.board.edges],
+    }));
+    setPreview(null);
+  };
   const referenceIds = new Set(
     renderedEdges
       .flatMap((e) => [e.source, e.target])
@@ -1185,7 +1355,8 @@ function BoardEditor() {
         type="file"
         accept="image/png,image/jpeg,image/webp,image/gif"
         onChange={(e) => {
-          if (e.target.files?.[0]) insertImage(e.target.files[0]);
+          if (e.target.files?.[0])
+            handleMediaFile(e.target.files[0], mediaKind.current);
           e.target.value = "";
         }}
       />
@@ -2026,34 +2197,69 @@ function BoardEditor() {
                         },
                     );
                   }}
-                />
-                <div className="lm-import-actions">
-                  <label>
-                    Größe{" "}
-                    <input
-                      type="range"
-                      min={0.2}
-                      max={3}
-                      step={0.05}
-                      value={preview.scale}
-                      onChange={(e) =>
-                        setPreview({ ...preview, scale: +e.target.value })
-                      }
+                >
+                  {["nw", "ne", "sw", "se"].map((corner) => (
+                    <button
+                      key={corner}
+                      className={"lm-import-handle lm-import-" + corner}
+                      aria-label="Importgröße ändern"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        e.currentTarget.dataset.start = JSON.stringify({
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                          x: preview.x,
+                          y: preview.y,
+                          scale: preview.scale,
+                          width,
+                          height,
+                        });
+                      }}
+                      onPointerMove={(e) => {
+                        if (!e.currentTarget.hasPointerCapture(e.pointerId))
+                          return;
+                        const start = JSON.parse(
+                          e.currentTarget.dataset.start!,
+                        );
+                        const dx =
+                          ((e.clientX - start.clientX) *
+                            (corner.endsWith("w") ? -1 : 1)) /
+                          board.viewport.zoom;
+                        const dy =
+                          ((e.clientY - start.clientY) *
+                            (corner.startsWith("n") ? -1 : 1)) /
+                          board.viewport.zoom;
+                        const change =
+                          (dx * start.width + dy * start.height) /
+                          (start.width ** 2 + start.height ** 2);
+                        const scale = Math.max(
+                          0.1,
+                          Math.min(5, start.scale * (1 + change)),
+                        );
+                        setPreview(
+                          (p) =>
+                            p && {
+                              ...p,
+                              scale,
+                              x:
+                                start.x +
+                                (corner.endsWith("w")
+                                  ? start.width * (1 - scale / start.scale)
+                                  : 0),
+                              y:
+                                start.y +
+                                (corner.startsWith("n")
+                                  ? start.height * (1 - scale / start.scale)
+                                  : 0),
+                            },
+                        );
+                      }}
                     />
-                  </label>
-                  <button
-                    onClick={() => {
-                      checkpoint();
-                      setBoard((b) => ({
-                        ...b,
-                        nodes: [...b.nodes, ...previewNodes],
-                        edges: [...b.edges, ...preview.board.edges],
-                      }));
-                      setPreview(null);
-                    }}
-                  >
-                    Zusammenführen
-                  </button>
+                  ))}
+                </div>
+                <div className="lm-import-actions">
+                  <button onClick={mergePreview}>Zusammenführen</button>
                   <button onClick={() => setPreview(null)}>Abbrechen</button>
                 </div>
               </>
@@ -2825,9 +3031,53 @@ function BoardEditor() {
               </>
             )}
             {toolMenu === "image" && (
-              <button onClick={() => fileInput.current?.click()}>
-                Bild auswählen
-              </button>
+              <div className="lm-media-menu">
+                <button onClick={() => void pickMedia("image")}>
+                  Bilddatei
+                </button>
+                <button onClick={() => void pickMedia("video")}>
+                  Videodatei
+                </button>
+                <button onClick={() => void pickMedia("document")}>
+                  Dokumentdatei
+                </button>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const values = new FormData(e.currentTarget);
+                    const url = mediaLink.trim();
+                    let name = url;
+                    try {
+                      name = new URL(url).hostname;
+                    } catch {}
+                    const choice = String(values.get("kind"));
+                    const kind =
+                      choice === "link" &&
+                      /(?:youtube\.com|youtu\.be|\.(mp4|webm)(?:$|[?#]))/i.test(
+                        url,
+                      )
+                        ? "video"
+                        : (choice as "link" | "video" | "document");
+                    addMedia({ kind, url, name });
+                  }}
+                >
+                  <select name="kind" aria-label="Art der Verknüpfung">
+                    <option value="link">Link</option>
+                    <option value="video">Videolink</option>
+                    <option value="document">Dokumentlink</option>
+                  </select>
+                  <input
+                    type="url"
+                    placeholder="https://…"
+                    aria-label="Webadresse"
+                    required
+                    value={mediaLink}
+                    onChange={(e) => setMediaLink(e.target.value)}
+                  />
+                  <button type="submit">Einfügen</button>
+                </form>
+                {mediaError && <span role="alert">{mediaError}</span>}
+              </div>
             )}
             {toolMenu && (
               <button

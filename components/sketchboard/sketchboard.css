@@ -916,3 +916,73 @@
 .lm-format-grip:active {
   cursor: grabbing;
 }
+.lm-import-preview .lm-import-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid white;
+  border-radius: 3px;
+  background: var(--lm-accent);
+}
+.lm-import-nw {
+  left: -7px;
+  top: -7px;
+  cursor: nwse-resize;
+}
+.lm-import-ne {
+  right: -7px;
+  top: -7px;
+  cursor: nesw-resize;
+}
+.lm-import-sw {
+  left: -7px;
+  bottom: -7px;
+  cursor: nesw-resize;
+}
+.lm-import-se {
+  right: -7px;
+  bottom: -7px;
+  cursor: nwse-resize;
+}
+.lm-media-menu,
+.lm-media-menu form {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.lm-media-card {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-line);
+}
+.lm-media-card :is(img, video, span) {
+  min-height: 0;
+  flex: 1;
+  width: 100%;
+  object-fit: cover;
+}
+.lm-media-card span {
+  display: grid;
+  place-items: center;
+  background: var(--lm-bg);
+}
+.lm-media-card button {
+  position: relative;
+  z-index: 3;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.lm-shape:has(.lm-media-card) .lm-shape-content {
+  pointer-events: none;
+}
