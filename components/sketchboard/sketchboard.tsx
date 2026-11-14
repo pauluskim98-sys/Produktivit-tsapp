@@ -401,7 +401,7 @@ function BoardEditor() {
   const [toolMenu, setToolMenu] = useState<string | null>(null);
   const shapeHit = useRef<string | null>(null);
   const currentTab = new URLSearchParams(location.search).get("tab") || "main";
-  const [tabs] = useState<{ id: string; title: string }[]>(() => {
+  const [tabs, setTabs] = useState<{ id: string; title: string }[]>(() => {
     try {
       return (
         JSON.parse(localStorage.getItem("lifemap-tabs") || "null") ?? [
@@ -412,6 +412,40 @@ function BoardEditor() {
       return [{ id: "main", title: "LifeMap" }];
     }
   });
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const tabClick = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (tabClick.current) clearTimeout(tabClick.current);
+    },
+    [],
+  );
+  const [tabTitle, setTabTitle] = useState("");
+  const saveTabs = (next: typeof tabs) => {
+    setTabs(next);
+    localStorage.setItem("lifemap-tabs", JSON.stringify(next));
+  };
+  const renameTab = () => {
+    if (renaming && tabTitle.trim())
+      saveTabs(
+        tabs.map((t) =>
+          t.id === renaming ? { ...t, title: tabTitle.trim() } : t,
+        ),
+      );
+    setRenaming(null);
+  };
+  const closeTab = async (id: string) => {
+    if (id === currentTab && !(await storage.finish())) return;
+    const remaining = tabs.filter((t) => t.id !== id);
+    if (!remaining.length)
+      remaining.push({ id: crypto.randomUUID(), title: "LifeMap" });
+    saveTabs(remaining);
+    if (id === currentTab)
+      location.assign("/lifemap/board?tab=" + remaining[0].id);
+  };
+  const [paintMode, setPaintMode] = useState("fill");
+  const [paintOpacity, setPaintOpacity] = useState(1);
+  const [paintWidth, setPaintWidth] = useState(2);
   const openTab = async (id?: string) => {
     if (!(await storage.finish())) return;
     if (!id) {
@@ -710,6 +744,17 @@ function BoardEditor() {
         )
       )
         return;
+      if (
+        (e.code === "Space" || key === " ") &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) setNotes((open) => !open);
+        return;
+      }
       if (!storage.ready) return;
       const mod = e.metaKey || e.ctrlKey,
         k = e.key.toLowerCase();
@@ -789,6 +834,15 @@ function BoardEditor() {
               (index < 0 && k === "arrowleft" ? 1 : 0)) %
               buttons.length
           ]?.focus();
+          const button = document.activeElement as HTMLButtonElement;
+          const next = button.dataset.tool as Tool | undefined;
+          if (next) {
+            setTool(next);
+            setToolMenu(next);
+            setColors(next === "paint");
+            setEditing("");
+            connectFrom.current = null;
+          }
         }
       }
       if (!mod && shortcuts[k])
@@ -948,15 +1002,52 @@ function BoardEditor() {
         </button>
         <nav className="lm-board-tabs" aria-label="LifeMap-Tabs">
           {tabs.map(({ id, title }) => (
-            <button
-              key={id}
-              aria-current={id === currentTab ? "page" : undefined}
-              onClick={() => {
-                if (id !== currentTab) void openTab(id);
-              }}
-            >
-              {title}
-            </button>
+            <div className="lm-tab-item" key={id}>
+              {renaming === id ? (
+                <input
+                  autoFocus
+                  aria-label="Tab-Name"
+                  maxLength={60}
+                  value={tabTitle}
+                  onChange={(e) => setTabTitle(e.target.value)}
+                  onBlur={renameTab}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") setRenaming(null);
+                  }}
+                />
+              ) : (
+                <button
+                  onDoubleClick={() => {
+                    if (tabClick.current) clearTimeout(tabClick.current);
+                    setRenaming(id);
+                    setTabTitle(title);
+                  }}
+                  aria-current={id === currentTab ? "page" : undefined}
+                  onClick={(event) => {
+                    if (id === currentTab) return;
+                    if (event.detail === 0) {
+                      void openTab(id);
+                      return;
+                    }
+                    if (event.detail === 1)
+                      tabClick.current = setTimeout(
+                        () => void openTab(id),
+                        470,
+                      );
+                  }}
+                >
+                  {title}
+                </button>
+              )}
+              <button
+                aria-label={title + " schließen"}
+                title="Tab schließen"
+                onClick={() => void closeTab(id)}
+              >
+                <X size={13} />
+              </button>
+            </div>
           ))}
           <button aria-label="Neuer LifeMap-Tab" onClick={() => void openTab()}>
             +
@@ -1291,7 +1382,16 @@ function BoardEditor() {
                 }
                 if (tool === "paint" && node.data.kind !== "image") {
                   checkpoint();
-                  patch(node.id, { fill });
+                  patch(
+                    node.id,
+                    paintMode === "opacity"
+                      ? { opacity: paintOpacity }
+                      : paintMode === "stroke"
+                        ? { stroke: fill, strokeWidth: paintWidth }
+                        : paintMode === "all"
+                          ? { fill, opacity: paintOpacity }
+                          : { fill },
+                  );
                 }
                 if (
                   tool === "write" &&
@@ -1529,7 +1629,28 @@ function BoardEditor() {
         )}
       </div>
       {(selected.length > 0 || selectedEdges.length > 0) && !editing && (
-        <aside className="lm-format" aria-label="Element formatieren">
+        <aside
+          className="lm-format"
+          aria-label="Element formatieren"
+          style={
+            selected[0]
+              ? (() => {
+                  const n = selected[0];
+                  const point = flow.flowToScreenPosition({
+                    x: n.position.x + (n.width ?? 0),
+                    y: n.position.y,
+                  });
+                  return {
+                    left: Math.max(8, Math.min(innerWidth - 310, point.x + 12)),
+                    top: Math.max(70, Math.min(innerHeight - 260, point.y)),
+                    right: "auto",
+                    maxHeight: "min(55vh, 460px)",
+                    overflow: "auto",
+                  };
+                })()
+              : undefined
+          }
+        >
           <div className="lm-actions">
             <span>{selected.length + selectedEdges.length} ausgewählt</span>
             <button
@@ -2187,7 +2308,8 @@ function BoardEditor() {
           {tools
             .filter(
               ({ id }) =>
-                !hiddenTools.includes(id) && !preferences.hidden.includes(id),
+                !hiddenTools.includes(id) &&
+                (id === "polygon" || !preferences.hidden.includes(id)),
             )
             .sort(
               (a, b) =>
@@ -2198,6 +2320,7 @@ function BoardEditor() {
             .map(({ id, label, Icon }) => (
               <button
                 key={id}
+                data-tool={id}
                 title={label}
                 aria-label={label}
                 aria-pressed={tool === id}
@@ -2253,6 +2376,43 @@ function BoardEditor() {
           )}
           {colors && (
             <div className="lm-tool-palette">
+              {tool === "paint" && (
+                <div className="lm-paint-options">
+                  <select
+                    aria-label="Färber anwenden auf"
+                    value={paintMode}
+                    onChange={(e) => setPaintMode(e.target.value)}
+                  >
+                    <option value="fill">Nur Füllfarbe</option>
+                    <option value="all">Füllfarbe und Deckkraft</option>
+                    <option value="opacity">Nur Deckkraft</option>
+                    <option value="stroke">Umrandung</option>
+                  </select>
+                  <label>
+                    Deckkraft{" "}
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={paintOpacity}
+                      onChange={(e) => setPaintOpacity(+e.target.value)}
+                    />
+                  </label>
+                  {paintMode === "stroke" && (
+                    <label>
+                      Randstärke{" "}
+                      <input
+                        type="range"
+                        min={0}
+                        max={12}
+                        value={paintWidth}
+                        onChange={(e) => setPaintWidth(+e.target.value)}
+                      />
+                    </label>
+                  )}
+                </div>
+              )}
               {palette.map((c) => (
                 <button
                   key={c}

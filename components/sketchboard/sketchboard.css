@@ -752,3 +752,22 @@
 .lm-connecting .react-flow__edge {
   cursor: crosshair;
 }
+.lm-header > strong {
+  order: -3;
+}
+.lm-tab-item {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.lm-tab-item > button:last-child {
+  padding-inline: 3px;
+}
+.lm-tab-item input {
+  width: 110px;
+}
+.lm-paint-options {
+  flex-basis: 100%;
+  display: grid;
+  gap: 6px;
+}
