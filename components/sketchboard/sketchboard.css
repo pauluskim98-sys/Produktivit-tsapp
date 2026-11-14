@@ -1208,3 +1208,19 @@
   gap: 7px;
   background: color-mix(in srgb, var(--lm-panel), var(--lm-accent) 4%);
 }
+.lm-pattern-cork {
+  background-color: #c99b6d !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.34' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E") !important;
+  background-size: 140px 140px !important;
+}
+.lm-pattern-cork .react-flow__edge-path.lm-thread {
+  filter: drop-shadow(0 1px 0 #5230127a) drop-shadow(0 -0.5px 0 #fff6);
+}
+.lm-settings-tools {
+  border: 1px solid var(--lm-line);
+  border-radius: 10px;
+  padding: 8px;
+}
+.lm-settings-tools summary {
+  cursor: pointer;
+}

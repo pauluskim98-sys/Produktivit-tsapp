@@ -9,7 +9,7 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
     ).get("tab") || "main";
   const endpoint = "/api/sketchboard?tab=" + encodeURIComponent(tab);
   const [ready, setReady] = useState(false);
-  const [status, setStatus] = useState("Laden …");
+  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const revision = useRef(0),
     saved = useRef(""),

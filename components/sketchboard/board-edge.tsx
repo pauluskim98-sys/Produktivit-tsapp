@@ -13,6 +13,7 @@ export function BoardEdge(props: EdgeProps) {
   const data = props.data as
     | {
         route?: string;
+        thread?: boolean;
         caption?: LineLabel;
         anchor?: (id: string, x: number, y: number) => void;
         connectTo?: (id: string) => void;
@@ -75,9 +76,13 @@ export function BoardEdge(props: EdgeProps) {
         )}
       </defs>
       <path
-        className="react-flow__edge-path"
+        className={"react-flow__edge-path" + (data?.thread ? " lm-thread" : "")}
         d={path}
-        style={style}
+        style={
+          data?.thread
+            ? { ...style, strokeLinecap: "round", strokeDasharray: undefined }
+            : style
+        }
         markerEnd={markerEnd}
         markerStart={markerStart}
         mask={rotated ? `url(#${mask})` : undefined}

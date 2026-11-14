@@ -127,6 +127,61 @@ function LineSample({ value }: { value: string }) {
     </svg>
   );
 }
+function FormatSamples({
+  name,
+  value,
+  onChange,
+  rounded = false,
+}: {
+  name: string;
+  value: number;
+  onChange: (n: number) => void;
+  rounded?: boolean;
+}) {
+  const values = rounded ? [0, 12, 32] : [1, 3, 7];
+  const closest = values.reduce((a, b) =>
+    Math.abs(a - value) <= Math.abs(b - value) ? a : b,
+  );
+  return (
+    <span className="line-options" role="group" aria-label={name}>
+      {values.map((n, i) => (
+        <button
+          type="button"
+          key={n}
+          title={
+            rounded
+              ? ["Eckig", "Leicht gerundet", "Stark gerundet"][i]
+              : ["Dünn", "Mittel", "Dick"][i]
+          }
+          aria-label={name + " " + (i + 1)}
+          aria-pressed={n === closest}
+          onClick={() => onChange(n)}
+        >
+          <svg
+            width="28"
+            height="19"
+            viewBox="0 0 28 19"
+            fill="none"
+            stroke="currentColor"
+          >
+            {rounded ? (
+              <rect
+                x="4"
+                y="3"
+                width="20"
+                height="13"
+                rx={i * 3}
+                strokeWidth="1.5"
+              />
+            ) : (
+              <path d="M4 9.5h20" strokeWidth={n} strokeLinecap="round" />
+            )}
+          </svg>
+        </button>
+      ))}
+    </span>
+  );
+}
 const defaults = {
   accent: "#9360c9",
   order: [] as string[],
@@ -689,7 +744,7 @@ function BoardEditor() {
       const current = flow.getViewport();
       const next = Math.max(
         0.1,
-        Math.min(4, current.zoom * Math.exp(-event.deltaY * 0.005)),
+        Math.min(4, current.zoom * Math.exp(-event.deltaY * 0.006)),
       );
       const pane = document
         .querySelector(".lm-canvas")
@@ -1847,24 +1902,27 @@ function BoardEditor() {
             />
           </label>
           <div className="lm-style-previews">
-            {["plain", "dots", "lines", "grid", "paper"].map((pattern) => (
-              <button
-                key={pattern}
-                title={pattern}
-                aria-label={
-                  {
-                    plain: "Glatt",
-                    dots: "Punkte",
-                    lines: "Linien",
-                    grid: "Raster",
-                    paper: "Papier",
-                  }[pattern]
-                }
-                className={"lm-preview lm-pattern-" + pattern}
-                aria-pressed={preferences.pattern === pattern}
-                onClick={() => updatePreferences({ pattern })}
-              />
-            ))}
+            {["plain", "dots", "lines", "grid", "paper", "cork"].map(
+              (pattern) => (
+                <button
+                  key={pattern}
+                  title={pattern}
+                  aria-label={
+                    {
+                      plain: "Glatt",
+                      dots: "Punkte",
+                      lines: "Linien",
+                      grid: "Raster",
+                      paper: "Papier",
+                      cork: "Pinnwand",
+                    }[pattern]
+                  }
+                  className={"lm-preview lm-pattern-" + pattern}
+                  aria-pressed={preferences.pattern === pattern}
+                  onClick={() => updatePreferences({ pattern })}
+                />
+              ),
+            )}
           </div>
           <label>
             Standardschrift{" "}
@@ -1930,10 +1988,11 @@ function BoardEditor() {
               <option value="plain">Ohne</option>
               <option value="dots">Punkte</option>
               <option value="lines">Linien</option>
+              <option value="cork">Pinnwand</option>
             </select>
           </label>
-          <fieldset>
-            <legend>Werkzeugleiste</legend>
+          <details className="lm-settings-tools">
+            <summary>Werkzeugleiste</summary>
             {tools.map(({ id, label }) => (
               <label key={id}>
                 <input
@@ -1955,7 +2014,7 @@ function BoardEditor() {
                 Angeheftete Form entfernen
               </button>
             )}
-          </fieldset>
+          </details>
         </StoredPanel>
       )}
       {form && (
@@ -2079,7 +2138,7 @@ function BoardEditor() {
           }
         }}
         style={{ "--lm-ui": preferences.accent } as CSSProperties}
-        className={`lm-canvas lm-pattern-${preferences.pattern} ${tool === "select" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}`}
+        className={`lm-canvas lm-pattern-${preferences.pattern} ${tool === "select" || tool === "paint" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}`}
         onDoubleClick={(e) => {
           if ((e.target as HTMLElement).classList.contains("react-flow__pane"))
             setQuick({ x: e.clientX, y: e.clientY });
@@ -2159,6 +2218,7 @@ function BoardEditor() {
                   ...e.data,
                   startLink: previewEdgeIds.has(e.id) ? undefined : startLink,
                   route: e.type,
+                  thread: preferences.pattern === "cork",
                   anchor: reportAnchor,
                   connectTo: tool === "connect" ? connectTo : undefined,
                 },
@@ -2229,34 +2289,36 @@ function BoardEditor() {
                 }
                 if (tool === "connect") connectTo(node.id);
               }}
-              onPaneClick={(e) => {
-                if (tool === "connect") {
-                  setTool("hand");
-                  setBoard((b) => ({
-                    ...b,
-                    nodes: b.nodes.map((n) => ({ ...n, selected: false })),
-                    edges: b.edges.map((e) => ({ ...e, selected: false })),
-                  }));
-                  return;
-                }
-                if (leavingText.current) {
-                  leavingText.current = false;
-                  return;
-                }
-                if (tool === "hand") {
-                  setTool("write");
-                  return;
-                }
-                if (tool !== "write") {
-                  setTool("hand");
-                  connectFrom.current = null;
-                  return;
-                }
+              onPaneClick={() => {
+                leavingText.current = false;
+                setEditing("");
+                setTool("hand");
+                setToolMenu(null);
                 setQuick(null);
                 setColors(false);
-                if (tool === "write" && !editing)
-                  add("text", e.clientX, e.clientY);
-                else setEditing("");
+                connectFrom.current = null;
+              }}
+              onMoveStart={(event) => {
+                if (
+                  event?.type !== "mousedown" &&
+                  event?.type !== "pointerdown" &&
+                  event?.type !== "touchstart"
+                )
+                  return;
+                if (
+                  !(event.target instanceof Element) ||
+                  !event.target.closest(".react-flow__pane")
+                )
+                  return;
+                setBoard((b) => ({
+                  ...b,
+                  nodes: b.nodes.map((n) =>
+                    n.selected ? { ...n, selected: false } : n,
+                  ),
+                  edges: b.edges.map((e) =>
+                    e.selected ? { ...e, selected: false } : e,
+                  ),
+                }));
               }}
               nodesDraggable={
                 !editing && ["select", "write", "hand"].includes(tool)
@@ -2389,7 +2451,7 @@ function BoardEditor() {
                     strokePoints.current.some(
                       ([x, y]) => Math.hypot(x - start.x, y - start.y) > 8,
                     ));
-              if (tool === "symbols" && !leavingText.current) {
+              if (tool === "symbols" && drag && !leavingText.current) {
                 add(
                   "symbol",
                   Math.min(start.x, e.clientX),
@@ -2924,18 +2986,10 @@ function BoardEditor() {
                 </label>
                 <label>
                   Stärke
-                  <input
-                    aria-label="Randstärke"
-                    type="number"
-                    min={0}
-                    max={12}
-                    step={1}
+                  <FormatSamples
+                    name="Randstärke"
                     value={data.strokeWidth}
-                    onChange={(e) =>
-                      format({
-                        strokeWidth: Math.max(0, Math.min(12, +e.target.value)),
-                      })
-                    }
+                    onChange={(strokeWidth) => format({ strokeWidth })}
                   />
                 </label>
                 <label>
@@ -2953,18 +3007,11 @@ function BoardEditor() {
                 </label>
                 <label>
                   Rundung
-                  <input
-                    aria-label="Eckenradius"
-                    type="number"
-                    min={0}
-                    max={200}
-                    step={5}
+                  <FormatSamples
+                    name="Rundung"
+                    rounded
                     value={data.radius}
-                    onChange={(e) =>
-                      format({
-                        radius: Math.max(0, Math.min(200, +e.target.value)),
-                      })
-                    }
+                    onChange={(radius) => format({ radius })}
                   />
                 </label>
               </div>
@@ -3165,23 +3212,11 @@ function BoardEditor() {
               </label>
               <label>
                 Stärke
-                <input
-                  aria-label="Linienstärke"
-                  type="number"
-                  min={0.5}
-                  max={12}
-                  step={0.5}
+                <FormatSamples
+                  name="Linienstärke"
                   value={Number(edge.style?.strokeWidth || 1.5)}
-                  onChange={(e) =>
-                    formatEdge({
-                      style: {
-                        ...edge.style,
-                        strokeWidth: Math.max(
-                          0.5,
-                          Math.min(12, +e.target.value),
-                        ),
-                      },
-                    })
+                  onChange={(strokeWidth) =>
+                    formatEdge({ style: { ...edge.style, strokeWidth } })
                   }
                 />
               </label>
@@ -3372,7 +3407,7 @@ function BoardEditor() {
                   />
                 </label>
                 <button onClick={() => updatePreferences({ connection })}>
-                  Als Standard
+                  Immer
                 </button>
               </>
             )}
