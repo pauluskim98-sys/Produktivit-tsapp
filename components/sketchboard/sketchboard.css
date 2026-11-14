@@ -908,3 +908,11 @@
   border: 1px solid var(--lm-line);
   white-space: nowrap;
 }
+.lm-format-grip {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.lm-format-grip:active {
+  cursor: grabbing;
+}

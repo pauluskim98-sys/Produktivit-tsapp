@@ -417,6 +417,45 @@ function BoardEditor() {
     current = useRef(board);
   current.current = board;
   const flow = useReactFlow<ShapeNode>();
+  useEffect(() => {
+    const zoom = (event: WheelEvent) => {
+      if (
+        !event.ctrlKey ||
+        !(event.target instanceof Element) ||
+        !event.target.closest(".lm-draw-layer,.lm-format")
+      )
+        return;
+      event.preventDefault();
+      const current = flow.getViewport();
+      const next = Math.max(
+        0.1,
+        Math.min(4, current.zoom * Math.exp(-event.deltaY * 0.005)),
+      );
+      const pane = document
+        .querySelector(".lm-canvas")
+        ?.getBoundingClientRect();
+      if (!pane) return;
+      const x = event.clientX - pane.left,
+        y = event.clientY - pane.top;
+      void flow.setViewport({
+        zoom: next,
+        x: x - ((x - current.x) * next) / current.zoom,
+        y: y - ((y - current.y) * next) / current.zoom,
+      });
+    };
+    window.addEventListener("wheel", zoom, { passive: false, capture: true });
+    return () => window.removeEventListener("wheel", zoom, true);
+  }, [flow]);
+  const [formatPosition, setFormatPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const formatDrag = useRef<{
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+  } | null>(null);
   const [tool, setTool] = useState<Tool>("write"),
     [editing, setEditing] = useState(""),
     [notes, setNotes] = useState(false),
@@ -1210,16 +1249,20 @@ function BoardEditor() {
                 <button
                   aria-current={id === currentTab ? "page" : undefined}
                   aria-expanded={tabMenu === id}
-                  onClick={() => setTabMenu(tabMenu === id ? null : id)}
+                  onClick={() => {
+                    setTabMenu(null);
+                    if (id !== currentTab) void openTab(id);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setTabMenu(tabMenu === id ? null : id);
+                  }}
                 >
                   {title}
                 </button>
               )}
               {tabMenu === id && (
                 <div className="lm-tab-menu">
-                  {id !== currentTab && (
-                    <button onClick={() => void openTab(id)}>Öffnen</button>
-                  )}
                   <button
                     onClick={() => {
                       setRenaming(id);
@@ -1689,8 +1732,12 @@ function BoardEditor() {
                   leavingText.current = false;
                   return;
                 }
-                if (tool !== "write" && tool !== "paint") {
+                if (tool === "hand") {
                   setTool("write");
+                  return;
+                }
+                if (tool !== "write") {
+                  setTool("hand");
                   connectFrom.current = null;
                   return;
                 }
@@ -1812,7 +1859,8 @@ function BoardEditor() {
               const w = Math.abs(e.clientX - start.x),
                 h = Math.abs(e.clientY - start.y),
                 drag = w > 8 || h > 8;
-              if (!drag && (tool === "ink" || leavingText.current)) {
+              if (!drag || leavingText.current) {
+                if (!leavingText.current) setTool("hand");
                 drawing.current = null;
                 setDraft(null);
                 setStroke([]);
@@ -2067,25 +2115,109 @@ function BoardEditor() {
           className="lm-format"
           aria-label="Element formatieren"
           style={
-            selected[0]
-              ? (() => {
-                  const n = selected[0];
-                  const point = flow.flowToScreenPosition({
-                    x: n.position.x + (n.width ?? 0),
-                    y: n.position.y,
-                  });
-                  return {
-                    left: Math.max(8, Math.min(innerWidth - 310, point.x + 12)),
-                    top: Math.max(70, Math.min(innerHeight - 260, point.y)),
-                    right: "auto",
-                    maxHeight: "min(55vh, 460px)",
-                    overflow: "auto",
-                  };
-                })()
-              : undefined
+            formatPosition
+              ? {
+                  ...formatPosition,
+                  right: "auto",
+                  maxHeight: "min(55vh, 460px)",
+                  overflow: "auto",
+                }
+              : selected[0]
+                ? (() => {
+                    const n = selected[0];
+                    const point = flow.flowToScreenPosition({
+                      x: n.position.x + (n.width ?? 0),
+                      y: n.position.y,
+                    });
+                    const origin = flow.flowToScreenPosition(n.position);
+                    const bottom =
+                      origin.y + (n.height ?? 0) * board.viewport.zoom;
+                    const width = Math.min(294, innerWidth - 16),
+                      height = Math.min(460, innerHeight * 0.55);
+                    const clamp = (x: number, y: number) => ({
+                      left: Math.max(8, Math.min(innerWidth - width - 8, x)),
+                      top: Math.max(70, Math.min(innerHeight - height - 16, y)),
+                    });
+                    const candidates = [
+                      clamp(point.x + 12, point.y),
+                      clamp(origin.x - width - 12, origin.y),
+                      clamp(origin.x, bottom + 12),
+                      clamp(origin.x, origin.y - height - 12),
+                      clamp(innerWidth - width - 16, 76),
+                    ];
+                    const overlap = ({
+                      left,
+                      top,
+                    }: (typeof candidates)[number]) =>
+                      board.nodes.reduce((total, item) => {
+                        const screen = flow.flowToScreenPosition(item.position);
+                        const across = Math.max(
+                          0,
+                          Math.min(
+                            left + width,
+                            screen.x + (item.width ?? 0) * board.viewport.zoom,
+                          ) - Math.max(left, screen.x),
+                        );
+                        const down = Math.max(
+                          0,
+                          Math.min(
+                            top + height,
+                            screen.y + (item.height ?? 0) * board.viewport.zoom,
+                          ) - Math.max(top, screen.y),
+                        );
+                        return total + across * down;
+                      }, 0);
+                    const best = candidates.reduce((a, b) =>
+                      overlap(b) < overlap(a) ? b : a,
+                    );
+                    return {
+                      ...best,
+                      right: "auto",
+                      maxHeight: "min(55vh, 460px)",
+                      overflow: "auto",
+                    };
+                  })()
+                : undefined
           }
         >
-          <div className="lm-actions">
+          <div
+            className="lm-actions lm-format-grip"
+            onPointerDown={(e) => {
+              if (
+                e.button !== 0 ||
+                (e.target as HTMLElement).closest("button,input,select")
+              )
+                return;
+              const bounds =
+                e.currentTarget.parentElement!.getBoundingClientRect();
+              formatDrag.current = {
+                x: e.clientX,
+                y: e.clientY,
+                left: bounds.left,
+                top: bounds.top,
+              };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              const drag = formatDrag.current;
+              if (!drag || !e.currentTarget.hasPointerCapture(e.pointerId))
+                return;
+              setFormatPosition({
+                left: Math.max(
+                  8,
+                  Math.min(innerWidth - 80, drag.left + e.clientX - drag.x),
+                ),
+                top: Math.max(
+                  65,
+                  Math.min(innerHeight - 50, drag.top + e.clientY - drag.y),
+                ),
+              });
+            }}
+            onDoubleClick={(e) => {
+              if (!(e.target as HTMLElement).closest("button"))
+                setFormatPosition(null);
+            }}
+          >
             <span>{selected.length + selectedEdges.length} ausgewählt</span>
             <button
               title="Duplizieren"
