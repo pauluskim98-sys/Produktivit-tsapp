@@ -1496,3 +1496,25 @@
 .lm-standard svg {
   color: #27814e;
 }
+
+.lm-form-picker {
+  display: grid;
+  gap: 5px;
+  width: min(320px, 78vw);
+  max-height: 190px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.lm-form-picker > button {
+  justify-self: start;
+}
+.lm-form-picker > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.lm-form-picker small {
+  flex-basis: 100%;
+  opacity: 0.72;
+}

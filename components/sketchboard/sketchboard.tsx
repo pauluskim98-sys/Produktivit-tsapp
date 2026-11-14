@@ -290,7 +290,9 @@ const defaults = {
   hidden: ["text"] as string[],
   toolbarVersion: 1,
   recent: initialPoints,
-  pinned: null as [number, number][] | null,
+  pinned: null as PolygonPoint[] | null,
+  recentForms: [] as PolygonPoint[][],
+  pinnedForms: [] as PolygonPoint[][],
 };
 const tools = [
   { id: "write", label: "Schreiben und verschieben", Icon: Type },
@@ -403,6 +405,218 @@ function StoredPanel({
   );
 }
 type PolygonPoint = [number, number];
+
+const formTemplates: [string, PolygonPoint[]][] = [
+  [
+    "Dreieck",
+    [
+      [50, 4],
+      [96, 94],
+      [4, 94],
+    ],
+  ],
+  [
+    "Trapez",
+    [
+      [25, 10],
+      [75, 10],
+      [96, 90],
+      [4, 90],
+    ],
+  ],
+  [
+    "Parallelogramm",
+    [
+      [28, 10],
+      [96, 10],
+      [72, 90],
+      [4, 90],
+    ],
+  ],
+  [
+    "Fünfeck",
+    [
+      [50, 4],
+      [96, 38],
+      [79, 94],
+      [21, 94],
+      [4, 38],
+    ],
+  ],
+  [
+    "Sechseck",
+    [
+      [25, 7],
+      [75, 7],
+      [98, 50],
+      [75, 93],
+      [25, 93],
+      [2, 50],
+    ],
+  ],
+  [
+    "Achteck",
+    [
+      [30, 4],
+      [70, 4],
+      [96, 30],
+      [96, 70],
+      [70, 96],
+      [30, 96],
+      [4, 70],
+      [4, 30],
+    ],
+  ],
+  [
+    "Stern",
+    [
+      [50, 4],
+      [64, 34],
+      [97, 39],
+      [73, 63],
+      [79, 96],
+      [50, 80],
+      [21, 96],
+      [27, 63],
+      [3, 39],
+      [36, 34],
+    ],
+  ],
+  [
+    "Kreuz",
+    [
+      [34, 4],
+      [66, 4],
+      [66, 34],
+      [96, 34],
+      [96, 66],
+      [66, 66],
+      [66, 96],
+      [34, 96],
+      [34, 66],
+      [4, 66],
+      [4, 34],
+      [34, 34],
+    ],
+  ],
+  [
+    "Pfeil",
+    [
+      [4, 34],
+      [54, 34],
+      [54, 7],
+      [96, 50],
+      [54, 93],
+      [54, 66],
+      [4, 66],
+    ],
+  ],
+  [
+    "Wimpel",
+    [
+      [5, 8],
+      [95, 8],
+      [74, 50],
+      [95, 92],
+      [5, 92],
+    ],
+  ],
+  [
+    "Schild",
+    [
+      [6, 6],
+      [94, 6],
+      [87, 68],
+      [50, 97],
+      [13, 68],
+    ],
+  ],
+  [
+    "Sprechblase",
+    [
+      [5, 5],
+      [95, 5],
+      [95, 72],
+      [49, 72],
+      [23, 96],
+      [25, 72],
+      [5, 72],
+    ],
+  ],
+];
+
+function FormPreview({ points }: { points: PolygonPoint[] }) {
+  return (
+    <svg viewBox="-5 -5 110 110" width="22" height="22" aria-hidden>
+      <polygon
+        points={points.map((p) => p.join(",")).join(" ")}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function straightenForm(points: PolygonPoint[]): PolygonPoint[] {
+  // Match familiar outlines across rotations and drawing directions.
+  const candidates = [
+    ...formTemplates.map(([, outline]) => outline),
+    [
+      [4, 4],
+      [96, 4],
+      [96, 96],
+      [4, 96],
+    ] as PolygonPoint[],
+    [
+      [50, 4],
+      [96, 50],
+      [50, 96],
+      [4, 50],
+    ] as PolygonPoint[],
+  ];
+  let error = 19;
+  let closest: PolygonPoint[] | undefined;
+  for (const template of candidates.filter(
+    (outline) => outline.length === points.length,
+  )) {
+    for (const outline of [template, [...template].reverse()]) {
+      for (let offset = 0; offset < outline.length; offset++) {
+        const ordered = points.map(
+          (_, i) => outline[(i + offset) % outline.length],
+        );
+        const distance = Math.sqrt(
+          points.reduce(
+            (sum, [x, y], i) =>
+              sum + (x - ordered[i][0]) ** 2 + (y - ordered[i][1]) ** 2,
+            0,
+          ) / points.length,
+        );
+        if (distance >= error) continue;
+        closest = ordered;
+        error = distance;
+      }
+    }
+  }
+  if (closest) return closest;
+  // Align nearly horizontal and vertical edges while retaining the silhouette.
+  return points.map(([x, y], i) => {
+    const adjacent = [points.at(i - 1)!, points[(i + 1) % points.length]];
+    const aligned = (axis: 0 | 1, value: number) => {
+      const matching = adjacent.filter(
+        (p) =>
+          Math.abs(p[axis] - value) <= 10 &&
+          Math.abs(p[1 - axis] - points[i][1 - axis]) > 12,
+      );
+      return (
+        (value + matching.reduce((sum, p) => sum + p[axis], 0)) /
+        (matching.length + 1)
+      );
+    };
+    return [aligned(0, x), aligned(1, y)];
+  });
+}
 const hiddenTools = ["write", "select", "hand", "rounded"];
 function roundedOutline(points: [number, number][], radius: number) {
   return (
@@ -1455,6 +1669,7 @@ function BoardEditor() {
     setQuick(null);
     if (!width && !["image", "ink", "polygon", "media"].includes(kind))
       setEditing(node.id);
+    return node.id;
   };
   const insertImage = (file: File) => {
     const reader = new FileReader();
@@ -1758,7 +1973,10 @@ function BoardEditor() {
           const next = button.dataset.tool as Tool | undefined;
           if (next) {
             setTool(next);
-            if (next === "polygon") setDrawPolygon([]);
+            if (next === "polygon") {
+              setPolygonTemplate(null);
+              setDrawPolygon([]);
+            }
             setToolMenu(next);
             setColors(next === "paint");
             setEditing("");
@@ -1792,10 +2010,44 @@ function BoardEditor() {
   const embedded = new URLSearchParams(location.search).has("notebookEmbed");
   const [drawPolygon, setDrawPolygon] = useState<PolygonPoint[] | null>(null);
   const polygonGuide = useRef<SVGLineElement>(null);
+  const [polygonTemplate, setPolygonTemplate] = useState<PolygonPoint[] | null>(
+    null,
+  );
+  const [removeTool, setRemoveTool] = useState<{
+    x: number;
+    y: number;
+    remove: () => void;
+  } | null>(null);
+  const pinnedForms = preferences.pinned
+    ? [preferences.pinned, ...preferences.pinnedForms]
+    : preferences.pinnedForms;
+  const toolbarPreferences = (changes: Partial<typeof defaults>) => {
+    if (tabOverrides[currentTab]) updateTab(currentTab, changes);
+    else updatePreferences(changes);
+  };
+  const pinPolygon = (points: PolygonPoint[]) => {
+    if (
+      !pinnedForms.some(
+        (form) => JSON.stringify(form) === JSON.stringify(points),
+      )
+    )
+      toolbarPreferences({
+        pinned: null,
+        pinnedForms: [...pinnedForms, points],
+      });
+  };
+  const placeTemplate = (points: PolygonPoint[]) => {
+    setPolygonTemplate(points);
+    setDrawPolygon(null);
+    setTool("polygon");
+    setToolMenu(null);
+  };
   const [pinForm, setPinForm] = useState<{
     x: number;
     y: number;
     points: PolygonPoint[];
+    id: string;
+    straightened?: boolean;
   } | null>(null);
   const [stickyImports, setStickyImports] = useState<
     { name: string; src: string }[]
@@ -1968,6 +2220,7 @@ function BoardEditor() {
         }
         if (!hit.closest(".lm-tab-menu")) setTabMenu(null);
         if (!hit.closest(".lm-pin-form")) setPinForm(null);
+        if (!hit.closest(".lm-remove-tool")) setRemoveTool(null);
         if (!hit.closest(".lm-import-menu")) setImportAt(null);
         if (hit.matches(".lm-app,.lm-canvas,.lm-header")) clearCanvasPopups();
       }}
@@ -2836,7 +3089,7 @@ function BoardEditor() {
                       ((py - y) / height) * 100,
                     ] as PolygonPoint,
                 );
-                add(
+                const id = add(
                   "polygon",
                   x,
                   y,
@@ -2844,11 +3097,19 @@ function BoardEditor() {
                   height / board.viewport.zoom,
                   { points },
                 );
-                updatePreferences({ recent: points });
+                updatePreferences({
+                  recent: points,
+                  recentForms: [
+                    points,
+                    ...generalPreferences.recentForms.filter(
+                      (form) => JSON.stringify(form) !== JSON.stringify(points),
+                    ),
+                  ].slice(0, 5),
+                });
                 setDrawPolygon(null);
                 setTool("hand");
                 setToolMenu(null);
-                setPinForm({ x: e.clientX, y: e.clientY, points });
+                setPinForm({ x: e.clientX, y: e.clientY, points, id });
               } else if (drawPolygon.length < 100)
                 setDrawPolygon([...drawPolygon, point]);
             }}
@@ -2900,12 +3161,33 @@ function BoardEditor() {
           >
             <button
               onClick={() => {
-                updatePreferences({ pinned: pinForm.points });
+                pinPolygon(pinForm.points);
                 setPinForm(null);
               }}
             >
-              Zur Werkzeugleiste
+              Hinzufügen
             </button>
+            {!pinForm.straightened && (
+              <button
+                onClick={() => {
+                  const points = straightenForm(pinForm.points);
+                  checkpoint();
+                  patch(pinForm.id, { points });
+                  updatePreferences({
+                    recent: points,
+                    recentForms: [
+                      points,
+                      ...generalPreferences.recentForms.filter(
+                        (form) => form !== pinForm.points,
+                      ),
+                    ].slice(0, 5),
+                  });
+                  setPinForm({ ...pinForm, points, straightened: true });
+                }}
+              >
+                Begradigen
+              </button>
+            )}
             <button aria-label="Schließen" onClick={() => setPinForm(null)}>
               ×
             </button>
@@ -3059,7 +3341,9 @@ function BoardEditor() {
                 drag ? Math.min(start.y, e.clientY) : e.clientY,
                 drag ? Math.max(60, w / board.viewport.zoom) : undefined,
                 drag ? Math.max(50, h / board.viewport.zoom) : undefined,
-                tool === "polygon" ? { points: preferences.recent } : {},
+                tool === "polygon"
+                  ? { points: polygonTemplate ?? preferences.recent }
+                  : {},
               );
               drawing.current = null;
               setDraft(null);
@@ -3384,7 +3668,7 @@ function BoardEditor() {
                           [50, 100],
                           [0, 50],
                         ]
-                      : preferences.recent,
+                      : (polygonTemplate ?? preferences.recent),
                     0,
                   )}
                   fill={fill}
@@ -4177,6 +4461,24 @@ function BoardEditor() {
             ))}
         </div>
       )}
+      {removeTool && (
+        <div
+          className="lm-pin-form lm-remove-tool"
+          style={{
+            left: Math.min(removeTool.x, innerWidth - 170),
+            top: Math.min(removeTool.y, innerHeight - 52),
+          }}
+        >
+          <button
+            onClick={() => {
+              removeTool.remove();
+              setRemoveTool(null);
+            }}
+          >
+            Aus Leiste entfernen
+          </button>
+        </div>
+      )}
       <div className="lm-bottom">
         <div className="lm-history">
           <button
@@ -4395,6 +4697,46 @@ function BoardEditor() {
                 />
               </>
             )}
+            {toolMenu === "polygon" && (
+              <div className="lm-form-picker" aria-label="Formvorlagen">
+                <button
+                  onClick={() => {
+                    setPolygonTemplate(null);
+                    setDrawPolygon([]);
+                    setToolMenu(null);
+                  }}
+                >
+                  Freihand
+                </button>
+                {generalPreferences.recentForms.length > 0 && (
+                  <div role="group" aria-label="Zuletzt erstellt">
+                    <small>Zuletzt erstellt</small>
+                    {generalPreferences.recentForms.map((points, i) => (
+                      <button
+                        key={i}
+                        title={"Zuletzt erstellt " + (i + 1)}
+                        aria-label={"Zuletzt erstellt " + (i + 1)}
+                        onClick={() => placeTemplate(points)}
+                      >
+                        <FormPreview points={points} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div role="group" aria-label="Vorlagen">
+                  {formTemplates.map(([label, points]) => (
+                    <button
+                      key={label}
+                      title={label}
+                      aria-label={label}
+                      onClick={() => placeTemplate(points)}
+                    >
+                      <FormPreview points={points} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {toolMenu === "symbols" && (
               <div
                 className="lm-symbol-picker"
@@ -4415,7 +4757,7 @@ function BoardEditor() {
                       setPinSymbol(null);
                     }}
                   >
-                    „{pinSymbol}“ zur Werkzeugleiste
+                    Hinzufügen
                   </button>
                 )}
                 {[...Object.keys(customSymbols), ...Object.keys(symbols)].map(
@@ -4568,7 +4910,7 @@ function BoardEditor() {
             if (!raw) return;
             e.preventDefault();
             const points = JSON.parse(raw);
-            if (validPoints(points)) updatePreferences({ pinned: points });
+            if (validPoints(points)) pinPolygon(points);
           }}
         >
           {tools
@@ -4592,6 +4934,19 @@ function BoardEditor() {
                 className={tool === id ? "active" : ""}
                 disabled={!storage.ready}
                 draggable
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setRemoveTool({
+                    x: e.clientX,
+                    y: e.clientY,
+                    remove: () => {
+                      toolbarPreferences({
+                        hidden: [...preferences.hidden, id],
+                      });
+                      if (tool === id || toolMenu === id) clearCanvasPopups();
+                    },
+                  });
+                }}
                 onDragStart={(e) =>
                   e.dataTransfer.setData("application/x-lifemap-tool", id)
                 }
@@ -4628,6 +4983,7 @@ function BoardEditor() {
                   if (id === "image") return;
                   if (id === "polygon") {
                     setTool("polygon");
+                    setPolygonTemplate(null);
                     setDrawPolygon([]);
                   } else setTool(id);
                   if (id === "paint") setColors(true);
@@ -4642,6 +4998,21 @@ function BoardEditor() {
             <button
               key={name}
               title={name}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setRemoveTool({
+                  x: e.clientX,
+                  y: e.clientY,
+                  remove: () => {
+                    const next = pinnedSymbols.filter((item) => item !== name);
+                    setPinnedSymbols(next);
+                    localStorage.setItem(
+                      "lifemap-pinned-symbols",
+                      JSON.stringify(next),
+                    );
+                  },
+                });
+              }}
               aria-pressed={tool === "symbols" && symbol === name}
               onClick={() => {
                 setSymbol(name);
@@ -4660,18 +5031,33 @@ function BoardEditor() {
               )}
             </button>
           ))}
-          {preferences.pinned && (
+          {pinnedForms.map((points, i) => (
             <button
+              key={i}
               title="Angeheftete freie Form"
-              onClick={() => {
-                updatePreferences({ recent: preferences.pinned! });
-                setDrawPolygon(null);
-                setTool("polygon");
+              aria-label={"Angeheftete freie Form " + (i + 1)}
+              aria-pressed={tool === "polygon" && polygonTemplate === points}
+              onClick={() => placeTemplate(points)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setRemoveTool({
+                  x: e.clientX,
+                  y: e.clientY,
+                  remove: () => {
+                    toolbarPreferences({
+                      pinned: null,
+                      pinnedForms: pinnedForms.filter(
+                        (_, index) => index !== i,
+                      ),
+                    });
+                    if (polygonTemplate === points) clearCanvasPopups();
+                  },
+                });
               }}
             >
-              ⬡
+              <FormPreview points={points} />
             </button>
-          )}
+          ))}
           {colors && (
             <div className="lm-tool-palette">
               {tool === "paint" && (
