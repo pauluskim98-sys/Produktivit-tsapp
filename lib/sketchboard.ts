@@ -188,8 +188,8 @@ export function validateBoard(input: unknown): Board {
       !n.position ||
       !number(n.position.x, -1e7, 1e7) ||
       !number(n.position.y, -1e7, 1e7) ||
-      !number(n.width, 40, 10000) ||
-      !number(n.height, 40, 10000) ||
+      !number(n.width, 10, 10000) ||
+      !number(n.height, 10, 10000) ||
       !d ||
       !shapeKinds.includes(d.kind) ||
       typeof d.text !== "string" ||
@@ -199,7 +199,7 @@ export function validateBoard(input: unknown): Board {
       !color(d.color) ||
       !number(d.strokeWidth, 0, 12) ||
       !number(d.radius, 0, 200) ||
-      !number(d.fontSize, 10, 120) ||
+      !number(d.fontSize, 2, 1200) ||
       typeof d.bold !== "boolean" ||
       typeof d.italic !== "boolean" ||
       !["left", "center", "right"].includes(d.align)

@@ -139,6 +139,95 @@ const tools = [
   { id: "image", label: "Medium einfügen", Icon: ImagePlus },
   { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
 ] as const;
+function StoredPanel({
+  name,
+  className,
+  label,
+  style,
+  children,
+}: {
+  name: string;
+  className: string;
+  label: string;
+  style?: CSSProperties;
+  children: React.ReactNode;
+}) {
+  const [size, setSize] = useState<{ width: number; height: number } | null>(
+    () => {
+      try {
+        return JSON.parse(
+          localStorage.getItem("lifemap-panel-" + name) || "null",
+        );
+      } catch {
+        return null;
+      }
+    },
+  );
+  const drag = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const panel = useRef<HTMLElement>(null);
+  return (
+    <section
+      ref={panel}
+      className={className + " lm-resizable-panel"}
+      aria-label={label}
+      style={{
+        ...style,
+        ...(size
+          ? {
+              width: Math.min(size.width, innerWidth - 16),
+              height: size.height,
+            }
+          : {}),
+        overflow: "auto",
+      }}
+    >
+      {children}
+      <button
+        type="button"
+        aria-label="Fenstergröße ändern"
+        title="Fenstergröße ändern"
+        className="lm-panel-resize"
+        onPointerDown={(e) => {
+          const bounds = panel.current!.getBoundingClientRect();
+          drag.current = {
+            x: e.clientX,
+            y: e.clientY,
+            width: bounds.width,
+            height: bounds.height,
+          };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          const start = drag.current;
+          if (!start || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          const next = {
+            width: Math.max(
+              180,
+              Math.min(innerWidth - 16, start.width + e.clientX - start.x),
+            ),
+            height: Math.max(
+              100,
+              Math.min(innerHeight * 0.72, start.height + e.clientY - start.y),
+            ),
+          };
+          setSize(next);
+          localStorage.setItem("lifemap-panel-" + name, JSON.stringify(next));
+        }}
+        onDoubleClick={() => {
+          setSize(null);
+          localStorage.removeItem("lifemap-panel-" + name);
+        }}
+      >
+        ◢
+      </button>
+    </section>
+  );
+}
 const hiddenTools = ["write", "select", "hand"];
 function roundedOutline(points: [number, number][], radius: number) {
   return (
@@ -494,10 +583,11 @@ function BoardEditor() {
       if (
         !event.ctrlKey ||
         !(event.target instanceof Element) ||
-        !event.target.closest(".lm-draw-layer,.lm-format")
+        !event.target.closest(".lm-app")
       )
         return;
       event.preventDefault();
+      event.stopPropagation();
       const current = flow.getViewport();
       const next = Math.max(
         0.1,
@@ -751,9 +841,16 @@ function BoardEditor() {
       setMediaError("Ungültige Datei oder Webadresse.");
       return;
     }
-    add("media", innerWidth / 2 - 130, innerHeight / 2 - 90, 260, 170, {
-      media,
-    });
+    add(
+      "media",
+      innerWidth / 2 - 130,
+      innerHeight / 2 - 90,
+      260 / flow.getViewport().zoom,
+      170 / flow.getViewport().zoom,
+      {
+        media,
+      },
+    );
     setMediaLink("");
     setMediaError("");
     setToolMenu(null);
@@ -943,11 +1040,19 @@ function BoardEditor() {
   ) => {
     const p = flow.screenToFlowPosition({ x: clientX, y: clientY });
     checkpoint();
-    const node = newShape(kind, p.x, p.y, fill, width, height);
+    const zoom = flow.getViewport().zoom;
+    const node = newShape(
+      kind,
+      p.x,
+      p.y,
+      fill,
+      width ?? (kind === "sticky" ? 240 : 220) / zoom,
+      height ?? (kind === "text" ? 80 : kind === "sticky" ? 220 : 140) / zoom,
+    );
     node.data = {
       ...node.data,
       font: preferences.font,
-      fontSize: preferences.size,
+      fontSize: preferences.size / zoom,
       ...extra,
     };
     node.selected = true;
@@ -957,7 +1062,7 @@ function BoardEditor() {
       edges: b.edges.map((e) => ({ ...e, selected: false })),
     }));
     setQuick(null);
-    if (!width && !["image", "ink", "polygon"].includes(kind))
+    if (!width && !["image", "ink", "polygon", "media"].includes(kind))
       setEditing(node.id);
   };
   const insertImage = (file: File) => {
@@ -978,8 +1083,9 @@ function BoardEditor() {
           "image",
           rect.left + rect.width / 2 - 130,
           rect.top + rect.height / 2 - 110,
-          260,
-          Math.min(600, Math.max(50, (260 * image.height) / image.width)),
+          260 / flow.getViewport().zoom,
+          Math.min(600, Math.max(50, (260 * image.height) / image.width)) /
+            flow.getViewport().zoom,
           { image: src },
         );
       };
@@ -1126,9 +1232,17 @@ function BoardEditor() {
         e.preventDefault();
         if (!e.repeat) setNotes((open) => !open);
       }
-      if (k === "escape") {
+      if (
+        k === "escape" ||
+        (!mod &&
+          k === "enter" &&
+          !(e.target as HTMLElement).closest("button,a"))
+      ) {
+        e.preventDefault();
         setEditing("");
-        setTool("write");
+        setTool("hand");
+        setToolMenu(null);
+        setStroke([]);
         setNotes(false);
         setSettings(false);
         setForm(null);
@@ -1515,7 +1629,11 @@ function BoardEditor() {
         </aside>
       }
       {settings && (
-        <section className="lm-settings" aria-label="LifeMap-Einstellungen">
+        <StoredPanel
+          name="general"
+          className="lm-settings"
+          label="LifeMap-Einstellungen"
+        >
           <div className="lm-settings-heading">
             <strong>LifeMap-Einstellungen</strong>
             <button aria-label="Schließen" onClick={() => setSettings(false)}>
@@ -1623,10 +1741,14 @@ function BoardEditor() {
               </button>
             )}
           </fieldset>
-        </section>
+        </StoredPanel>
       )}
       {form && (
-        <section className="lm-settings" aria-label="Freie Form bearbeiten">
+        <StoredPanel
+          name="polygon"
+          className="lm-settings"
+          label="Freie Form bearbeiten"
+        >
           <p>Ziehe die Eckpunkte. Doppelklick fügt einen Punkt hinzu.</p>
           <svg
             className="lm-form-editor"
@@ -1699,7 +1821,7 @@ function BoardEditor() {
             In die Leiste ziehen
           </button>
           <button onClick={() => setForm(null)}>Schließen</button>
-        </section>
+        </StoredPanel>
       )}
       {storage.error && (
         <div className="lm-error" role="alert">
@@ -2317,9 +2439,10 @@ function BoardEditor() {
         )}
       </div>
       {(selected.length > 0 || selectedEdges.length > 0) && !editing && (
-        <aside
+        <StoredPanel
+          name="element"
           className="lm-format"
-          aria-label="Element formatieren"
+          label="Element formatieren"
           style={
             formatPosition
               ? {
@@ -2803,7 +2926,7 @@ function BoardEditor() {
               </select>
             </div>
           )}
-        </aside>
+        </StoredPanel>
       )}
       {quick && (
         <div
@@ -3079,21 +3202,6 @@ function BoardEditor() {
                 {mediaError && <span role="alert">{mediaError}</span>}
               </div>
             )}
-            {toolMenu && (
-              <button
-                title="Aus Leiste entfernen"
-                aria-label="Aus Leiste entfernen"
-                onClick={() => {
-                  updatePreferences({
-                    hidden: [...preferences.hidden, toolMenu],
-                  });
-                  setToolMenu(null);
-                  setTool("write");
-                }}
-              >
-                <Trash2 size={17} />
-              </button>
-            )}
             <button
               aria-label="Werkzeugoptionen schließen"
               onClick={() => {
@@ -3167,7 +3275,15 @@ function BoardEditor() {
                   updatePreferences({ order });
                 }}
                 onClick={() => {
-                  setToolMenu(toolMenu === id ? null : id);
+                  if (tool === id || toolMenu === id) {
+                    setTool("hand");
+                    setToolMenu(null);
+                    setColors(false);
+                    setForm(null);
+                    connectFrom.current = null;
+                    return;
+                  }
+                  setToolMenu(id);
                   if (id === "image") return;
                   if (id === "polygon") setForm(preferences.recent);
                   else setTool(id);

@@ -986,3 +986,18 @@
 .lm-shape:has(.lm-media-card) .lm-shape-content {
   pointer-events: none;
 }
+.lm-resizable-panel .lm-panel-resize {
+  position: sticky;
+  bottom: 0;
+  float: right;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: var(--lm-panel);
+  color: var(--lm-accent);
+}
+.lm-resizable-panel {
+  box-sizing: border-box;
+}
