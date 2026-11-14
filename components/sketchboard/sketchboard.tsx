@@ -3809,6 +3809,56 @@ function BoardEditor() {
     });
     return index < 0 ? items.length : index;
   };
+  const fitVisibleBoard = () => {
+    const visible = board.nodes.filter(
+      (node) =>
+        !collapsedGroups.has(node.data.group ?? "") &&
+        node.data.kind !== "connection-anchor",
+    );
+    const positions = visible.length
+      ? visible
+      : board.nodes.filter((node) => node.data.kind === "connection-anchor");
+    if (!positions.length) {
+      void flow.setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 350 });
+      return;
+    }
+    const [first] = positions;
+    const bounds = positions.reduce(
+      (acc, node) => {
+        const w = node.width ?? node.measured?.width ?? 1,
+          h = node.height ?? node.measured?.height ?? 1;
+        const corners = [
+          { x: node.position.x, y: node.position.y },
+          { x: node.position.x + w, y: node.position.y },
+          { x: node.position.x + w, y: node.position.y + h },
+          { x: node.position.x, y: node.position.y + h },
+        ].map((point) =>
+          rotateAroundNode(node, point, node.data.rotation ?? 0),
+        );
+        return {
+          left: Math.min(acc.left, ...corners.map((p) => p.x)),
+          top: Math.min(acc.top, ...corners.map((p) => p.y)),
+          right: Math.max(acc.right, ...corners.map((p) => p.x)),
+          bottom: Math.max(acc.bottom, ...corners.map((p) => p.y)),
+        };
+      },
+      {
+        left: first.position.x,
+        top: first.position.y,
+        right: first.position.x,
+        bottom: first.position.y,
+      },
+    );
+    void flow.fitBounds(
+      {
+        x: bounds.left,
+        y: bounds.top,
+        width: Math.max(1, bounds.right - bounds.left),
+        height: Math.max(1, bounds.bottom - bounds.top),
+      },
+      { padding: 0.24, duration: 350 },
+    );
+  };
   const clearCanvasPopups = () => {
     setConfirmGroup(false);
     setLinkHover(null);
@@ -4421,10 +4471,10 @@ function BoardEditor() {
           if (tool === "connect" && connectFrom.current)
             setLinkPointer({ x: e.clientX, y: e.clientY });
         }}
-        onContextMenu={(e) => {
+        onContextMenuCapture={(e) => {
           if (
             (e.target as HTMLElement).closest(
-              ".react-flow__node,.react-flow__edge",
+              ".react-flow__node,.react-flow__edge-interaction,button,input,textarea,.lm-import-menu",
             )
           )
             return;
@@ -4434,13 +4484,8 @@ function BoardEditor() {
             setImportAt({ x: e.clientX, y: e.clientY });
             return;
           }
-          void flow.fitView({
-            nodes: board.nodes
-              .filter((n) => !collapsedGroups.has(n.data.group ?? ""))
-              .map((n) => ({ id: n.id })),
-            padding: 0.2,
-            duration: 350,
-          });
+          e.stopPropagation();
+          fitVisibleBoard();
         }}
         tabIndex={-1}
         onPointerDownCapture={(e) => {
@@ -4573,6 +4618,32 @@ function BoardEditor() {
                   ...e.data,
                   startLink: previewEdgeIds.has(e.id) ? undefined : startLink,
                   route: e.type,
+                  sourceRotation:
+                    board.nodes.find(
+                      (n) =>
+                        n.id === e.source &&
+                        n.data.kind !== "connection-anchor",
+                    )?.data.rotation ??
+                    (board.nodes.some(
+                      (n) =>
+                        n.id === e.source &&
+                        n.data.kind !== "connection-anchor",
+                    )
+                      ? 0
+                      : undefined),
+                  targetRotation:
+                    board.nodes.find(
+                      (n) =>
+                        n.id === e.target &&
+                        n.data.kind !== "connection-anchor",
+                    )?.data.rotation ??
+                    (board.nodes.some(
+                      (n) =>
+                        n.id === e.target &&
+                        n.data.kind !== "connection-anchor",
+                    )
+                      ? 0
+                      : undefined),
                   sourcePoint: (() => {
                     const node = board.nodes.find((n) => n.id === e.source);
                     if (!node) return;
@@ -5549,21 +5620,33 @@ function BoardEditor() {
                 : node.position
               : anchors[id.slice(5)];
             if (!start) return null;
-            const [path] = boardEdgePath(connection.type, {
-              sourceX: start.x,
-              sourceY: start.y,
-              targetX: end.x,
-              targetY: end.y,
-              sourcePosition: node
-                ? ((sourceSide?.[0] ?? "right") as Position)
-                : Position.Top,
-              targetPosition: edgePoint
-                ? Position.Top
-                : side
-                  ? (side[0] as Position)
-                  : Position.Left,
-            });
             const { x, y, zoom } = flow.getViewport();
+            const [path] = boardEdgePath(
+              connection.type,
+              {
+                sourceX: start.x,
+                sourceY: start.y,
+                targetX: end.x,
+                targetY: end.y,
+                sourcePosition: node
+                  ? ((sourceSide?.[0] ?? "right") as Position)
+                  : Position.Top,
+                targetPosition: edgePoint
+                  ? Position.Top
+                  : side
+                    ? (side[0] as Position)
+                    : Position.Left,
+              },
+              {
+                sourceRotation: sourceSide
+                  ? (node?.data.rotation ?? 0)
+                  : undefined,
+                targetRotation: side
+                  ? (destination?.data.rotation ?? 0)
+                  : undefined,
+                size: creationStroke(connection.width, zoom) * connectionWeight,
+              },
+            );
             const bounds = host.current?.getBoundingClientRect();
             const thread = preferences.pattern === "cork";
             return (
@@ -7770,7 +7853,7 @@ function BoardEditor() {
           <button
             aria-label="Alles anzeigen"
             title="Alles anzeigen"
-            onClick={() => flow.fitView({ padding: 0.2, duration: 250 })}
+            onClick={fitVisibleBoard}
           >
             <Scan size={18} />
           </button>

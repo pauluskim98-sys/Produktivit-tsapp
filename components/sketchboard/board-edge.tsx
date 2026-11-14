@@ -4,22 +4,86 @@ import {
   getBezierPath,
   getSmoothStepPath,
   getStraightPath,
+  Position,
   type EdgeProps,
 } from "@xyflow/react";
 import { connectionWeight, type LineLabel } from "@/lib/sketchboard";
 
+type EdgePoints = Parameters<typeof getBezierPath>[0];
+
 export function boardEdgePath(
   route: string | undefined,
-  points: Parameters<typeof getBezierPath>[0],
+  points: EdgePoints,
+  options: {
+    sourceRotation?: number;
+    targetRotation?: number;
+    size?: number;
+  } = {},
 ) {
-  if (route === "straight") return getStraightPath(points);
-  if (route === "step" || route === "smoothstep") {
-    return getSmoothStepPath({
-      ...points,
-      borderRadius: route === "step" ? 0 : 8,
-    });
-  }
-  return getBezierPath(points);
+  const { sourceRotation, targetRotation, size = 0 } = options;
+  const endpoint = (
+    x: number,
+    y: number,
+    side: Position,
+    rotation?: number,
+  ) => {
+    if (rotation === undefined) return { x, y, tipX: x, tipY: y };
+    const angle =
+      (({
+        [Position.Right]: 0,
+        [Position.Bottom]: 90,
+        [Position.Left]: 180,
+        [Position.Top]: 270,
+      }[side] +
+        rotation) *
+        Math.PI) /
+      180;
+    const dx = Math.cos(angle),
+      dy = Math.sin(angle);
+    const tipGap = Math.max(1, size * 0.17);
+    const stub = Math.max(12, size * 0.84);
+    return {
+      x: x + dx * (stub + tipGap),
+      y: y + dy * (stub + tipGap),
+      tipX: x + dx * tipGap,
+      tipY: y + dy * tipGap,
+    };
+  };
+  const source = endpoint(
+    points.sourceX,
+    points.sourceY,
+    points.sourcePosition ?? Position.Right,
+    sourceRotation,
+  );
+  const target = endpoint(
+    points.targetX,
+    points.targetY,
+    points.targetPosition ?? Position.Left,
+    targetRotation,
+  );
+  const inner = {
+    ...points,
+    sourceX: source.x,
+    sourceY: source.y,
+    targetX: target.x,
+    targetY: target.y,
+  };
+  const result =
+    route === "straight"
+      ? getStraightPath(inner)
+      : route === "step" || route === "smoothstep"
+        ? getSmoothStepPath({
+            ...inner,
+            borderRadius: route === "step" ? 0 : 8,
+          })
+        : getBezierPath(inner);
+  if (sourceRotation !== undefined)
+    result[0] =
+      `M${source.tipX},${source.tipY} L${source.x},${source.y} ` +
+      result[0].replace(/^M\s*[-+\d.e]+[ ,]+[-+\d.e]+\s*/i, "");
+  if (targetRotation !== undefined)
+    result[0] += ` L${target.tipX},${target.tipY}`;
+  return result;
 }
 
 export function BoardEdge(props: EdgeProps) {
@@ -27,6 +91,8 @@ export function BoardEdge(props: EdgeProps) {
   const data = props.data as
     | {
         route?: string;
+        sourceRotation?: number;
+        targetRotation?: number;
         sourcePoint?: { x: number; y: number };
         targetPoint?: { x: number; y: number };
         thread?: boolean;
@@ -36,15 +102,24 @@ export function BoardEdge(props: EdgeProps) {
         startLink?: (id: string) => void;
       }
     | undefined;
-  const [path, x, y] = boardEdgePath(data?.route, {
-    ...props,
-    ...(data?.sourcePoint
-      ? { sourceX: data.sourcePoint.x, sourceY: data.sourcePoint.y }
-      : {}),
-    ...(data?.targetPoint
-      ? { targetX: data.targetPoint.x, targetY: data.targetPoint.y }
-      : {}),
-  });
+  const weight = Number(style?.strokeWidth ?? 9) * connectionWeight;
+  const [path, x, y] = boardEdgePath(
+    data?.route,
+    {
+      ...props,
+      ...(data?.sourcePoint
+        ? { sourceX: data.sourcePoint.x, sourceY: data.sourcePoint.y }
+        : {}),
+      ...(data?.targetPoint
+        ? { targetX: data.targetPoint.x, targetY: data.targetPoint.y }
+        : {}),
+    },
+    {
+      sourceRotation: data?.sourceRotation,
+      targetRotation: data?.targetRotation,
+      size: weight,
+    },
+  );
   const line = useRef<SVGPathElement>(null);
   useLayoutEffect(() => {
     const middle = line.current?.getPointAtLength(
@@ -58,7 +133,6 @@ export function BoardEdge(props: EdgeProps) {
   const width = (caption?.text.length ?? 0) * size * 0.62 + 10;
   const route = "lm-route-" + id;
   const mask = "lm-mask-" + id;
-  const weight = Number(style?.strokeWidth ?? 9) * connectionWeight;
   const arrow = "lm-arrow-" + id;
   const rotated = Boolean(caption?.text && angle);
   return (
