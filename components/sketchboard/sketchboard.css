@@ -2217,3 +2217,28 @@
   max-width: 100%;
   min-height: 36px;
 }
+
+.lm-floating-rotation {
+  position: fixed;
+  z-index: 35;
+  pointer-events: none;
+}
+.lm-app .lm-floating-rotation .lm-rotate-grip {
+  position: absolute;
+  top: -26px;
+  left: 50%;
+  translate: -50% 0;
+  pointer-events: auto;
+  touch-action: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  color: var(--lm-accent);
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-line);
+  border-radius: 50%;
+  cursor: grab;
+}

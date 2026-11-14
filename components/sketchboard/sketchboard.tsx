@@ -1388,19 +1388,6 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       >
         <Waypoints size={15} />
       </button>
-      {!data.group &&
-        !editing &&
-        !["connection-anchor", "jump-anchor"].includes(data.kind) && (
-          <AngleGrip
-            label="Element drehen"
-            onStart={edit.checkpoint}
-            onRotate={(delta) =>
-              edit.patch(id, {
-                rotation: wrapRotation((data.rotation ?? 0) + delta),
-              })
-            }
-          />
-        )}
       <NodeResizer
         isVisible={selected && !editing}
         minWidth={60}
@@ -4084,6 +4071,13 @@ function BoardEditor() {
     });
     return index < 0 ? items.length : index;
   };
+  const fitContextStart = useRef<Point | null>(null);
+  const blankBoardTarget = (target: EventTarget | null) =>
+    target instanceof Element &&
+    !!host.current?.contains(target) &&
+    !target.closest(
+      ".react-flow__node,.react-flow__edge-interaction,button,input,textarea,.lm-import-menu,.lm-format",
+    );
   const fitVisibleBoard = () => {
     const visible = board.nodes.filter(
       (node) =>
@@ -4164,6 +4158,14 @@ function BoardEditor() {
     <main
       onPointerDownCapture={(event) => {
         if (
+          event.button === 2 &&
+          !event.shiftKey &&
+          blankBoardTarget(event.target)
+        ) {
+          fitContextStart.current = { x: event.clientX, y: event.clientY };
+          return;
+        }
+        if (
           tool !== "select" ||
           event.button !== 0 ||
           !(event.target instanceof Element) ||
@@ -4189,6 +4191,18 @@ function BoardEditor() {
         });
       }}
       onPointerUpCapture={(event) => {
+        if (event.button === 2) {
+          const start = fitContextStart.current;
+          fitContextStart.current = null;
+          if (
+            start &&
+            Math.hypot(start.x - event.clientX, start.y - event.clientY) < 6
+          ) {
+            event.preventDefault();
+            fitVisibleBoard();
+          }
+          return;
+        }
         const start = selectionStart.current;
         selectionStart.current = null;
         setSelectionBox(null);
@@ -6622,6 +6636,42 @@ function BoardEditor() {
             />
           );
         })()}
+      {!editing &&
+        !representation &&
+        (() => {
+          const node =
+            board.nodes.find(
+              (item) => item.id === linkHover?.id && !item.data.group,
+            ) ?? (selected.length === 1 ? selected[0] : undefined);
+          if (
+            !node ||
+            node.data.group ||
+            ["jump-anchor", "connection-anchor"].includes(node.data.kind)
+          )
+            return null;
+          const position = flow.flowToScreenPosition(node.position);
+          return (
+            <div
+              className="lm-floating-rotation"
+              style={{
+                left: position.x,
+                top: position.y,
+                width: (node.width ?? 0) * board.viewport.zoom,
+                height: (node.height ?? 0) * board.viewport.zoom,
+              }}
+            >
+              <AngleGrip
+                label="Element drehen"
+                onStart={checkpoint}
+                onRotate={(delta) =>
+                  patch(node.id, {
+                    rotation: wrapRotation((node.data.rotation ?? 0) + delta),
+                  })
+                }
+              />
+            </div>
+          );
+        })()}
       {linkHover && (
         <button
           type="button"
@@ -6659,7 +6709,6 @@ function BoardEditor() {
                 ["wavy", "Geschlängelt"],
                 ["dashed", "Gestrichelt"],
                 ["double", "Doppellinie"],
-                [undefined, "Standard"],
               ] as const
             ).map(([style, label]) => (
               <button
