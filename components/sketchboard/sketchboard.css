@@ -734,3 +734,21 @@
   width: 24px;
   height: 32px;
 }
+.lm-edge-caption {
+  pointer-events: visiblePainted;
+  cursor: pointer;
+}
+.lm-edge-label-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid #8884;
+  border-radius: 8px;
+}
+.lm-edge-label-options > input:first-of-type {
+  width: 100%;
+}
+.lm-connecting .react-flow__edge {
+  cursor: crosshair;
+}

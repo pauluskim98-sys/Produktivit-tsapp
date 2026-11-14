@@ -1,6 +1,7 @@
 "use client";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -61,6 +62,8 @@ import {
 } from "lucide-react";
 import {
   emptyBoard,
+  emptyLineLabel,
+  type LineLabel,
   newShape,
   palette,
   duplicateSelection,
@@ -70,6 +73,7 @@ import {
   type ShapeNode,
 } from "@/lib/sketchboard";
 import { boardFonts, validPicture, validPoints } from "@/lib/sketchboard";
+import { BoardEdge } from "./board-edge";
 import { useBoardStorage } from "./use-board-storage";
 import { listenForViewSwipe } from "@/lib/lifemap-swipe";
 import "@xyflow/react/dist/style.css";
@@ -263,6 +267,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         }
         style={{
           color: data.color,
+          background: data.textBackground,
           fontFamily: data.font === "System" ? undefined : data.font,
           fontSize: data.fontSize,
           fontWeight: data.bold ? 700 : 400,
@@ -320,7 +325,19 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
     </div>
   );
 }
-const nodeTypes = { shape: Shape };
+function LineAnchor() {
+  return (
+    <Handle
+      id="center"
+      type="source"
+      position={Position.Top}
+      style={{ opacity: 0, width: 1, height: 1, border: 0 }}
+      isConnectable={false}
+    />
+  );
+}
+const nodeTypes = { shape: Shape, anchor: LineAnchor };
+const edgeTypes = { boardLine: BoardEdge };
 export default function Sketchboard() {
   return (
     <ReactFlowProvider>
@@ -366,6 +383,17 @@ function BoardEditor() {
     host = useRef<HTMLDivElement>(null);
   const storage = useBoardStorage(board, setBoard);
   const leavingText = useRef(false);
+  const [focus, setFocus] = useState<{ id: string; level: 1 | 2 } | null>(null);
+  const [anchors, setAnchors] = useState<
+    Record<string, { x: number; y: number }>
+  >({});
+  const reportAnchor = useCallback((id: string, x: number, y: number) => {
+    setAnchors((current) =>
+      current[id]?.x === x && current[id]?.y === y
+        ? current
+        : { ...current, [id]: { x, y } },
+    );
+  }, []);
   const [connectionOverride, setConnectionOverride] = useState<
     typeof defaults.connection | null
   >(null);
@@ -503,17 +531,17 @@ function BoardEditor() {
   const remove = () => {
     if (!selected.length && !selectedEdges.length) return;
     checkpoint();
-    setBoard((b) => ({
-      ...b,
-      nodes: b.nodes.filter((n) => !n.selected),
-      edges: b.edges.filter(
-        (e) =>
-          !e.selected &&
-          !b.nodes.some(
-            (n) => n.selected && (n.id === e.source || n.id === e.target),
-          ),
-      ),
-    }));
+    setBoard((b) => {
+      const gone = new Set(b.nodes.filter((n) => n.selected).map((n) => n.id));
+      for (const e of b.edges)
+        if (e.selected || gone.has(e.source) || gone.has(e.target))
+          gone.add("line:" + e.id);
+      return {
+        ...b,
+        nodes: b.nodes.filter((n) => !gone.has(n.id)),
+        edges: b.edges.filter((e) => !gone.has("line:" + e.id)),
+      };
+    });
   };
   const copy = () => {
     clipboard.current = {
@@ -634,6 +662,20 @@ function BoardEditor() {
       ],
     }));
   };
+  const connectTo = (id: string) => {
+    const source = connectFrom.current;
+    if (!source) {
+      connectFrom.current = id;
+      return;
+    }
+    connect({
+      source,
+      target: id,
+      sourceHandle: "right",
+      targetHandle: "left",
+    });
+    connectFrom.current = null;
+  };
   const begin = (id: string) => {
     checkpoint();
     setEditing(id);
@@ -710,6 +752,13 @@ function BoardEditor() {
           edges: b.edges.map((e) => ({ ...e, selected: false })),
         }));
       }
+      if (!mod && k === "h" && (focus || selected[0] || selectedEdges[0])) {
+        e.preventDefault();
+        const id =
+          focus?.id ?? (selected[0]?.id || "line:" + selectedEdges[0].id);
+        setFocus(focus?.level === 2 ? null : { id, level: focus ? 2 : 1 });
+        return;
+      }
       const shortcuts: Record<string, Tool> = {
         a: "select",
         h: "hand",
@@ -767,6 +816,48 @@ function BoardEditor() {
     tool,
   );
   const edge = selectedEdges[0];
+  const caption =
+    (edge?.data?.caption as LineLabel | undefined) ?? emptyLineLabel;
+  const setCaption = (value: Partial<LineLabel>) =>
+    formatEdge({ data: { ...edge?.data, caption: { ...caption, ...value } } });
+  const connected = new Set(focus ? [focus.id] : []);
+  if (focus) {
+    let previous = 0;
+    while (previous !== connected.size) {
+      previous = connected.size;
+      for (const line of board.edges) {
+        const key = "line:" + line.id;
+        if (
+          connected.has(key) ||
+          connected.has(line.source) ||
+          connected.has(line.target)
+        ) {
+          connected.add(key);
+          connected.add(line.source);
+          connected.add(line.target);
+        }
+      }
+    }
+  }
+  const fade = (id: string) =>
+    !focus || connected.has(id) ? 1 : focus.level === 1 ? 0.15 : 0;
+  const referenceIds = new Set(
+    board.edges
+      .flatMap((e) => [e.source, e.target])
+      .filter((id) => id.startsWith("line:")),
+  );
+  const proxyNodes = [...referenceIds].map((id) => ({
+    id,
+    type: "anchor",
+    position: anchors[id.slice(5)] ?? { x: 0, y: 0 },
+    width: 1,
+    height: 1,
+    draggable: false,
+    selectable: false,
+    focusable: false,
+    data: {},
+    style: { pointerEvents: "none" },
+  })) as unknown as ShapeNode[];
   return (
     <main
       className={`lm-app${dark ? " lm-dark" : ""}`}
@@ -1133,8 +1224,35 @@ function BoardEditor() {
             }}
           >
             <ReactFlow<ShapeNode>
-              nodes={board.nodes}
-              edges={board.edges}
+              nodes={[
+                ...board.nodes.map((n) => ({
+                  ...n,
+                  style: {
+                    ...n.style,
+                    opacity: fade(n.id),
+                    pointerEvents:
+                      fade(n.id) === 0 ? ("none" as const) : undefined,
+                  },
+                })),
+                ...proxyNodes,
+              ]}
+              edges={board.edges.map((e) => ({
+                ...e,
+                type: "boardLine",
+                sourceHandle: e.source.startsWith("line:")
+                  ? "center"
+                  : e.sourceHandle,
+                targetHandle: e.target.startsWith("line:")
+                  ? "center"
+                  : e.targetHandle,
+                style: { ...e.style, opacity: fade("line:" + e.id) },
+                hidden: fade("line:" + e.id) === 0,
+                data: { ...e.data, route: e.type, anchor: reportAnchor },
+              }))}
+              edgeTypes={edgeTypes}
+              onEdgeClick={(_, e) => {
+                if (tool === "connect") connectTo("line:" + e.id);
+              }}
               nodeTypes={nodeTypes}
               viewport={board.viewport}
               onViewportChange={(viewport) =>
@@ -1143,7 +1261,13 @@ function BoardEditor() {
               onNodesChange={(changes) =>
                 setBoard((b) => ({
                   ...b,
-                  nodes: applyNodeChanges(changes, b.nodes),
+                  nodes: applyNodeChanges(
+                    changes.filter(
+                      (change) =>
+                        !("id" in change) || !change.id.startsWith("line:"),
+                    ),
+                    b.nodes,
+                  ),
                 }))
               }
               onEdgesChange={(changes) =>
@@ -1175,17 +1299,7 @@ function BoardEditor() {
                   !["image", "ink"].includes(node.data.kind)
                 )
                   begin(node.id);
-                if (tool === "connect") {
-                  if (connectFrom.current) {
-                    connect({
-                      source: connectFrom.current,
-                      target: node.id,
-                      sourceHandle: "right",
-                      targetHandle: "left",
-                    });
-                    connectFrom.current = null;
-                  } else connectFrom.current = node.id;
-                }
+                if (tool === "connect") connectTo(node.id);
               }}
               onPaneClick={(e) => {
                 if (leavingText.current) {
@@ -1466,6 +1580,23 @@ function BoardEditor() {
                 </label>
               </div>
               <label>
+                Schrifthintergrund{" "}
+                <input
+                  type="color"
+                  value={
+                    data.textBackground && data.textBackground !== "transparent"
+                      ? data.textBackground
+                      : "#ffffff"
+                  }
+                  onChange={(e) => format({ textBackground: e.target.value })}
+                />
+                <button
+                  onClick={() => format({ textBackground: "transparent" })}
+                >
+                  Transparent
+                </button>
+              </label>
+              <label>
                 Deckkraft{" "}
                 <input
                   type="range"
@@ -1604,6 +1735,93 @@ function BoardEditor() {
           )}
           {!data && edge && (
             <div className="lm-edge-format">
+              <fieldset className="lm-edge-label-options">
+                <legend>Beschriftung</legend>
+                <input
+                  aria-label="Linienbeschriftung"
+                  placeholder="Linienbeschriftung"
+                  maxLength={160}
+                  value={caption.text}
+                  onChange={(e) => setCaption({ text: e.target.value })}
+                />
+                <label>
+                  Winkel{" "}
+                  <input
+                    type="number"
+                    min={-180}
+                    max={180}
+                    step={5}
+                    value={caption.angle}
+                    onChange={(e) =>
+                      setCaption({
+                        angle: Math.max(-180, Math.min(180, +e.target.value)),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Größe{" "}
+                  <input
+                    type="number"
+                    min={8}
+                    max={72}
+                    value={caption.size}
+                    onChange={(e) =>
+                      setCaption({
+                        size: Math.max(8, Math.min(72, +e.target.value)),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Schrift{" "}
+                  <select
+                    value={caption.font}
+                    onChange={(e) => setCaption({ font: e.target.value })}
+                  >
+                    {boardFonts.map((font) => (
+                      <option key={font}>{font}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Textfarbe{" "}
+                  <input
+                    type="color"
+                    value={caption.color}
+                    onChange={(e) => setCaption({ color: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Schrifthintergrund{" "}
+                  <input
+                    type="color"
+                    value={
+                      caption.background === "transparent"
+                        ? "#ffffff"
+                        : caption.background
+                    }
+                    onChange={(e) => setCaption({ background: e.target.value })}
+                  />
+                </label>
+                <button
+                  onClick={() => setCaption({ background: "transparent" })}
+                >
+                  Transparent
+                </button>
+                <button
+                  aria-pressed={caption.bold}
+                  onClick={() => setCaption({ bold: !caption.bold })}
+                >
+                  Fett
+                </button>
+                <button
+                  aria-pressed={caption.italic}
+                  onClick={() => setCaption({ italic: !caption.italic })}
+                >
+                  Kursiv
+                </button>
+              </fieldset>
               <label>
                 Farbe
                 <input

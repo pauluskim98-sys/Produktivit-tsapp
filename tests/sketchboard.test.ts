@@ -77,3 +77,42 @@ test("rejects corrupt geometry, dangling edges, duplicate ids and unsafe style c
     }),
   );
 });
+test("line endpoints and caption formatting survive persistence", () => {
+  const first = newShape("rectangle", 10, 10);
+  const second = newShape("rectangle", 220, 10);
+  const base = {
+    source: first.id,
+    target: second.id,
+    sourceHandle: "right",
+    targetHandle: "left",
+    style: { stroke: "#888888", strokeWidth: 2 },
+  };
+  const primary = { ...base, id: "main-line" };
+  const branch = {
+    ...base,
+    id: "branch",
+    target: "line:main-line",
+    data: { caption: { text: "Bezug", angle: 90, background: "#ffeecc" } },
+  };
+  const third = {
+    ...base,
+    id: "line-link",
+    source: "line:branch",
+    target: "line:main-line",
+  };
+  const restored = validateBoard({
+    ...emptyBoard(),
+    nodes: [first, second],
+    edges: [primary, branch, third],
+  });
+  assert.equal(restored.edges[2].source, "line:branch");
+  assert.equal(
+    (restored.edges[1].data?.caption as { angle: number }).angle,
+    90,
+  );
+  assert.equal(
+    (restored.edges[1].data?.caption as { background: string }).background,
+    "#ffeecc",
+  );
+  assert.throws(() => validateBoard({ ...restored, edges: [branch, third] }));
+});

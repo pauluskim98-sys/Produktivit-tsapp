@@ -13,6 +13,7 @@ export const shapeKinds = [
 ] as const;
 export type ShapeKind = (typeof shapeKinds)[number];
 export type ShapeData = {
+  textBackground?: string;
   kind: ShapeKind;
   text: string;
   fill: string;
@@ -43,6 +44,26 @@ export const validPicture = (src: unknown): src is string =>
   typeof src === "string" &&
   src.length <= 900_000 &&
   /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(src);
+export type LineLabel = {
+  text: string;
+  size: number;
+  angle: number;
+  color: string;
+  background: string;
+  font: string;
+  bold: boolean;
+  italic: boolean;
+};
+export const emptyLineLabel: LineLabel = {
+  text: "",
+  size: 12,
+  angle: 0,
+  color: "#29352f",
+  background: "transparent",
+  font: "System",
+  bold: false,
+  italic: false,
+};
 export type ShapeNode = Node<ShapeData, "shape">;
 export type Board = {
   version: 1;
@@ -181,6 +202,9 @@ export function validateBoard(input: unknown): Board {
         bold: d.bold,
         italic: d.italic,
         align: d.align,
+        ...(color(d.textBackground)
+          ? { textBackground: d.textBackground }
+          : {}),
         ...(d.font && boardFonts.includes(d.font) ? { font: d.font } : {}),
         ...(validPicture(d.image) ? { image: d.image } : {}),
         ...(validPoints(d.points) ? { points: d.points } : {}),
@@ -193,8 +217,14 @@ export function validateBoard(input: unknown): Board {
       !e ||
       !id(e.id) ||
       edgeIds.has(e.id) ||
-      !ids.has(e.source) ||
-      !ids.has(e.target) ||
+      !(
+        ids.has(e.source) ||
+        (e.source.startsWith("line:") && edgeIds.has(e.source.slice(5)))
+      ) ||
+      !(
+        ids.has(e.target) ||
+        (e.target.startsWith("line:") && edgeIds.has(e.target.slice(5)))
+      ) ||
       !["default", "straight", "step", "smoothstep"].includes(
         e.type || "default",
       ) ||
@@ -205,6 +235,22 @@ export function validateBoard(input: unknown): Board {
     )
       throw new Error("Ungültige Verbindung.");
     edgeIds.add(e.id);
+    const label = e.data?.caption as Partial<LineLabel> | undefined;
+    const caption =
+      label && typeof label.text === "string"
+        ? {
+            text: label.text.slice(0, 160),
+            size: number(label.size, 8, 72) ? label.size : 12,
+            angle: number(label.angle, -180, 180) ? label.angle : 0,
+            color: color(label.color) ? label.color : "#29352f",
+            background: color(label.background)
+              ? label.background
+              : "transparent",
+            font: boardFonts.includes(label.font ?? "") ? label.font : "System",
+            bold: label.bold === true,
+            italic: label.italic === true,
+          }
+        : undefined;
     return {
       id: e.id,
       source: e.source,
@@ -212,6 +258,7 @@ export function validateBoard(input: unknown): Board {
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
       type: e.type || "default",
+      ...(caption ? { data: { caption } } : {}),
       style: {
         stroke: e.style!.stroke,
         strokeWidth: e.style!.strokeWidth,
