@@ -1869,3 +1869,21 @@
   bottom: 5px;
   z-index: 3;
 }
+
+.lm-connection-anchor {
+  opacity: 0;
+  pointer-events: none;
+}
+.lm-connection-stop {
+  padding: 3px;
+  min-height: 22px;
+}
+.lm-rotate-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.lm-rotate-control input {
+  width: 100%;
+  min-width: 0;
+}

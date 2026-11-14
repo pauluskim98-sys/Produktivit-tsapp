@@ -27,6 +27,7 @@ export function BoardEdge(props: EdgeProps) {
   const data = props.data as
     | {
         route?: string;
+        sourcePoint?: { x: number; y: number };
         targetPoint?: { x: number; y: number };
         thread?: boolean;
         caption?: LineLabel;
@@ -35,12 +36,15 @@ export function BoardEdge(props: EdgeProps) {
         startLink?: (id: string) => void;
       }
     | undefined;
-  const [path, x, y] = boardEdgePath(
-    data?.route,
-    data?.targetPoint
-      ? { ...props, targetX: data.targetPoint.x, targetY: data.targetPoint.y }
-      : props,
-  );
+  const [path, x, y] = boardEdgePath(data?.route, {
+    ...props,
+    ...(data?.sourcePoint
+      ? { sourceX: data.sourcePoint.x, sourceY: data.sourcePoint.y }
+      : {}),
+    ...(data?.targetPoint
+      ? { targetX: data.targetPoint.x, targetY: data.targetPoint.y }
+      : {}),
+  });
   const line = useRef<SVGPathElement>(null);
   useLayoutEffect(() => {
     const middle = line.current?.getPointAtLength(
@@ -112,9 +116,7 @@ export function BoardEdge(props: EdgeProps) {
             ...style,
             strokeWidth: weight,
             "--lm-edge-width": weight + "px",
-            ...(data?.thread
-              ? { strokeLinecap: "round", strokeDasharray: undefined }
-              : {}),
+            ...(data?.thread ? { strokeLinecap: "round" } : {}),
           } as React.CSSProperties
         }
         markerEnd={markerEnd ? "url(#" + arrow + ")" : undefined}

@@ -111,6 +111,7 @@ import "@xyflow/react/dist/style.css";
 import "./sketchboard.css";
 
 type Tool =
+  | "web-link"
   | "jump"
   | "eraser"
   | "symbols"
@@ -501,7 +502,7 @@ const tools = [
   { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
   { id: "text", label: "Text (T)", Icon: Type },
   { id: "connect", label: "Verbindung (L)", Icon: Waypoints },
-  { id: "jump", label: "Sprungbutton", Icon: Link2 },
+  { id: "jump", label: "Interner Sprungbutton", Icon: Link2 },
   { id: "image", label: "Medium einfügen", Icon: ImagePlus },
 ] as const;
 function StoredPanel({
@@ -662,7 +663,24 @@ type PolygonPoint = [number, number];
 
 type Point = { x: number; y: number };
 type Side = "top" | "right" | "bottom" | "left";
-function connectionSide(node: ShapeNode, point: Point) {
+function rotateAroundNode(
+  node: ShapeNode,
+  point: Point,
+  degrees: number,
+): Point {
+  if (!degrees) return point;
+  const x = node.position.x + (node.width ?? 0) / 2,
+    y = node.position.y + (node.height ?? 0) / 2;
+  const angle = (degrees * Math.PI) / 180,
+    c = Math.cos(angle),
+    sin = Math.sin(angle);
+  return {
+    x: x + (point.x - x) * c - (point.y - y) * sin,
+    y: y + (point.x - x) * sin + (point.y - y) * c,
+  };
+}
+function connectionSide(node: ShapeNode, worldPoint: Point) {
+  const point = rotateAroundNode(node, worldPoint, -(node.data.rotation ?? 0));
   const w = node.width || 1,
     h = node.height || 1;
   const x = Math.max(0, Math.min(1, (point.x - node.position.x) / w));
@@ -704,10 +722,14 @@ function connectionPoint(node: ShapeNode, side: Side, offset: number): Point {
     if (Number.isFinite(nearest)) scale = nearest;
   }
   if (node.data.kind === "diamond") scale = 0.5 / (Math.abs(dx) + Math.abs(dy));
-  return {
-    x: node.position.x + (0.5 + dx * scale) * (node.width || 1),
-    y: node.position.y + (0.5 + dy * scale) * (node.height || 1),
-  };
+  return rotateAroundNode(
+    node,
+    {
+      x: node.position.x + (0.5 + dx * scale) * (node.width || 1),
+      y: node.position.y + (0.5 + dy * scale) * (node.height || 1),
+    },
+    node.data.rotation ?? 0,
+  );
 }
 const elementPalettes = {
   pastel: { label: "Pastell", colors: palette },
@@ -1207,6 +1229,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           : undefined);
   return (
     <div
+      style={{ rotate: data.rotation ? data.rotation + "deg" : undefined }}
       className={`lm-shape lm-${data.kind}${selected ? " lm-selected" : ""}`}
       data-paper={data.paper ?? "plain"}
       onDoubleClick={(e) => {
@@ -1610,7 +1633,9 @@ function MediaCard({
   media: NonNullable<ShapeData["media"]>;
   onChange: (media: NonNullable<ShapeData["media"]>) => void;
 }) {
-  const [address, setAddress] = useState<string | null>(null);
+  const [address, setAddress] = useState<string | null>(
+    media.url === "https://" ? "" : null,
+  );
   const editAddress = () => {
     setAddress(media.url);
   };
@@ -1627,7 +1652,10 @@ function MediaCard({
     setAddress(null);
   };
   const [playing, setPlaying] = useState(false);
-  const url = media.url.startsWith("data:") ? null : new URL(media.url);
+  const url =
+    media.url === "https://" || media.url.startsWith("data:")
+      ? null
+      : new URL(media.url);
   const videoId =
     url &&
     (url.hostname === "youtu.be"
@@ -1645,6 +1673,10 @@ function MediaCard({
   const playable =
     media.kind === "video" && (!url || /\.(mp4|webm)$/i.test(url.pathname));
   const open = () => {
+    if (media.url === "https://") {
+      editAddress();
+      return;
+    }
     if (!url) {
       const a = document.createElement("a");
       a.href = media.url;
@@ -2318,21 +2350,17 @@ function BoardEditor() {
     setMediaError("");
     setToolMenu(null);
   };
+  const linkToPlace = useRef("");
   const pasteMediaLink = async () => {
+    linkToPlace.current = "";
     try {
       const url = new URL((await navigator.clipboard.readText()).trim());
-      if (!["http:", "https:"].includes(url.protocol)) throw Error();
-      const video =
-        /(^|\.)(youtube\.com|youtu\.be)$/.test(url.hostname) ||
-        /\.(mp4|webm)$/i.test(url.pathname);
-      addMedia({
-        kind: video ? "video" : "link",
-        url: url.href,
-        name: url.hostname,
-      });
-    } catch {
-      setMediaError("Kopiere zuerst eine gültige Webadresse.");
-    }
+      if (["http:", "https:"].includes(url.protocol))
+        linkToPlace.current = url.href;
+    } catch {}
+    setTool("web-link");
+    setToolMenu(null);
+    setMediaError("");
   };
   const showTabImport = async () => {
     setImportAt({ x: innerWidth / 2, y: innerHeight / 2 });
@@ -2715,11 +2743,17 @@ function BoardEditor() {
     };
     reader.readAsDataURL(file);
   };
-  const connect = (c: Connection, targetOffset?: number) => {
+  const connect = (
+    c: Connection,
+    targetOffset?: number,
+    sourceOffset?: number,
+    added?: ShapeNode,
+  ) => {
     if (!c.source || !c.target || c.source === c.target) return;
     checkpoint();
     setBoard((b) => ({
       ...b,
+      nodes: added ? [...b.nodes, added] : b.nodes,
       edges: [
         ...b.edges,
         {
@@ -2728,6 +2762,7 @@ function BoardEditor() {
           type: connection.type,
           data: {
             targetOffset,
+            sourceOffset,
             ...(preferences.lineCaption
               ? { caption: { ...preferences.lineCaption, text: "" } }
               : {}),
@@ -2760,8 +2795,8 @@ function BoardEditor() {
       ],
     }));
   };
-  const connectTo = (id: string, point?: Point) => {
-    const node = board.nodes.find((n) => n.id === id);
+  const connectTo = (id: string, point?: Point, added?: ShapeNode) => {
+    const node = added ?? board.nodes.find((n) => n.id === id);
     const target =
       node && point
         ? connectionSide(
@@ -2770,16 +2805,37 @@ function BoardEditor() {
           )
         : undefined;
     const source = connectFrom.current;
+    const startNode = board.nodes.find((n) => n.id === source);
+    const endPoint = node
+      ? node.data.kind === "connection-anchor"
+        ? node.position
+        : target
+          ? connectionPoint(node, target[0], target[2])
+          : {
+              x: node.position.x + (node.width ?? 0) / 2,
+              y: node.position.y + (node.height ?? 0) / 2,
+            }
+      : anchors[id.slice(5)];
+    const startSide =
+      startNode && endPoint && startNode.data.kind !== "connection-anchor"
+        ? connectionSide(startNode, endPoint)
+        : undefined;
     if (source && source !== id)
       connect(
         {
           source,
           target: id,
-          sourceHandle: "right",
+          sourceHandle: startSide?.[0] ?? "right",
           targetHandle: target?.[0] ?? "left",
         },
         target?.[2],
+        startSide?.[2],
+        added,
       );
+    else if (added) {
+      checkpoint();
+      setBoard((b) => ({ ...b, nodes: [...b.nodes, added] }));
+    }
     const current = source === id ? null : id;
     connectFrom.current = current;
     setBoard((b) => ({
@@ -3142,6 +3198,7 @@ function BoardEditor() {
     }
   });
   const shapeTool = ![
+    "web-link",
     "jump",
     "eraser",
     "write",
@@ -4153,14 +4210,19 @@ function BoardEditor() {
               nodes={[
                 ...board.nodes.map((n) => ({
                   ...n,
+                  selectable:
+                    n.data.kind === "connection-anchor" ? false : n.selectable,
                   className: groupFlash.includes(n.id)
                     ? "lm-group-flash"
                     : undefined,
                   style: {
                     ...n.style,
-                    opacity: fade(n.id),
+                    opacity:
+                      n.data.kind === "connection-anchor" ? 0 : fade(n.id),
                     pointerEvents:
-                      fade(n.id) === 0 ? ("none" as const) : undefined,
+                      n.data.kind === "connection-anchor" || fade(n.id) === 0
+                        ? ("none" as const)
+                        : undefined,
                   },
                 })),
                 ...previewNodes.map((n) => ({
@@ -4196,8 +4258,26 @@ function BoardEditor() {
                   ...e.data,
                   startLink: previewEdgeIds.has(e.id) ? undefined : startLink,
                   route: e.type,
+                  sourcePoint: (() => {
+                    const node = board.nodes.find((n) => n.id === e.source);
+                    if (!node) return;
+                    return node.data.kind === "connection-anchor"
+                      ? node.position
+                      : typeof e.data?.sourceOffset === "number"
+                        ? connectionPoint(
+                            node,
+                            e.sourceHandle as Side,
+                            e.data.sourceOffset,
+                          )
+                        : undefined;
+                  })(),
                   targetPoint:
-                    typeof e.data?.targetOffset === "number" &&
+                    board.nodes.find(
+                      (n) =>
+                        n.id === e.target &&
+                        n.data.kind === "connection-anchor",
+                    )?.position ??
+                    (typeof e.data?.targetOffset === "number" &&
                     !e.target.startsWith("line:")
                       ? (() => {
                           const node = board.nodes.find(
@@ -4211,16 +4291,33 @@ function BoardEditor() {
                               )
                             : undefined;
                         })()
-                      : undefined,
+                      : undefined),
                   thread: preferences.pattern === "cork",
                   anchor: reportAnchor,
-                  connectTo: tool === "connect" ? connectTo : undefined,
+                  connectTo:
+                    tool === "connect" && connectFrom.current
+                      ? connectTo
+                      : undefined,
                 },
               }))}
               edgeTypes={edgeTypes}
               onEdgeClick={(_, e) => {
-                if (tool === "connect" && !previewEdgeIds.has(e.id))
+                if (
+                  tool === "connect" &&
+                  connectFrom.current &&
+                  !previewEdgeIds.has(e.id)
+                )
                   connectTo("line:" + e.id);
+                else if (tool === "connect" && !previewEdgeIds.has(e.id)) {
+                  setBoard((b) => ({
+                    ...b,
+                    nodes: b.nodes.map((n) => ({ ...n, selected: false })),
+                    edges: b.edges.map((edge) => ({
+                      ...edge,
+                      selected: edge.id === e.id,
+                    })),
+                  }));
+                }
               }}
               nodeTypes={nodeTypes}
               viewport={board.viewport}
@@ -4278,7 +4375,7 @@ function BoardEditor() {
                   creationStroke(connection.width, board.viewport.zoom) *
                   connectionWeight *
                   board.viewport.zoom,
-                strokeDasharray: corkMode ? undefined : connection.dash,
+                strokeDasharray: connection.dash,
               }}
               onNodeDragStart={(_, node) => {
                 checkpoint();
@@ -4390,6 +4487,45 @@ function BoardEditor() {
                   connectTo(node.id, { x: event.clientX, y: event.clientY });
               }}
               onPaneClick={(event) => {
+                if (tool === "web-link") {
+                  const url = linkToPlace.current;
+                  const media = {
+                    kind: "link" as const,
+                    url: url || "https://",
+                    name: url ? new URL(url).hostname : "Webadresse",
+                  };
+                  add(
+                    "media",
+                    event.clientX,
+                    event.clientY,
+                    undefined,
+                    undefined,
+                    { media },
+                  );
+                  setTool("hand");
+                  setToolMenu(null);
+                  return;
+                }
+                if (tool === "connect") {
+                  if (!connectFrom.current) {
+                    clearCanvasPopups();
+                    return;
+                  }
+                  const point = flow.screenToFlowPosition(
+                    { x: event.clientX, y: event.clientY },
+                    { snapToGrid: false },
+                  );
+                  const node = newShape(
+                    "connection-anchor",
+                    point.x,
+                    point.y,
+                    "transparent",
+                    10,
+                    10,
+                  );
+                  connectTo(node.id, undefined, node);
+                  return;
+                }
                 if (tool === "jump") {
                   const point = flow.screenToFlowPosition(
                     { x: event.clientX, y: event.clientY },
@@ -5070,13 +5206,6 @@ function BoardEditor() {
               id !== "line:" + hitId
                 ? anchors[hitId]
                 : undefined;
-            const start = node
-              ? {
-                  x: node.position.x + (node.width ?? 0),
-                  y: node.position.y + (node.height ?? 0) / 2,
-                }
-              : anchors[id.slice(5)];
-            if (!start) return null;
             const pointer = flow.screenToFlowPosition(linkPointer, {
               snapToGrid: false,
             });
@@ -5087,12 +5216,24 @@ function BoardEditor() {
               destination && side
                 ? connectionPoint(destination, side[0], side[2])
                 : (edgePoint ?? pointer);
+            const sourceSide =
+              node && node.data.kind !== "connection-anchor"
+                ? connectionSide(node, end)
+                : undefined;
+            const start = node
+              ? sourceSide
+                ? connectionPoint(node, sourceSide[0], sourceSide[2])
+                : node.position
+              : anchors[id.slice(5)];
+            if (!start) return null;
             const [path] = boardEdgePath(connection.type, {
               sourceX: start.x,
               sourceY: start.y,
               targetX: end.x,
               targetY: end.y,
-              sourcePosition: node ? Position.Right : Position.Top,
+              sourcePosition: node
+                ? ((sourceSide?.[0] ?? "right") as Position)
+                : Position.Top,
               targetPosition: edgePoint
                 ? Position.Top
                 : side
@@ -5142,7 +5283,7 @@ function BoardEditor() {
                     creationStroke(connection.width, zoom) * connectionWeight
                   }
                   strokeLinecap={thread ? "round" : undefined}
-                  strokeDasharray={thread ? undefined : connection.dash}
+                  strokeDasharray={connection.dash}
                   markerEnd={
                     connection.arrows !== "none"
                       ? "url(#lm-preview-arrow)"
@@ -5367,6 +5508,45 @@ function BoardEditor() {
             </div>
           );
         })()}
+      {tool === "connect" &&
+        connectFrom.current &&
+        (() => {
+          const n = board.nodes.find((node) => node.id === connectFrom.current);
+          const raw = n
+            ? {
+                x:
+                  n.position.x +
+                  (n.data.kind === "connection-anchor"
+                    ? 0
+                    : (n.width ?? 0) / 2),
+                y:
+                  n.position.y +
+                  (n.data.kind === "connection-anchor" ? 0 : (n.height ?? 0)),
+              }
+            : anchors[connectFrom.current!.slice(5)];
+          if (!raw) return null;
+          const point = flow.flowToScreenPosition(raw);
+          return (
+            <button
+              type="button"
+              className="lm-placed-jump lm-connection-stop"
+              aria-label="Verbindung beenden"
+              title="Verbindung beenden"
+              style={{ left: point.x + 12, top: point.y + 12 }}
+              onClick={() => {
+                connectFrom.current = null;
+                setLinkPointer(null);
+                setBoard((b) => ({
+                  ...b,
+                  edges: b.edges.map((edge) => ({ ...edge, selected: false })),
+                  nodes: b.nodes.map((n) => ({ ...n, selected: false })),
+                }));
+              }}
+            >
+              <X size={14} />
+            </button>
+          );
+        })()}
       {sourceGroupFrame &&
         jumpDraft?.tab === currentTab &&
         (() => {
@@ -5445,8 +5625,9 @@ function BoardEditor() {
           <Waypoints size={15} />
         </button>
       )}
-      {tool !== "connect" &&
-        (selected.length > 0 || selectedEdges.length > 0) && (
+      {(tool !== "connect" || selectedEdges.length > 0) &&
+        (selected.some((n) => n.data.kind !== "connection-anchor") ||
+          selectedEdges.length > 0) && (
           <StoredPanel
             name="element"
             className="lm-format"
@@ -5802,6 +5983,42 @@ function BoardEditor() {
                     onChange={(e) => format({ stroke: e.target.value })}
                   />
                 </div>
+                <label className="lm-rotate-control">
+                  Drehung{" "}
+                  <input
+                    type="range"
+                    aria-label="Element drehen"
+                    min={-180}
+                    max={180}
+                    value={data.rotation ?? 0}
+                    onPointerDown={checkpoint}
+                    onKeyDown={(event) => {
+                      if (
+                        [
+                          "ArrowLeft",
+                          "ArrowRight",
+                          "ArrowUp",
+                          "ArrowDown",
+                          "Home",
+                          "End",
+                        ].includes(event.key)
+                      )
+                        checkpoint();
+                    }}
+                    onChange={(event) => {
+                      const rotation = +event.target.value;
+                      setBoard((b) => ({
+                        ...b,
+                        nodes: b.nodes.map((node) =>
+                          node.selected
+                            ? { ...node, data: { ...node.data, rotation } }
+                            : node,
+                        ),
+                      }));
+                    }}
+                  />
+                  <output>{data.rotation ?? 0}°</output>
+                </label>
                 <strong className="lm-font-heading">Schrift</strong>
                 <div className="lm-compact-format lm-compact-text">
                   <select
@@ -6352,7 +6569,7 @@ function BoardEditor() {
               (["ink", "eraser"].includes(tool) ? " lm-pen-panel" : "")
             }
           >
-            {tool === "connect" && (
+            {tool === "connect" && !selectedEdges.length && (
               <>
                 <span className="line-options" role="group" aria-label="Form">
                   {(

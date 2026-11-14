@@ -183,3 +183,32 @@ test("a jump button on empty canvas retains its exact source position", () => {
   assert.deepEqual(restored.nodes[0].position, { x: 42, y: 61 });
   assert.deepEqual(restored.nodes[0].data.jumps, source.data.jumps);
 });
+
+test("connections to empty canvas retain their endpoints and formatting", () => {
+  const origin = newShape("rectangle", 20, 20);
+  origin.data.rotation = 45;
+  const point = newShape("connection-anchor", 160, 210, "transparent", 10, 10);
+  const link = newShape("media", 0, 0);
+  link.data.media = { kind: "link", url: "https://", name: "Webadresse" };
+  const saved = validateBoard({
+    ...emptyBoard(),
+    nodes: [origin, point, link],
+    edges: [
+      {
+        id: "edge",
+        source: origin.id,
+        target: point.id,
+        sourceHandle: "bottom",
+        targetHandle: "left",
+        type: "straight",
+        data: { sourceOffset: 0.4 },
+        style: { stroke: "#aa3311", strokeWidth: 8, strokeDasharray: "7 5" },
+      },
+    ],
+  });
+  assert.equal(saved.nodes[0].data.rotation, 45);
+  assert.equal(saved.nodes[1].data.kind, "connection-anchor");
+  assert.deepEqual(saved.nodes[2].data.media, link.data.media);
+  assert.equal(saved.edges[0].data?.sourceOffset, 0.4);
+  assert.equal(saved.edges[0].style?.strokeDasharray, "7 5");
+});

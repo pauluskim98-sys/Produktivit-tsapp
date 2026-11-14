@@ -13,6 +13,7 @@ export const shapeKinds = [
   "sticky",
   "folder",
   "jump-anchor",
+  "connection-anchor",
   "image",
   "media",
   "symbol",
@@ -36,6 +37,7 @@ export type ShapeData = {
   jumps?: BoardJump[];
   group?: string;
   curved?: boolean;
+  rotation?: number;
   media?: { kind: "video" | "document" | "link"; url: string; name: string };
   textBackground?: string;
   kind: ShapeKind;
@@ -108,6 +110,7 @@ export function validMedia(
     name.length > 255
   )
     return false;
+  if (kind === "link" && url === "https://") return true;
   if (url.startsWith("data:"))
     return (
       url.length <= 6_000_000 &&
@@ -322,6 +325,7 @@ export function validateBoard(input: unknown): Board {
         ...(validMedia(d.media) ? { media: d.media } : {}),
         ...(validPoints(d.points) ? { points: d.points } : {}),
         ...(d.curved === true ? { curved: true } : {}),
+        ...(number(d.rotation, -180, 180) ? { rotation: d.rotation } : {}),
         ...(typeof d.representGroup === "string" &&
         d.representGroup.length <= 80
           ? { representGroup: d.representGroup }
@@ -389,6 +393,8 @@ export function validateBoard(input: unknown): Board {
     )
       throw new Error("Ungültige Verbindung.");
     edgeIds.add(e.id);
+    const rawSource = e.data?.sourceOffset;
+    const sourceOffset = number(rawSource, 0, 1) ? rawSource : undefined;
     const rawOffset = e.data?.targetOffset;
     const targetOffset =
       typeof rawOffset === "number" &&
@@ -425,10 +431,11 @@ export function validateBoard(input: unknown): Board {
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
       type: e.type || "default",
-      ...(caption || targetOffset !== undefined
+      ...(caption || targetOffset !== undefined || sourceOffset !== undefined
         ? {
             data: {
               ...(caption ? { caption } : {}),
+              ...(sourceOffset !== undefined ? { sourceOffset } : {}),
               ...(targetOffset !== undefined ? { targetOffset } : {}),
             },
           }
