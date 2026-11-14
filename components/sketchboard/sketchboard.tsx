@@ -36,6 +36,7 @@ import {
   Circle,
   Link2,
   Zap,
+  RotateCw,
   Brush,
   Highlighter,
   Pencil,
@@ -79,6 +80,7 @@ import {
 import {
   emptyBoard,
   minimumInteractiveZoom,
+  maximumBoardZoom,
   validateBoard,
   emptyLineLabel,
   type LineLabel,
@@ -156,6 +158,57 @@ function LineSample({ value }: { value: string }) {
     </svg>
   );
 }
+function AngleGrip({
+  label,
+  onStart,
+  onRotate,
+}: {
+  label: string;
+  onStart: () => void;
+  onRotate: (delta: number) => void;
+}) {
+  const drag = useRef<{
+    x: number;
+    y: number;
+    angle: number;
+    rotate: (delta: number) => void;
+  } | null>(null);
+  return (
+    <button
+      className="lm-rotate-grip nodrag nopan"
+      type="button"
+      aria-label={label}
+      title={label}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        onStart();
+        const bounds = e.currentTarget.parentElement!.getBoundingClientRect();
+        const x = bounds.left + bounds.width / 2,
+          y = bounds.top + bounds.height / 2;
+        drag.current = {
+          x,
+          y,
+          angle: Math.atan2(e.clientY - y, e.clientX - x),
+          rotate: onRotate,
+        };
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        const seed = drag.current;
+        if (!seed || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+        seed.rotate(
+          ((Math.atan2(e.clientY - seed.y, e.clientX - seed.x) - seed.angle) *
+            180) /
+            Math.PI,
+        );
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <RotateCw size={15} />
+    </button>
+  );
+}
 function GroupFrame({
   left,
   top,
@@ -163,48 +216,85 @@ function GroupFrame({
   height,
   onStart,
   onScale,
+  onRotate,
 }: {
   left: number;
   top: number;
   width: number;
   height: number;
   onStart: () => void;
-  onScale: (scale: number) => void;
+  onScale: (sx: number, sy: number, anchorX: number, anchorY: number) => void;
+  onRotate: (delta: number) => void;
 }) {
   const drag = useRef<{
     x: number;
     y: number;
-    width: number;
-    height: number;
-    scale: (n: number) => void;
+    w: number;
+    h: number;
+    dx: number;
+    dy: number;
+    scale: typeof onScale;
   } | null>(null);
   return (
-    <div className="lm-group-frame" style={{ left, top, width, height }}>
-      <button
-        type="button"
-        aria-label="Gruppe skalieren"
-        onPointerDown={(e) => {
-          onStart();
-          drag.current = {
-            x: e.clientX,
-            y: e.clientY,
-            width,
-            height,
-            scale: onScale,
-          };
-          e.currentTarget.setPointerCapture(e.pointerId);
-        }}
-        onPointerMove={(e) => {
-          const d = drag.current;
-          if (!d || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
-          const delta =
-            ((e.clientX - d.x) * d.width + (e.clientY - d.y) * d.height) /
-            Math.max(1, d.width * d.width + d.height * d.height);
-          d.scale(Math.max(0.05, Math.min(20, 1 + delta)));
-        }}
-      />
+    <div
+      className="lm-group-frame lm-resizable-group"
+      style={{ left, top, width, height }}
+    >
+      {(
+        [
+          [0, 0, "nw"],
+          [0.5, 0, "n"],
+          [1, 0, "ne"],
+          [1, 0.5, "e"],
+          [1, 1, "se"],
+          [0.5, 1, "s"],
+          [0, 1, "sw"],
+          [0, 0.5, "w"],
+        ] as const
+      ).map(([x, y, dir]) => (
+        <button
+          key={dir}
+          className="lm-group-resize"
+          type="button"
+          aria-label={"Größe am Gruppenrand ändern (" + dir + ")"}
+          style={{
+            left: x * 100 + "%",
+            top: y * 100 + "%",
+            cursor: dir + "-resize",
+          }}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            onStart();
+            drag.current = {
+              x: e.clientX,
+              y: e.clientY,
+              w: width,
+              h: height,
+              dx: 2 * x - 1,
+              dy: 2 * y - 1,
+              scale: onScale,
+            };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current;
+            if (!d || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+            d.scale(
+              Math.max(0.05, 1 + (d.dx * (e.clientX - d.x)) / Math.max(1, d.w)),
+              Math.max(0.05, 1 + (d.dy * (e.clientY - d.y)) / Math.max(1, d.h)),
+              d.dx < 0 ? 1 : 0,
+              d.dy < 0 ? 1 : 0,
+            );
+          }}
+        />
+      ))}
+      <AngleGrip label="Gruppe drehen" onStart={onStart} onRotate={onRotate} />
     </div>
   );
+}
+function wrapRotation(angle: number) {
+  return ((((angle + 540) % 360) + 360) % 360) - 180;
 }
 function FormatSamples({
   name,
@@ -419,7 +509,7 @@ const defaults = {
   hiddenSymbols: [] as string[],
   symbolOrder: [] as string[],
   templateOrder: [] as string[],
-  size: 17,
+  size: 14,
   background: "",
   pattern: "plain",
   hidden: ["text"] as string[],
@@ -760,6 +850,28 @@ const elementPalettes = {
   },
 };
 const formTemplates: [string, PolygonPoint[]][] = [
+  [
+    "Wolke",
+    [
+      [5, 62],
+      [8, 43],
+      [18, 34],
+      [30, 34],
+      [35, 17],
+      [47, 9],
+      [59, 12],
+      [69, 25],
+      [80, 22],
+      [92, 31],
+      [95, 46],
+      [99, 57],
+      [97, 73],
+      [90, 84],
+      [78, 89],
+      [20, 89],
+      [9, 80],
+    ],
+  ],
   [
     "Dreieck",
     [
@@ -1180,11 +1292,11 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
     const text = box?.querySelector<HTMLElement>(".lm-rendered-text");
     if (!box || !text || !data.text || editing) return;
     const fit = () => {
-      let low = 0.3,
+      let low = 0.08,
         high = 1;
       text.style.fontSize = "1em";
       if (box.scrollHeight <= box.clientHeight + 1) return;
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 10; i++) {
         const mid = (low + high) / 2;
         text.style.fontSize = mid + "em";
         if (box.scrollHeight > box.clientHeight + 1) high = mid;
@@ -1193,9 +1305,16 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       text.style.fontSize = low + "em";
     };
     fit();
+    let active = true;
+    void document.fonts.ready.then(() => {
+      if (active) fit();
+    });
     const observer = new ResizeObserver(fit);
     observer.observe(box);
-    return () => observer.disconnect();
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
   }, [data.text, data.fontSize, data.font, data.bold, data.italic, editing]);
   const titleField = useRef<HTMLInputElement>(null);
   const breakAt = data.text.indexOf("\n");
@@ -1264,6 +1383,19 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       >
         <Waypoints size={15} />
       </button>
+      {!data.group &&
+        !editing &&
+        !["connection-anchor", "jump-anchor"].includes(data.kind) && (
+          <AngleGrip
+            label="Element drehen"
+            onStart={edit.checkpoint}
+            onRotate={(delta) =>
+              edit.patch(id, {
+                rotation: wrapRotation((data.rotation ?? 0) + delta),
+              })
+            }
+          />
+        )}
       <NodeResizer
         isVisible={selected && !editing}
         minWidth={60}
@@ -1866,7 +1998,10 @@ function BoardEditor() {
       }
       const next = Math.max(
         Math.min(minimumInteractiveZoom, current.zoom),
-        Math.min(4, current.zoom * Math.exp(-event.deltaY * 0.006)),
+        Math.min(
+          maximumBoardZoom,
+          current.zoom * Math.exp(-event.deltaY * 0.006),
+        ),
       );
       const x = event.clientX - pane.left,
         y = event.clientY - pane.top;
@@ -4779,7 +4914,7 @@ function BoardEditor() {
               zoomOnDoubleClick={false}
               zoomActivationKeyCode="Control"
               minZoom={Math.min(minimumInteractiveZoom, board.viewport.zoom)}
-              maxZoom={4}
+              maxZoom={maximumBoardZoom}
               deleteKeyCode={null}
               colorMode={dark ? "dark" : "light"}
             >
@@ -5807,17 +5942,25 @@ function BoardEditor() {
         </div>
       )}
       {!representation &&
-        groupId &&
-        members.length > 1 &&
         (() => {
-          const left = Math.min(...members.map((n) => n.position.x)),
-            top = Math.min(...members.map((n) => n.position.y));
+          const hoverGroup = board.nodes.find((n) => n.id === linkHover?.id)
+            ?.data.group;
+          const frameMembers = groupId
+            ? members
+            : hoverGroup
+              ? board.nodes.filter((n) => n.data.group === hoverGroup)
+              : [];
+          if (frameMembers.length < 2) return null;
+          const left = Math.min(...frameMembers.map((n) => n.position.x)),
+            top = Math.min(...frameMembers.map((n) => n.position.y));
           const width =
-            Math.max(...members.map((n) => n.position.x + (n.width ?? 0))) -
-            left;
+            Math.max(
+              ...frameMembers.map((n) => n.position.x + (n.width ?? 0)),
+            ) - left;
           const height =
-            Math.max(...members.map((n) => n.position.y + (n.height ?? 0))) -
-            top;
+            Math.max(
+              ...frameMembers.map((n) => n.position.y + (n.height ?? 0)),
+            ) - top;
           const origin = flow.flowToScreenPosition({ x: left, y: top });
           return (
             <GroupFrame
@@ -5826,27 +5969,60 @@ function BoardEditor() {
               width={width * board.viewport.zoom}
               height={height * board.viewport.zoom}
               onStart={checkpoint}
-              onScale={(scale) =>
+              onRotate={(delta) => {
+                const center = { x: left + width / 2, y: top + height / 2 };
+                const angle = (delta * Math.PI) / 180,
+                  c = Math.cos(angle),
+                  sin = Math.sin(angle);
+                setBoard((b) => ({
+                  ...b,
+                  nodes: b.nodes.map((node) => {
+                    const seed = frameMembers.find(
+                      (item) => item.id === node.id,
+                    );
+                    if (!seed) return node;
+                    const w = seed.width ?? 0,
+                      h = seed.height ?? 0,
+                      x = seed.position.x + w / 2 - center.x,
+                      y = seed.position.y + h / 2 - center.y;
+                    return {
+                      ...node,
+                      position: {
+                        x: center.x + x * c - y * sin - w / 2,
+                        y: center.y + x * sin + y * c - h / 2,
+                      },
+                      data: {
+                        ...node.data,
+                        rotation: wrapRotation(
+                          (seed.data.rotation ?? 0) + delta,
+                        ),
+                      },
+                    };
+                  }),
+                }));
+              }}
+              onScale={(sx, sy, anchorX, anchorY) =>
                 setBoard((b) => ({
                   ...b,
                   nodes: b.nodes.map((n) => {
-                    const seed = members.find((member) => member.id === n.id);
+                    const seed = frameMembers.find(
+                      (member) => member.id === n.id,
+                    );
                     if (!seed) return n;
-                    const w = Math.max(10, (seed.width ?? 10) * scale),
-                      h = Math.max(10, (seed.height ?? 10) * scale);
+                    const w = Math.max(10, (seed.width ?? 10) * sx),
+                      h = Math.max(10, (seed.height ?? 10) * sy);
+                    const fixedX = left + width * anchorX,
+                      fixedY = top + height * anchorY;
                     return {
                       ...n,
                       width: w,
                       height: h,
                       style: { ...n.style, width: w, height: h },
                       position: {
-                        x: left + (seed.position.x - left) * scale,
-                        y: top + (seed.position.y - top) * scale,
+                        x: fixedX + (seed.position.x - fixedX) * sx,
+                        y: fixedY + (seed.position.y - fixedY) * sy,
                       },
-                      data: {
-                        ...n.data,
-                        fontSize: Math.max(2, seed.data.fontSize * scale),
-                      },
+                      data: seed.data,
                     };
                   }),
                 }))
@@ -6919,40 +7095,73 @@ function BoardEditor() {
             )}
             {(tool === "ink" || tool === "eraser") && (
               <>
-                <div className="lm-pen-presets" aria-label="Stiftspitzen">
-                  {(
-                    [
-                      ["pen", "Stift", 3, 1, PenTool],
-                      ["brush", "Pinsel", 9, 0.9, Brush],
-                      ["marker", "Textmarker", 12, 0.34, Highlighter],
-                      ["felt", "Filzstift", 6, 1, Pencil],
-                      ["water", "Wasserfarbe", 11, 0.42, Droplet],
-                    ] as const
-                  ).map(([style, label, width, opacity, Icon]) => (
-                    <button
-                      key={style}
-                      type="button"
-                      data-pen-label={label}
-                      aria-label={label}
-                      aria-pressed={pen.style === style}
-                      onClick={() => {
-                        setEditing("");
-                        setBoard((b) => ({
-                          ...b,
-                          nodes: b.nodes.map((n) =>
-                            n.selected ? { ...n, selected: false } : n,
-                          ),
-                          edges: b.edges.map((edge) =>
-                            edge.selected ? { ...edge, selected: false } : edge,
-                          ),
-                        }));
-                        setTool("ink");
-                        setPenOverride({ ...pen, style, width, opacity });
+                <div className="lm-pen-local">
+                  <div className="lm-pen-secondary">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={pen.smooth}
+                        onChange={(e) =>
+                          setPenOverride({ ...pen, smooth: e.target.checked })
+                        }
+                      />{" "}
+                      Glätten
+                    </label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={pen.straight}
+                        onChange={(e) =>
+                          setPenOverride({ ...pen, straight: e.target.checked })
+                        }
+                      />{" "}
+                      Gerade Linie
+                    </label>
+                    <StandardButton
+                      saved={!penOverride}
+                      onSave={() => {
+                        updatePreferences({ pen });
+                        setPenOverride(null);
                       }}
-                    >
-                      <Icon size={17} />
-                    </button>
-                  ))}
+                    />
+                  </div>
+                  <div className="lm-pen-presets" aria-label="Stiftspitzen">
+                    {(
+                      [
+                        ["pen", "Stift", 3, 1, PenTool],
+                        ["brush", "Pinsel", 9, 0.9, Brush],
+                        ["marker", "Textmarker", 12, 0.34, Highlighter],
+                        ["felt", "Filzstift", 6, 1, Pencil],
+                        ["water", "Wasserfarbe", 11, 0.42, Droplet],
+                      ] as const
+                    ).map(([style, label, width, opacity, Icon]) => (
+                      <button
+                        key={style}
+                        type="button"
+                        data-pen-label={label}
+                        aria-label={label}
+                        aria-pressed={pen.style === style}
+                        onClick={() => {
+                          setEditing("");
+                          setBoard((b) => ({
+                            ...b,
+                            nodes: b.nodes.map((n) =>
+                              n.selected ? { ...n, selected: false } : n,
+                            ),
+                            edges: b.edges.map((edge) =>
+                              edge.selected
+                                ? { ...edge, selected: false }
+                                : edge,
+                            ),
+                          }));
+                          setTool("ink");
+                          setPenOverride({ ...pen, style, width, opacity });
+                        }}
+                      >
+                        <Icon size={17} />
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -6997,35 +7206,6 @@ function BoardEditor() {
                     }
                   />
                 </label>
-                <div className="lm-pen-secondary">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={pen.smooth}
-                      onChange={(e) =>
-                        setPenOverride({ ...pen, smooth: e.target.checked })
-                      }
-                    />{" "}
-                    Glätten
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={pen.straight}
-                      onChange={(e) =>
-                        setPenOverride({ ...pen, straight: e.target.checked })
-                      }
-                    />{" "}
-                    Gerade Linie
-                  </label>
-                  <StandardButton
-                    saved={!penOverride}
-                    onSave={() => {
-                      updatePreferences({ pen });
-                      setPenOverride(null);
-                    }}
-                  />
-                </div>
               </>
             )}
             {tool === "jump" && (

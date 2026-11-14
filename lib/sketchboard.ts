@@ -1,5 +1,6 @@
 import type { Node, Edge, Viewport } from "@xyflow/react";
 export const connectionWeight = 1.85;
+export const maximumBoardZoom = 8;
 export const minimumBoardZoom = 0.000001;
 export const minimumInteractiveZoom = 0.00001;
 
@@ -229,7 +230,7 @@ export function validateBoard(input: unknown): Board {
     !b.viewport ||
     !number(b.viewport.x, -1e7, 1e7) ||
     !number(b.viewport.y, -1e7, 1e7) ||
-    !number(b.viewport.zoom, minimumBoardZoom, 4)
+    !number(b.viewport.zoom, minimumBoardZoom, maximumBoardZoom)
   )
     throw new Error("Ungültige Zeichenfläche.");
   const ids = new Set<string>();

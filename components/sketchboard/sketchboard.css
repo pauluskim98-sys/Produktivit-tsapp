@@ -1961,3 +1961,81 @@
 .lm-representation-frame:hover {
   background: #9360c91e !important;
 }
+
+.lm-shape-content {
+  line-height: 1.14;
+  scrollbar-color: transparent transparent;
+}
+.lm-shape-content::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.lm-shape:hover .lm-shape-content,
+.lm-shape:focus-within .lm-shape-content {
+  scrollbar-color: #9289a045 transparent;
+}
+.lm-shape:hover .lm-shape-content::-webkit-scrollbar-thumb {
+  background: #9289a045;
+}
+.lm-text-heading {
+  margin-bottom: 0.12em;
+}
+.lm-shape .lm-rotate-grip,
+.lm-group-frame .lm-rotate-grip {
+  position: absolute;
+  left: 50%;
+  top: -24px;
+  right: auto;
+  bottom: auto;
+  translate: -50% 0;
+  width: 23px;
+  height: 23px;
+  min-height: 0;
+  padding: 3px;
+  display: grid;
+  place-items: center;
+  background: var(--lm-panel) !important;
+  color: var(--lm-accent);
+  cursor: grab;
+  border: 1px solid var(--lm-line);
+  border-radius: 50% !important;
+  opacity: 0;
+  pointer-events: auto;
+  touch-action: none;
+  z-index: 20;
+}
+.lm-shape:hover .lm-rotate-grip,
+.lm-shape .lm-rotate-grip:hover,
+.lm-rotate-grip:focus-visible,
+.lm-group-frame:hover .lm-rotate-grip,
+.lm-group-frame .lm-rotate-grip:hover {
+  opacity: 1;
+}
+.lm-group-frame .lm-group-resize {
+  right: auto;
+  bottom: auto;
+  translate: -50% -50%;
+  width: 8px;
+  height: 8px;
+  min-height: 0;
+  padding: 0;
+}
+.lm-pen-panel {
+  display: flex;
+  align-items: center;
+  overflow: visible;
+}
+.lm-pen-local {
+  position: relative;
+  flex: none;
+}
+.lm-pen-local .lm-pen-secondary {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 0;
+  z-index: 3;
+  white-space: nowrap;
+  padding: 5px 7px;
+  border: 1px solid var(--lm-line);
+  border-radius: 9px;
+  background: var(--lm-panel);
+}
