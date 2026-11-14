@@ -1080,10 +1080,10 @@
 }
 .lm-symbol-picker {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(29px, 1fr));
   padding: 5px;
-  max-width: 80vw;
-  max-height: 42vh;
+  width: min(316px, 85vw);
+  max-height: min(186px, 36vh);
   overflow: auto;
 }
 .lm-symbol-picker button {

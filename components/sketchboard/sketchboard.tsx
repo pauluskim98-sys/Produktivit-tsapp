@@ -62,7 +62,7 @@ import {
   PenTool,
   ImagePlus,
   Pentagon,
-  Shapes,
+  Smile,
 } from "lucide-react";
 import {
   emptyBoard,
@@ -287,7 +287,8 @@ const defaults = {
   size: 17,
   background: "",
   pattern: "plain",
-  hidden: [] as string[],
+  hidden: ["text"] as string[],
+  toolbarVersion: 1,
   recent: initialPoints,
   pinned: null as [number, number][] | null,
 };
@@ -295,7 +296,7 @@ const tools = [
   { id: "write", label: "Schreiben und verschieben", Icon: Type },
   { id: "ink", label: "Stift", Icon: PenTool },
   { id: "polygon", label: "Freie Form erstellen", Icon: Pentagon },
-  { id: "symbols", label: "Symbole", Icon: Shapes },
+  { id: "symbols", label: "Symbole", Icon: Smile },
   { id: "paint", label: "Färber", Icon: Palette },
   { id: "select", label: "Auswahl (A)", Icon: MousePointer2 },
   { id: "hand", label: "Verschieben (H)", Icon: Hand },
@@ -307,10 +308,10 @@ const tools = [
   },
   { id: "ellipse", label: "Kreis / Ellipse (O)", Icon: Circle },
   { id: "diamond", label: "Raute", Icon: Diamond },
+  { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
   { id: "text", label: "Text (T)", Icon: Type },
   { id: "connect", label: "Verbindung (L)", Icon: Waypoints },
   { id: "image", label: "Medium einfügen", Icon: ImagePlus },
-  { id: "sticky", label: "Notiz (N)", Icon: StickyNote },
 ] as const;
 function StoredPanel({
   name,
@@ -895,7 +896,7 @@ function BoardEditor() {
     [editing, setEditing] = useState(""),
     [notes, setNotes] = useState(false),
     [settings, setSettings] = useState(false),
-    [preferences, setPreferences] = useState(defaults),
+    [generalPreferences, setPreferences] = useState(defaults),
     [form, setForm] = useState<[number, number][] | null>(null),
     [stroke, setStroke] = useState<[number, number][]>([]),
     [dark, setDark] = useState(false),
@@ -998,6 +999,35 @@ function BoardEditor() {
         : { ...current, [id]: { x, y } },
     );
   }, []);
+  const currentTab = new URLSearchParams(location.search).get("tab") || "main";
+  const [settingsTab, setSettingsTab] = useState<string | null>(null);
+  const [tabOverrides, setTabOverrides] = useState<
+    Record<string, Partial<typeof defaults>>
+  >(() => {
+    try {
+      return JSON.parse(localStorage.getItem("lifemap-tab-options") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const preferences = { ...generalPreferences, ...tabOverrides[currentTab] };
+  const configured = settingsTab
+    ? { ...generalPreferences, ...tabOverrides[settingsTab] }
+    : generalPreferences;
+  const updateTab = (id: string, changes: Partial<typeof defaults>) => {
+    const next = { ...tabOverrides, [id]: { ...tabOverrides[id], ...changes } };
+    setTabOverrides(next);
+    localStorage.setItem("lifemap-tab-options", JSON.stringify(next));
+  };
+  const updatePreferences = (changes: Partial<typeof defaults>) => {
+    setPreferences((p) => {
+      const next = { ...p, ...changes };
+      localStorage.setItem(preferenceKey, JSON.stringify(next));
+      return next;
+    });
+  };
+  const updateSettings = (changes: Partial<typeof defaults>) =>
+    settingsTab ? updateTab(settingsTab, changes) : updatePreferences(changes);
   const [connectionOverride, setConnectionOverride] = useState<
     typeof defaults.connection | null
   >(null);
@@ -1008,7 +1038,6 @@ function BoardEditor() {
     (corkMode ? preferences.corkConnection : preferences.connection);
   const [toolMenu, setToolMenu] = useState<string | null>(null);
   const shapeHit = useRef<string | null>(null);
-  const currentTab = new URLSearchParams(location.search).get("tab") || "main";
   const [selectedTabs, setSelectedTabs] = useState<string[]>([]);
   const [tabs, setTabs] = useState<{ id: string; title: string }[]>(() => {
     try {
@@ -1196,45 +1225,38 @@ function BoardEditor() {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(preferenceKey) || "{}");
-      setPreferences({ ...defaults, ...saved });
-      const paint = saved.paint ?? defaults.paint;
+      const hidden =
+        saved.toolbarVersion === defaults.toolbarVersion
+          ? saved.hidden
+          : [...new Set([...(saved.hidden ?? []), "text"])];
+      const order: string[] = saved.order ?? [];
+      const updatedOrder =
+        saved.toolbarVersion === defaults.toolbarVersion ||
+        !order.includes("text")
+          ? order
+          : order
+              .filter((id) => id !== "sticky")
+              .flatMap((id) => (id === "text" ? ["sticky", "text"] : [id]));
+      setPreferences({
+        ...defaults,
+        ...saved,
+        hidden,
+        order: updatedOrder,
+        toolbarVersion: defaults.toolbarVersion,
+      });
+      const paint =
+        tabOverrides[currentTab]?.paint ?? saved.paint ?? defaults.paint;
       setPaintMode(paint.mode);
       setPaintOpacity(paint.opacity);
       setPaintWidth(paint.width);
       setFill(paint.color);
-      if (saved.symbol) setSymbol(saved.symbol);
+      setSymbol(
+        tabOverrides[currentTab]?.symbol ?? saved.symbol ?? defaults.symbol,
+      );
     } catch {
       /* Use defaults. */
     }
   }, []);
-  const [settingsTab, setSettingsTab] = useState<string | null>(null);
-  const [tabOverrides, setTabOverrides] = useState<
-    Record<string, Partial<typeof defaults>>
-  >(() => {
-    try {
-      return JSON.parse(localStorage.getItem("lifemap-tab-options") || "{}");
-    } catch {
-      return {};
-    }
-  });
-  const tabStyle = tabOverrides[currentTab];
-  const tabDraft = settingsTab ? (tabOverrides[settingsTab] ?? {}) : {};
-  const updateTab = (changes: Partial<typeof defaults>) => {
-    if (!settingsTab) return;
-    const next = {
-      ...tabOverrides,
-      [settingsTab]: { ...tabDraft, ...changes },
-    };
-    setTabOverrides(next);
-    localStorage.setItem("lifemap-tab-options", JSON.stringify(next));
-  };
-  const updatePreferences = (changes: Partial<typeof defaults>) => {
-    setPreferences((p) => {
-      const next = { ...p, ...changes };
-      localStorage.setItem(preferenceKey, JSON.stringify(next));
-      return next;
-    });
-  };
   useEffect(() => {
     const closeNotes = (event: MessageEvent) => {
       if (
@@ -1304,7 +1326,8 @@ function BoardEditor() {
   useEffect(() => setFormatPosition(null), [formatTarget]);
   const checkpoint = () => {
     const h = history.current;
-    h.past.push(structuredClone(current.current));
+    // Board updates are immutable, so the history can share unchanged objects.
+    h.past.push(current.current);
     if (h.past.length > 100) h.past.shift();
     h.future = [];
     setHistoryVersion((v) => v + 1);
@@ -1315,7 +1338,8 @@ function BoardEditor() {
       to = redo ? h.past : h.future;
     const previous = from.pop();
     if (!previous) return;
-    to.push(structuredClone(current.current));
+    to.push(current.current);
+    current.current = previous;
     setBoard(previous);
     setEditing("");
     setHistoryVersion((v) => v + 1);
@@ -1408,14 +1432,14 @@ function BoardEditor() {
     );
     node.data = {
       ...node.data,
-      font: tabStyle?.font ?? preferences.font,
-      fontSize: (tabStyle?.size ?? preferences.size) / zoom,
+      font: preferences.font,
+      fontSize: preferences.size / zoom,
       bold:
-        (tabStyle?.textStyle ?? preferences.textStyle) === "bold" ||
-        (tabStyle?.textStyle ?? preferences.textStyle) === "bold-italic",
+        preferences.textStyle === "bold" ||
+        preferences.textStyle === "bold-italic",
       italic:
-        (tabStyle?.textStyle ?? preferences.textStyle) === "italic" ||
-        (tabStyle?.textStyle ?? preferences.textStyle) === "bold-italic",
+        preferences.textStyle === "italic" ||
+        preferences.textStyle === "bold-italic",
       ...preferences.elementStyles[kind],
       ...(preferences.elementStyles[kind]?.fontSize !== undefined
         ? { fontSize: preferences.elementStyles[kind]!.fontSize! / zoom }
@@ -1676,6 +1700,10 @@ function BoardEditor() {
         setStroke([]);
         setNotes(false);
         setSettings(false);
+        setSettingsTab(null);
+        setTabMenu(null);
+        setImportAt(null);
+        setPinForm(null);
         setForm(null);
         setDrawPolygon(null);
         setQuick(null);
@@ -1730,6 +1758,7 @@ function BoardEditor() {
           const next = button.dataset.tool as Tool | undefined;
           if (next) {
             setTool(next);
+            if (next === "polygon") setDrawPolygon([]);
             setToolMenu(next);
             setColors(next === "paint");
             setEditing("");
@@ -1762,6 +1791,7 @@ function BoardEditor() {
   const [symbol, setSymbol] = useState("Sonne");
   const embedded = new URLSearchParams(location.search).has("notebookEmbed");
   const [drawPolygon, setDrawPolygon] = useState<PolygonPoint[] | null>(null);
+  const polygonGuide = useRef<SVGLineElement>(null);
   const [pinForm, setPinForm] = useState<{
     x: number;
     y: number;
@@ -1902,8 +1932,45 @@ function BoardEditor() {
     data: {},
     style: { pointerEvents: "none" },
   })) as unknown as ShapeNode[];
+  const clearCanvasPopups = () => {
+    setLinkHover(null);
+    setBoard((b) => ({
+      ...b,
+      nodes: b.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+      edges: b.edges.map((edge) =>
+        edge.selected ? { ...edge, selected: false } : edge,
+      ),
+    }));
+    leavingText.current = false;
+    setEditing("");
+    setTool("hand");
+    setToolMenu(null);
+    setQuick(null);
+    setColors(false);
+    connectFrom.current = null;
+    setPinSymbol(null);
+    setPreview(null);
+    setDrawPolygon(null);
+    setGroupPicking(false);
+  };
   return (
     <main
+      onClickCapture={(e) => {
+        const hit = e.target as Element;
+        if (
+          !hit.closest(
+            ".lm-settings,.lm-header-settings,.lm-tab-menu,.color-popup",
+          )
+        ) {
+          setSettings(false);
+          setSettingsTab(null);
+          setForm(null);
+        }
+        if (!hit.closest(".lm-tab-menu")) setTabMenu(null);
+        if (!hit.closest(".lm-pin-form")) setPinForm(null);
+        if (!hit.closest(".lm-import-menu")) setImportAt(null);
+        if (hit.matches(".lm-app,.lm-canvas,.lm-header")) clearCanvasPopups();
+      }}
       className={`lm-app${dark ? " lm-dark" : ""}${embedded ? " lm-embedded" : ""}`}
       style={
         {
@@ -1979,7 +2046,10 @@ function BoardEditor() {
             className="lm-header-settings"
             aria-label="Einstellungen"
             title="Einstellungen"
-            onClick={() => setSettings((open) => !open)}
+            onClick={() => {
+              setSettingsTab(null);
+              setSettings(!settings || !!settingsTab);
+            }}
           >
             <Settings size={19} />
           </button>
@@ -2117,6 +2187,7 @@ function BoardEditor() {
                     <button
                       onClick={() => {
                         setSettingsTab(id);
+                        setSettings(true);
                         setTabMenu(null);
                       }}
                     >
@@ -2168,8 +2239,19 @@ function BoardEditor() {
           label="LifeMap-Einstellungen"
         >
           <div className="lm-settings-heading">
-            <strong>LifeMap-Einstellungen</strong>
-            <button aria-label="Schließen" onClick={() => setSettings(false)}>
+            <strong>
+              {settingsTab
+                ? (tabs.find((tab) => tab.id === settingsTab)?.title ??
+                  "LifeMap")
+                : "LifeMap-Einstellungen"}
+            </strong>
+            <button
+              aria-label="Schließen"
+              onClick={() => {
+                setSettings(false);
+                setSettingsTab(null);
+              }}
+            >
               <X size={18} />
             </button>
           </div>
@@ -2177,8 +2259,8 @@ function BoardEditor() {
             UI-Farbe{" "}
             <ColorSwatches
               name="UI-Akzent"
-              value={preferences.accent}
-              onChange={(e) => updatePreferences({ accent: e.target.value })}
+              value={configured.accent}
+              onChange={(e) => updateSettings({ accent: e.target.value })}
             />
           </label>
           <div className="lm-style-previews">
@@ -2198,8 +2280,8 @@ function BoardEditor() {
                     }[pattern]
                   }
                   className={"lm-preview lm-pattern-" + pattern}
-                  aria-pressed={preferences.pattern === pattern}
-                  onClick={() => updatePreferences({ pattern })}
+                  aria-pressed={configured.pattern === pattern}
+                  onClick={() => updateSettings({ pattern })}
                 />
               ),
             )}
@@ -2207,8 +2289,8 @@ function BoardEditor() {
           <label>
             Standardschrift{" "}
             <select
-              value={preferences.font}
-              onChange={(e) => updatePreferences({ font: e.target.value })}
+              value={configured.font}
+              onChange={(e) => updateSettings({ font: e.target.value })}
             >
               {boardFonts.map((font) => (
                 <option
@@ -2226,9 +2308,9 @@ function BoardEditor() {
               type="number"
               min={10}
               max={120}
-              value={preferences.size}
+              value={configured.size}
               onChange={(e) =>
-                updatePreferences({
+                updateSettings({
                   size: Math.max(10, Math.min(120, Number(e.target.value))),
                 })
               }
@@ -2237,8 +2319,8 @@ function BoardEditor() {
           <label>
             Standardschriftstil
             <select
-              value={preferences.textStyle}
-              onChange={(e) => updatePreferences({ textStyle: e.target.value })}
+              value={configured.textStyle}
+              onChange={(e) => updateSettings({ textStyle: e.target.value })}
             >
               <option value="regular">Normal</option>
               <option value="bold">Fett</option>
@@ -2250,20 +2332,18 @@ function BoardEditor() {
             Hintergrund{" "}
             <ColorSwatches
               name="Board-Hintergrund"
-              value={preferences.background || (dark ? "#202124" : "#faf9fc")}
-              onChange={(e) =>
-                updatePreferences({ background: e.target.value })
-              }
+              value={configured.background || (dark ? "#202124" : "#faf9fc")}
+              onChange={(e) => updateSettings({ background: e.target.value })}
             />{" "}
-            <button onClick={() => updatePreferences({ background: "" })}>
+            <button onClick={() => updateSettings({ background: "" })}>
               Standard
             </button>
           </label>
           <label>
             Muster{" "}
             <select
-              value={preferences.pattern}
-              onChange={(e) => updatePreferences({ pattern: e.target.value })}
+              value={configured.pattern}
+              onChange={(e) => updateSettings({ pattern: e.target.value })}
             >
               <option value="plain">Ohne</option>
               <option value="dots">Punkte</option>
@@ -2273,94 +2353,46 @@ function BoardEditor() {
           </label>
           <details className="lm-settings-tools">
             <summary>Werkzeugleiste</summary>
-            {tools.map(({ id, label }) => (
-              <label key={id}>
-                <input
-                  type="checkbox"
-                  checked={!preferences.hidden.includes(id)}
-                  onChange={(e) =>
-                    updatePreferences({
-                      hidden: e.target.checked
-                        ? preferences.hidden.filter((tool) => tool !== id)
-                        : [...preferences.hidden, id],
-                    })
-                  }
-                />
-                {label}
-              </label>
-            ))}
+            {tools
+              .filter(({ id }) => !hiddenTools.includes(id))
+              .map(({ id, label }) => (
+                <label key={id}>
+                  <input
+                    type="checkbox"
+                    checked={!configured.hidden.includes(id)}
+                    onChange={(e) =>
+                      updateSettings({
+                        hidden: e.target.checked
+                          ? configured.hidden.filter((tool) => tool !== id)
+                          : [...configured.hidden, id],
+                      })
+                    }
+                  />
+                  {label}
+                </label>
+              ))}
 
-            {preferences.pinned && (
-              <button onClick={() => updatePreferences({ pinned: null })}>
+            {configured.pinned && (
+              <button onClick={() => updateSettings({ pinned: null })}>
                 Angeheftete Form entfernen
               </button>
             )}
           </details>
-        </StoredPanel>
-      )}
-      {settingsTab && (
-        <StoredPanel
-          name="tab-style"
-          className="lm-settings"
-          label="Tab-Einstellungen"
-        >
-          <strong>
-            {tabs.find((tab) => tab.id === settingsTab)?.title ?? "LifeMap"}
-          </strong>
-          <label>
-            Schrift{" "}
-            <select
-              value={tabDraft.font ?? ""}
-              onChange={(e) => updateTab({ font: e.target.value || undefined })}
+          {settingsTab && tabOverrides[settingsTab] && (
+            <button
+              onClick={() => {
+                const next = { ...tabOverrides };
+                delete next[settingsTab];
+                setTabOverrides(next);
+                localStorage.setItem(
+                  "lifemap-tab-options",
+                  JSON.stringify(next),
+                );
+              }}
             >
-              <option value="">Allgemeine Einstellung</option>
-              {boardFonts.map((font) => (
-                <option key={font} style={{ fontFamily: font }}>
-                  {font}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Schriftgröße{" "}
-            <input
-              type="number"
-              min={10}
-              max={120}
-              value={tabDraft.size ?? preferences.size}
-              onChange={(e) =>
-                updateTab({
-                  size: Math.max(10, Math.min(120, +e.target.value)),
-                })
-              }
-            />
-          </label>
-          <label>
-            Schriftstil{" "}
-            <select
-              value={tabDraft.textStyle ?? ""}
-              onChange={(e) =>
-                updateTab({ textStyle: e.target.value || undefined })
-              }
-            >
-              <option value="">Allgemeine Einstellung</option>
-              <option value="regular">Normal</option>
-              <option value="bold">Fett</option>
-              <option value="italic">Kursiv</option>
-              <option value="bold-italic">Fett und kursiv</option>
-            </select>
-          </label>
-          <button
-            onClick={() => {
-              const next = { ...tabOverrides };
-              delete next[settingsTab];
-              setTabOverrides(next);
-              localStorage.setItem("lifemap-tab-options", JSON.stringify(next));
-            }}
-          >
-            Allgemeine Einstellungen übernehmen
-          </button>
-          <button onClick={() => setSettingsTab(null)}>Schließen</button>
+              Allgemeine Einstellungen übernehmen
+            </button>
+          )}
         </StoredPanel>
       )}
       {form && (
@@ -2699,15 +2731,7 @@ function BoardEditor() {
                 }
                 if (tool === "connect") connectTo(node.id);
               }}
-              onPaneClick={() => {
-                leavingText.current = false;
-                setEditing("");
-                setTool("hand");
-                setToolMenu(null);
-                setQuick(null);
-                setColors(false);
-                connectFrom.current = null;
-              }}
+              onPaneClick={clearCanvasPopups}
               onMoveStart={(event) => {
                 if (
                   event?.type !== "mousedown" &&
@@ -2783,6 +2807,10 @@ function BoardEditor() {
         {tool === "polygon" && drawPolygon && (
           <div
             className="lm-draw-layer lm-polygon-plot"
+            onPointerMove={(e) => {
+              polygonGuide.current?.setAttribute("x2", String(e.clientX));
+              polygonGuide.current?.setAttribute("y2", String(e.clientY));
+            }}
             onClick={(e) => {
               const point: PolygonPoint = [e.clientX, e.clientY];
               const first = drawPolygon[0];
@@ -2832,6 +2860,22 @@ function BoardEditor() {
                 stroke={fill}
                 strokeWidth={2}
               />
+              {drawPolygon.length > 0 &&
+                (() => {
+                  const [x, y] = drawPolygon.at(-1)!;
+                  return (
+                    <line
+                      key={drawPolygon.length}
+                      ref={polygonGuide}
+                      x1={x}
+                      y1={y}
+                      x2={x}
+                      y2={y}
+                      stroke={fill}
+                      strokeWidth={2}
+                    />
+                  );
+                })()}
               {drawPolygon.map(([x, y], i) => (
                 <circle
                   key={i}
@@ -2967,7 +3011,7 @@ function BoardEditor() {
                 return;
               }
               if (!drag || (leavingText.current && tool !== "ink")) {
-                if (!leavingText.current) setTool("hand");
+                if (!leavingText.current) clearCanvasPopups();
                 drawing.current = null;
                 setDraft(null);
                 setStroke([]);
@@ -4530,11 +4574,7 @@ function BoardEditor() {
           {tools
             .filter(
               ({ id }) =>
-                !hiddenTools.includes(id) &&
-                (id === "image" ||
-                  id === "polygon" ||
-                  id === "symbols" ||
-                  !preferences.hidden.includes(id)),
+                !hiddenTools.includes(id) && !preferences.hidden.includes(id),
             )
             .sort(
               (a, b) =>
