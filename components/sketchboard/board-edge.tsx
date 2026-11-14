@@ -15,6 +15,7 @@ export function BoardEdge(props: EdgeProps) {
         route?: string;
         caption?: LineLabel;
         anchor?: (id: string, x: number, y: number) => void;
+        connectTo?: (id: string) => void;
       }
     | undefined;
   const [path, x, y] =
@@ -86,10 +87,27 @@ export function BoardEdge(props: EdgeProps) {
         fill="none"
         stroke="transparent"
         strokeWidth={20}
+        pointerEvents="stroke"
+        onClick={
+          data?.connectTo
+            ? (event) => {
+                event.stopPropagation();
+                data.connectTo!("line:" + id);
+              }
+            : undefined
+        }
       />
       {caption?.text && (
         <g
           className="lm-edge-caption"
+          onClick={
+            data?.connectTo
+              ? (event) => {
+                  event.stopPropagation();
+                  data.connectTo!("line:" + id);
+                }
+              : undefined
+          }
           opacity={style?.opacity}
           transform={angle ? `rotate(${angle} ${x} ${y})` : undefined}
         >

@@ -184,12 +184,34 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
     borderWidth: data.strokeWidth,
     borderRadius: data.kind === "ellipse" ? "50%" : data.radius,
   };
+  const warpPoints: [number, number][] | undefined =
+    data.points ??
+    (data.kind === "diamond"
+      ? [
+          [50, 1],
+          [99, 50],
+          [50, 99],
+          [1, 50],
+        ]
+      : ["rectangle", "rounded", "sticky"].includes(data.kind)
+        ? [
+            [1, 1],
+            [99, 1],
+            [99, 99],
+            [1, 99],
+          ]
+        : data.kind === "ellipse"
+          ? Array.from({ length: 8 }, (_, i) => [
+              50 + 49 * Math.cos((i * Math.PI) / 4),
+              50 + 49 * Math.sin((i * Math.PI) / 4),
+            ])
+          : undefined);
   return (
     <div
       className={`lm-shape lm-${data.kind}${selected ? " lm-selected" : ""}`}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        edit.begin(id);
+        if (!["image", "ink"].includes(data.kind)) edit.begin(id);
       }}
     >
       <NodeResizer
@@ -201,6 +223,42 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         color="#9774d1"
         onResizeStart={() => edit.checkpoint()}
       />
+      {selected &&
+        !editing &&
+        data.kind !== "ink" &&
+        warpPoints?.map(([x, y], index) => (
+          <button
+            key={index}
+            type="button"
+            className="lm-warp-point nodrag nopan"
+            aria-label={`Eckpunkt ${index + 1} verzerren`}
+            style={{ left: x + "%", top: y + "%" }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              edit.checkpoint();
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+              const bounds =
+                e.currentTarget.parentElement!.getBoundingClientRect();
+              const coordinate = (v: number) =>
+                Math.max(0, Math.min(100, v * 100));
+              edit.patch(id, {
+                kind: "polygon",
+                points: warpPoints.map((point, i) =>
+                  i === index
+                    ? [
+                        coordinate((e.clientX - bounds.left) / bounds.width),
+                        coordinate((e.clientY - bounds.top) / bounds.height),
+                      ]
+                    : point,
+                ),
+              });
+            }}
+          />
+        ))}
       {data.kind === "image" && data.image ? (
         <img
           className="lm-shape-bg lm-picture"
@@ -327,13 +385,22 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
 }
 function LineAnchor() {
   return (
-    <Handle
-      id="center"
-      type="source"
-      position={Position.Top}
-      style={{ opacity: 0, width: 1, height: 1, border: 0 }}
-      isConnectable={false}
-    />
+    <>
+      <Handle
+        id="center"
+        type="source"
+        position={Position.Top}
+        style={{ opacity: 0, width: 1, height: 1, border: 0 }}
+        isConnectable={false}
+      />
+      <Handle
+        id="end"
+        type="target"
+        position={Position.Top}
+        style={{ opacity: 0, width: 1, height: 1, border: 0 }}
+        isConnectable={false}
+      />
+    </>
   );
 }
 const nodeTypes = { shape: Shape, anchor: LineAnchor };
@@ -712,17 +779,19 @@ function BoardEditor() {
   };
   const connectTo = (id: string) => {
     const source = connectFrom.current;
-    if (!source) {
-      connectFrom.current = id;
-      return;
-    }
-    connect({
-      source,
-      target: id,
-      sourceHandle: "right",
-      targetHandle: "left",
-    });
-    connectFrom.current = null;
+    if (source && source !== id)
+      connect({
+        source,
+        target: id,
+        sourceHandle: "right",
+        targetHandle: "left",
+      });
+    connectFrom.current = id;
+    setBoard((b) => ({
+      ...b,
+      nodes: b.nodes.map((n) => ({ ...n, selected: n.id === id })),
+      edges: b.edges.map((e) => ({ ...e, selected: "line:" + e.id === id })),
+    }));
   };
   const begin = (id: string) => {
     checkpoint();
@@ -1385,11 +1454,16 @@ function BoardEditor() {
                   ? "center"
                   : e.sourceHandle,
                 targetHandle: e.target.startsWith("line:")
-                  ? "center"
+                  ? "end"
                   : e.targetHandle,
                 style: { ...e.style, opacity: fade("line:" + e.id) },
                 hidden: fade("line:" + e.id) === 0,
-                data: { ...e.data, route: e.type, anchor: reportAnchor },
+                data: {
+                  ...e.data,
+                  route: e.type,
+                  anchor: reportAnchor,
+                  connectTo: tool === "connect" ? connectTo : undefined,
+                },
               }))}
               edgeTypes={edgeTypes}
               onEdgeClick={(_, e) => {
@@ -1418,7 +1492,18 @@ function BoardEditor() {
                   edges: applyEdgeChanges(changes, b.edges),
                 }))
               }
-              onConnect={connect}
+              onConnect={(connection) => {
+                connect(connection);
+                connectFrom.current = connection.target;
+                setBoard((b) => ({
+                  ...b,
+                  nodes: b.nodes.map((n) => ({
+                    ...n,
+                    selected: n.id === connection.target,
+                  })),
+                  edges: b.edges.map((e) => ({ ...e, selected: false })),
+                }));
+              }}
               connectionMode={ConnectionMode.Loose}
               onNodeDragStart={checkpoint}
               onSelectionDragStart={checkpoint}
@@ -1444,24 +1529,23 @@ function BoardEditor() {
                           : { fill },
                   );
                 }
-                if (
-                  tool === "write" &&
-                  !editing &&
-                  !["image", "ink"].includes(node.data.kind)
-                )
-                  begin(node.id);
                 if (tool === "connect") connectTo(node.id);
               }}
               onPaneClick={(e) => {
+                if (tool === "connect") {
+                  connectFrom.current = null;
+                  setBoard((b) => ({
+                    ...b,
+                    nodes: b.nodes.map((n) => ({ ...n, selected: false })),
+                    edges: b.edges.map((e) => ({ ...e, selected: false })),
+                  }));
+                  return;
+                }
                 if (leavingText.current) {
                   leavingText.current = false;
                   return;
                 }
-                if (
-                  tool !== "write" &&
-                  tool !== "connect" &&
-                  tool !== "paint"
-                ) {
+                if (tool !== "write" && tool !== "paint") {
                   setTool("write");
                   connectFrom.current = null;
                   return;
