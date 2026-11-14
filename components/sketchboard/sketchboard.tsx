@@ -183,6 +183,13 @@ function FormatSamples({
   );
 }
 const defaults = {
+  corkConnection: {
+    type: "default",
+    color: "#ad303b",
+    width: 2.5,
+    dash: "",
+    arrows: "none",
+  },
   accent: "#9360c9",
   order: [] as string[],
   connection: {
@@ -882,7 +889,11 @@ function BoardEditor() {
   const [connectionOverride, setConnectionOverride] = useState<
     typeof defaults.connection | null
   >(null);
-  const connection = connectionOverride ?? preferences.connection;
+  const corkMode = preferences.pattern === "cork";
+  useEffect(() => setConnectionOverride(null), [corkMode]);
+  const connection =
+    connectionOverride ??
+    (corkMode ? preferences.corkConnection : preferences.connection);
   const [toolMenu, setToolMenu] = useState<string | null>(null);
   const shapeHit = useRef<string | null>(null);
   const currentTab = new URLSearchParams(location.search).get("tab") || "main";
@@ -1320,6 +1331,7 @@ function BoardEditor() {
     setTool("connect");
     setToolMenu("connect");
     setEditing("");
+    setColors(false);
     connectTo(id);
   };
   const begin = (id: string) => {
@@ -2824,494 +2836,509 @@ function BoardEditor() {
           <Waypoints size={15} />
         </button>
       )}
-      {(selected.length > 0 || selectedEdges.length > 0) && (
-        <StoredPanel
-          name="element"
-          className="lm-format"
-          label="Element formatieren"
-          style={
-            formatPosition
-              ? {
-                  ...formatPosition,
-                  right: "auto",
-                  maxHeight: "min(55vh, 460px)",
-                  overflow: "auto",
-                }
-              : selected[0] || selectedEdges[0]
-                ? (() => {
-                    const edgePoint = anchors[selectedEdges[0]?.id];
-                    const n = selected[0] ?? {
-                      position: edgePoint ?? { x: 0, y: 0 },
-                      width: 0,
-                      height: 0,
-                    };
-                    const point = flow.flowToScreenPosition({
-                      x: n.position.x + (n.width ?? 0),
-                      y: n.position.y,
-                    });
-                    const origin = flow.flowToScreenPosition(n.position);
-                    const bottom =
-                      origin.y + (n.height ?? 0) * board.viewport.zoom;
-                    const width = Math.min(294, innerWidth - 16),
-                      height = Math.min(460, innerHeight * 0.55);
-                    const clamp = (x: number, y: number) => ({
-                      left: Math.max(8, Math.min(innerWidth - width - 8, x)),
-                      top: Math.max(70, Math.min(innerHeight - height - 16, y)),
-                    });
-                    const candidates = [
-                      clamp(point.x + 12, point.y),
-                      clamp(origin.x - width - 12, origin.y),
-                      clamp(origin.x, bottom + 12),
-                      clamp(origin.x, origin.y - height - 12),
-                      clamp(innerWidth - width - 16, 76),
-                    ];
-                    const overlap = ({
-                      left,
-                      top,
-                    }: (typeof candidates)[number]) =>
-                      board.nodes.reduce((total, item) => {
-                        const screen = flow.flowToScreenPosition(item.position);
-                        const across = Math.max(
-                          0,
-                          Math.min(
-                            left + width,
-                            screen.x + (item.width ?? 0) * board.viewport.zoom,
-                          ) - Math.max(left, screen.x),
-                        );
-                        const down = Math.max(
-                          0,
-                          Math.min(
-                            top + height,
-                            screen.y + (item.height ?? 0) * board.viewport.zoom,
-                          ) - Math.max(top, screen.y),
-                        );
-                        return total + across * down;
-                      }, 0);
-                    const best = selected[0]
-                      ? candidates[0]
-                      : candidates.reduce((a, b) =>
-                          overlap(b) < overlap(a) ? b : a,
-                        );
-                    return {
-                      ...best,
-                      right: "auto",
-                      maxHeight: "min(55vh, 460px)",
-                      overflow: "auto",
-                    };
-                  })()
-                : undefined
-          }
-        >
-          <div
-            className="lm-actions lm-format-grip"
-            onPointerDown={(e) => {
-              if (
-                e.button !== 0 ||
-                (e.target as HTMLElement).closest("button,input,select")
-              )
-                return;
-              const bounds =
-                e.currentTarget.parentElement!.getBoundingClientRect();
-              formatDrag.current = {
-                x: e.clientX,
-                y: e.clientY,
-                left: bounds.left,
-                top: bounds.top,
-              };
-              e.currentTarget.setPointerCapture(e.pointerId);
-            }}
-            onPointerMove={(e) => {
-              const drag = formatDrag.current;
-              if (!drag || !e.currentTarget.hasPointerCapture(e.pointerId))
-                return;
-              setFormatPosition({
-                left: Math.max(
-                  8,
-                  Math.min(innerWidth - 80, drag.left + e.clientX - drag.x),
-                ),
-                top: Math.max(
-                  65,
-                  Math.min(innerHeight - 50, drag.top + e.clientY - drag.y),
-                ),
-              });
-            }}
-            onDoubleClick={(e) => {
-              if (!(e.target as HTMLElement).closest("button"))
-                setFormatPosition(null);
-            }}
+      {tool !== "connect" &&
+        (selected.length > 0 || selectedEdges.length > 0) && (
+          <StoredPanel
+            name="element"
+            className="lm-format"
+            label="Element formatieren"
+            style={
+              formatPosition
+                ? {
+                    ...formatPosition,
+                    right: "auto",
+                    maxHeight: "min(55vh, 460px)",
+                    overflow: "auto",
+                  }
+                : selected[0] || selectedEdges[0]
+                  ? (() => {
+                      const edgePoint = anchors[selectedEdges[0]?.id];
+                      const n = selected[0] ?? {
+                        position: edgePoint ?? { x: 0, y: 0 },
+                        width: 0,
+                        height: 0,
+                      };
+                      const point = flow.flowToScreenPosition({
+                        x: n.position.x + (n.width ?? 0),
+                        y: n.position.y,
+                      });
+                      const origin = flow.flowToScreenPosition(n.position);
+                      const bottom =
+                        origin.y + (n.height ?? 0) * board.viewport.zoom;
+                      const width = Math.min(294, innerWidth - 16),
+                        height = Math.min(460, innerHeight * 0.55);
+                      const clamp = (x: number, y: number) => ({
+                        left: Math.max(8, Math.min(innerWidth - width - 8, x)),
+                        top: Math.max(
+                          70,
+                          Math.min(innerHeight - height - 16, y),
+                        ),
+                      });
+                      const candidates = [
+                        clamp(point.x + 12, point.y),
+                        clamp(origin.x - width - 12, origin.y),
+                        clamp(origin.x, bottom + 12),
+                        clamp(origin.x, origin.y - height - 12),
+                        clamp(innerWidth - width - 16, 76),
+                      ];
+                      const overlap = ({
+                        left,
+                        top,
+                      }: (typeof candidates)[number]) =>
+                        board.nodes.reduce((total, item) => {
+                          const screen = flow.flowToScreenPosition(
+                            item.position,
+                          );
+                          const across = Math.max(
+                            0,
+                            Math.min(
+                              left + width,
+                              screen.x +
+                                (item.width ?? 0) * board.viewport.zoom,
+                            ) - Math.max(left, screen.x),
+                          );
+                          const down = Math.max(
+                            0,
+                            Math.min(
+                              top + height,
+                              screen.y +
+                                (item.height ?? 0) * board.viewport.zoom,
+                            ) - Math.max(top, screen.y),
+                          );
+                          return total + across * down;
+                        }, 0);
+                      const best = selected[0]
+                        ? candidates[0]
+                        : candidates.reduce((a, b) =>
+                            overlap(b) < overlap(a) ? b : a,
+                          );
+                      return {
+                        ...best,
+                        right: "auto",
+                        maxHeight: "min(55vh, 460px)",
+                        overflow: "auto",
+                      };
+                    })()
+                  : undefined
+            }
           >
-            <span>{selected.length + selectedEdges.length} ausgewählt</span>
-            <button
-              title="Auswahl aufheben"
-              aria-label="Auswahl aufheben"
-              onClick={() =>
-                setBoard((b) => ({
-                  ...b,
-                  nodes: b.nodes.map((n) => ({ ...n, selected: false })),
-                  edges: b.edges.map((e) => ({ ...e, selected: false })),
-                }))
-              }
+            <div
+              className="lm-actions lm-format-grip"
+              onPointerDown={(e) => {
+                if (
+                  e.button !== 0 ||
+                  (e.target as HTMLElement).closest("button,input,select")
+                )
+                  return;
+                const bounds =
+                  e.currentTarget.parentElement!.getBoundingClientRect();
+                formatDrag.current = {
+                  x: e.clientX,
+                  y: e.clientY,
+                  left: bounds.left,
+                  top: bounds.top,
+                };
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                const drag = formatDrag.current;
+                if (!drag || !e.currentTarget.hasPointerCapture(e.pointerId))
+                  return;
+                setFormatPosition({
+                  left: Math.max(
+                    8,
+                    Math.min(innerWidth - 80, drag.left + e.clientX - drag.x),
+                  ),
+                  top: Math.max(
+                    65,
+                    Math.min(innerHeight - 50, drag.top + e.clientY - drag.y),
+                  ),
+                });
+              }}
+              onDoubleClick={(e) => {
+                if (!(e.target as HTMLElement).closest("button"))
+                  setFormatPosition(null);
+              }}
             >
-              <X size={16} />
-            </button>
-          </div>
-          {data && (
-            <>
-              <div className="lm-compact-format">
-                <ColorSwatches
-                  name="Formfüllung"
-                  value={data.fill}
-                  onChange={(e) => format({ fill: e.target.value })}
-                  presets={palette}
-                />
-                <ColorSwatches
-                  compactBackground
-                  name="Schrifthintergrund"
-                  value={data.textBackground}
-                  onChange={(e) => format({ textBackground: e.target.value })}
-                />
-              </div>
-              <div className="lm-compact-format">
-                <span>Rand</span>
-                <FormatSamples
-                  name="Rundung"
-                  rounded
-                  value={data.radius}
-                  onChange={(radius) => format({ radius })}
-                />
-                <FormatSamples
-                  name="Randstärke"
-                  value={data.strokeWidth}
-                  onChange={(strokeWidth) => format({ strokeWidth })}
-                />
-              </div>
-              <div className="lm-compact-format">
-                <ColorSwatches
-                  name="Formrand"
-                  value={data.stroke}
-                  onChange={(e) => format({ stroke: e.target.value })}
-                />
-              </div>
-              <div className="lm-compact-format lm-compact-text">
-                <select
-                  aria-label="Schriftart"
-                  value={data.font ?? "System"}
-                  onChange={(e) => format({ font: e.target.value })}
-                >
-                  {boardFonts.map((font) => (
-                    <option key={font} style={{ fontFamily: font }}>
-                      {font}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Schriftgröße"
-                  value={data.fontSize}
-                  onChange={(e) => format({ fontSize: +e.target.value })}
-                >
-                  {Array.from(
-                    new Set([
-                      data.fontSize,
-                      12,
-                      16,
-                      18,
-                      20,
-                      24,
-                      28,
-                      32,
-                      40,
-                      48,
-                      64,
-                      96,
-                    ]),
-                  )
-                    .sort((a, b) => a - b)
-                    .map((size) => (
-                      <option key={size} value={size}>
-                        {Number(size.toPrecision(3))}
-                      </option>
-                    ))}
-                </select>
-                <button
-                  aria-label="Fett"
-                  aria-pressed={data.bold}
-                  onClick={() => format({ bold: !data.bold })}
-                >
-                  <Bold size={15} />
-                </button>
-                <button
-                  aria-label="Kursiv"
-                  aria-pressed={data.italic}
-                  onClick={() => format({ italic: !data.italic })}
-                >
-                  <Italic size={15} />
-                </button>
-                <button
-                  aria-label="Unterstrichen"
-                  aria-pressed={!!data.underline}
-                  onClick={() => format({ underline: !data.underline })}
-                >
-                  <Underline size={15} />
-                </button>
-              </div>
-              <div className="lm-compact-format">
-                <ColorSwatches
-                  name="Formtext"
-                  value={data.color}
-                  onChange={(e) => format({ color: e.target.value })}
-                />
-                {(["left", "center", "right"] as const).map((align, i) => {
-                  const Icon = [AlignLeft, AlignCenter, AlignRight][i];
-                  return (
-                    <button
-                      key={align}
-                      aria-label={"Text " + align}
-                      aria-pressed={data.align === align}
-                      onClick={() => format({ align })}
-                    >
-                      <Icon size={15} />
-                    </button>
-                  );
-                })}
-              </div>
-              <details className="lm-more-format">
-                <summary>Weitere Optionen</summary>
-                <label>
-                  Deckkraft{" "}
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={data.opacity ?? 1}
-                    onChange={(e) => format({ opacity: +e.target.value })}
+              <span>{selected.length + selectedEdges.length} ausgewählt</span>
+              <button
+                title="Auswahl aufheben"
+                aria-label="Auswahl aufheben"
+                onClick={() =>
+                  setBoard((b) => ({
+                    ...b,
+                    nodes: b.nodes.map((n) => ({ ...n, selected: false })),
+                    edges: b.edges.map((e) => ({ ...e, selected: false })),
+                  }))
+                }
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {data && (
+              <>
+                <div className="lm-compact-format">
+                  <ColorSwatches
+                    name="Formfüllung"
+                    value={data.fill}
+                    onChange={(e) => format({ fill: e.target.value })}
+                    presets={palette}
                   />
-                </label>
-                {data.kind === "sticky" && (
-                  <label>
-                    Papier{" "}
-                    <select
-                      value={data.paper ?? "plain"}
-                      onChange={(e) =>
-                        format({ paper: e.target.value as ShapeData["paper"] })
-                      }
-                    >
-                      <option value="plain">Glatt</option>
-                      <option value="lines">Liniert</option>
-                      <option value="grid">Kariert</option>
-                    </select>
-                  </label>
-                )}
-              </details>
-              <div className="lm-format-row">
-                <button
-                  onClick={() => {
-                    checkpoint();
-                    const z =
-                      Math.max(0, ...board.nodes.map((n) => n.zIndex || 0)) + 1;
-                    setBoard((b) => ({
-                      ...b,
-                      nodes: b.nodes.map((n) =>
-                        n.selected ? { ...n, zIndex: z } : n,
-                      ),
-                    }));
-                  }}
-                >
-                  <ArrowUpToLine size={15} />
-                  Nach vorne
-                </button>
-                <button
-                  onClick={() => {
-                    checkpoint();
-                    const z =
-                      Math.min(0, ...board.nodes.map((n) => n.zIndex || 0)) - 1;
-                    setBoard((b) => ({
-                      ...b,
-                      nodes: b.nodes.map((n) =>
-                        n.selected ? { ...n, zIndex: z } : n,
-                      ),
-                    }));
-                  }}
-                >
-                  <ArrowDownToLine size={15} />
-                  Nach hinten
-                </button>
-              </div>
-            </>
-          )}
-          {!data && edge && (
-            <div className="lm-edge-format">
-              <fieldset className="lm-edge-label-options">
-                <legend>Beschriftung</legend>
-                <input
-                  aria-label="Linienbeschriftung"
-                  placeholder="Linienbeschriftung"
-                  maxLength={160}
-                  value={caption.text}
-                  onChange={(e) => setCaption({ text: e.target.value })}
-                />
-                <label>
-                  Winkel{" "}
-                  <input
-                    type="number"
-                    min={-180}
-                    max={180}
-                    step={5}
-                    value={caption.angle}
-                    onChange={(e) =>
-                      setCaption({
-                        angle: Math.max(-180, Math.min(180, +e.target.value)),
-                      })
-                    }
+                  <ColorSwatches
+                    compactBackground
+                    name="Schrifthintergrund"
+                    value={data.textBackground}
+                    onChange={(e) => format({ textBackground: e.target.value })}
                   />
-                </label>
-                <label>
-                  Größe{" "}
-                  <input
-                    type="number"
-                    min={8}
-                    max={72}
-                    value={caption.size}
-                    onChange={(e) =>
-                      setCaption({
-                        size: Math.max(8, Math.min(72, +e.target.value)),
-                      })
-                    }
+                </div>
+                <div className="lm-compact-format">
+                  <span>Rand</span>
+                  <FormatSamples
+                    name="Rundung"
+                    rounded
+                    value={data.radius}
+                    onChange={(radius) => format({ radius })}
                   />
-                </label>
-                <label>
-                  Schrift{" "}
+                  <FormatSamples
+                    name="Randstärke"
+                    value={data.strokeWidth}
+                    onChange={(strokeWidth) => format({ strokeWidth })}
+                  />
+                </div>
+                <div className="lm-compact-format">
+                  <ColorSwatches
+                    name="Formrand"
+                    value={data.stroke}
+                    onChange={(e) => format({ stroke: e.target.value })}
+                  />
+                </div>
+                <div className="lm-compact-format lm-compact-text">
                   <select
-                    value={caption.font}
-                    onChange={(e) => setCaption({ font: e.target.value })}
+                    aria-label="Schriftart"
+                    value={data.font ?? "System"}
+                    onChange={(e) => format({ font: e.target.value })}
                   >
                     {boardFonts.map((font) => (
-                      <option
-                        key={font}
-                        style={{
-                          fontFamily: font === "System" ? "system-ui" : font,
-                        }}
-                      >
+                      <option key={font} style={{ fontFamily: font }}>
                         {font}
                       </option>
                     ))}
                   </select>
-                </label>
-                <label>
-                  Textfarbe{" "}
+                  <select
+                    aria-label="Schriftgröße"
+                    value={data.fontSize}
+                    onChange={(e) => format({ fontSize: +e.target.value })}
+                  >
+                    {Array.from(
+                      new Set([
+                        data.fontSize,
+                        12,
+                        16,
+                        18,
+                        20,
+                        24,
+                        28,
+                        32,
+                        40,
+                        48,
+                        64,
+                        96,
+                      ]),
+                    )
+                      .sort((a, b) => a - b)
+                      .map((size) => (
+                        <option key={size} value={size}>
+                          {Number(size.toPrecision(3))}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    aria-label="Fett"
+                    aria-pressed={data.bold}
+                    onClick={() => format({ bold: !data.bold })}
+                  >
+                    <Bold size={15} />
+                  </button>
+                  <button
+                    aria-label="Kursiv"
+                    aria-pressed={data.italic}
+                    onClick={() => format({ italic: !data.italic })}
+                  >
+                    <Italic size={15} />
+                  </button>
+                  <button
+                    aria-label="Unterstrichen"
+                    aria-pressed={!!data.underline}
+                    onClick={() => format({ underline: !data.underline })}
+                  >
+                    <Underline size={15} />
+                  </button>
+                </div>
+                <div className="lm-compact-format">
                   <ColorSwatches
-                    name="Linientext"
-                    value={caption.color}
-                    onChange={(e) => setCaption({ color: e.target.value })}
+                    name="Formtext"
+                    value={data.color}
+                    onChange={(e) => format({ color: e.target.value })}
                   />
-                </label>
+                  {(["left", "center", "right"] as const).map((align, i) => {
+                    const Icon = [AlignLeft, AlignCenter, AlignRight][i];
+                    return (
+                      <button
+                        key={align}
+                        aria-label={"Text " + align}
+                        aria-pressed={data.align === align}
+                        onClick={() => format({ align })}
+                      >
+                        <Icon size={15} />
+                      </button>
+                    );
+                  })}
+                </div>
+                <details className="lm-more-format">
+                  <summary>Weitere Optionen</summary>
+                  <label>
+                    Deckkraft{" "}
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={data.opacity ?? 1}
+                      onChange={(e) => format({ opacity: +e.target.value })}
+                    />
+                  </label>
+                  {data.kind === "sticky" && (
+                    <label>
+                      Papier{" "}
+                      <select
+                        value={data.paper ?? "plain"}
+                        onChange={(e) =>
+                          format({
+                            paper: e.target.value as ShapeData["paper"],
+                          })
+                        }
+                      >
+                        <option value="plain">Glatt</option>
+                        <option value="lines">Liniert</option>
+                        <option value="grid">Kariert</option>
+                      </select>
+                    </label>
+                  )}
+                </details>
+                <div className="lm-format-row">
+                  <button
+                    onClick={() => {
+                      checkpoint();
+                      const z =
+                        Math.max(0, ...board.nodes.map((n) => n.zIndex || 0)) +
+                        1;
+                      setBoard((b) => ({
+                        ...b,
+                        nodes: b.nodes.map((n) =>
+                          n.selected ? { ...n, zIndex: z } : n,
+                        ),
+                      }));
+                    }}
+                  >
+                    <ArrowUpToLine size={15} />
+                    Nach vorne
+                  </button>
+                  <button
+                    onClick={() => {
+                      checkpoint();
+                      const z =
+                        Math.min(0, ...board.nodes.map((n) => n.zIndex || 0)) -
+                        1;
+                      setBoard((b) => ({
+                        ...b,
+                        nodes: b.nodes.map((n) =>
+                          n.selected ? { ...n, zIndex: z } : n,
+                        ),
+                      }));
+                    }}
+                  >
+                    <ArrowDownToLine size={15} />
+                    Nach hinten
+                  </button>
+                </div>
+              </>
+            )}
+            {!data && edge && (
+              <div className="lm-edge-format">
+                <fieldset className="lm-edge-label-options">
+                  <legend>Beschriftung</legend>
+                  <input
+                    aria-label="Linienbeschriftung"
+                    placeholder="Linienbeschriftung"
+                    maxLength={160}
+                    value={caption.text}
+                    onChange={(e) => setCaption({ text: e.target.value })}
+                  />
+                  <label>
+                    Winkel{" "}
+                    <input
+                      type="number"
+                      min={-180}
+                      max={180}
+                      step={5}
+                      value={caption.angle}
+                      onChange={(e) =>
+                        setCaption({
+                          angle: Math.max(-180, Math.min(180, +e.target.value)),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Größe{" "}
+                    <input
+                      type="number"
+                      min={8}
+                      max={72}
+                      value={caption.size}
+                      onChange={(e) =>
+                        setCaption({
+                          size: Math.max(8, Math.min(72, +e.target.value)),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Schrift{" "}
+                    <select
+                      value={caption.font}
+                      onChange={(e) => setCaption({ font: e.target.value })}
+                    >
+                      {boardFonts.map((font) => (
+                        <option
+                          key={font}
+                          style={{
+                            fontFamily: font === "System" ? "system-ui" : font,
+                          }}
+                        >
+                          {font}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Textfarbe{" "}
+                    <ColorSwatches
+                      name="Linientext"
+                      value={caption.color}
+                      onChange={(e) => setCaption({ color: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Schrifthintergrund{" "}
+                    <ColorSwatches
+                      name="Linientext-Hintergrund"
+                      value={
+                        caption.background === "transparent"
+                          ? "#ffffff"
+                          : caption.background
+                      }
+                      onChange={(e) =>
+                        setCaption({ background: e.target.value })
+                      }
+                    />
+                  </label>
+                  <button
+                    onClick={() => setCaption({ background: "transparent" })}
+                  >
+                    Transparent
+                  </button>
+                  <button
+                    aria-pressed={caption.bold}
+                    onClick={() => setCaption({ bold: !caption.bold })}
+                  >
+                    Fett
+                  </button>
+                  <button
+                    aria-pressed={caption.italic}
+                    onClick={() => setCaption({ italic: !caption.italic })}
+                  >
+                    Kursiv
+                  </button>
+                </fieldset>
                 <label>
-                  Schrifthintergrund{" "}
+                  Farbe
                   <ColorSwatches
-                    name="Linientext-Hintergrund"
-                    value={
-                      caption.background === "transparent"
-                        ? "#ffffff"
-                        : caption.background
+                    name="Linienfarbe"
+                    value={String(edge.style?.stroke || "#8b8797")}
+                    onChange={(e) =>
+                      formatEdge({
+                        style: { ...edge.style, stroke: e.target.value },
+                        ...(edge.markerEnd
+                          ? {
+                              markerEnd: {
+                                type: "arrowclosed" as never,
+                                color: e.target.value,
+                              },
+                            }
+                          : {}),
+                      })
                     }
-                    onChange={(e) => setCaption({ background: e.target.value })}
                   />
                 </label>
-                <button
-                  onClick={() => setCaption({ background: "transparent" })}
+                <label>
+                  Stärke
+                  <FormatSamples
+                    name="Linienstärke"
+                    value={Number(edge.style?.strokeWidth || 1.5)}
+                    onChange={(strokeWidth) =>
+                      formatEdge({ style: { ...edge.style, strokeWidth } })
+                    }
+                  />
+                </label>
+                <select
+                  aria-label="Linienart"
+                  value={edge.type}
+                  onChange={(e) => formatEdge({ type: e.target.value })}
                 >
-                  Transparent
-                </button>
-                <button
-                  aria-pressed={caption.bold}
-                  onClick={() => setCaption({ bold: !caption.bold })}
-                >
-                  Fett
-                </button>
-                <button
-                  aria-pressed={caption.italic}
-                  onClick={() => setCaption({ italic: !caption.italic })}
-                >
-                  Kursiv
-                </button>
-              </fieldset>
-              <label>
-                Farbe
-                <ColorSwatches
-                  name="Linienfarbe"
-                  value={String(edge.style?.stroke || "#8b8797")}
+                  <option value="default">Geschwungen</option>
+                  <option value="smoothstep">Abgerundete Ecken</option>
+                  <option value="step">Eckig</option>
+                  <option value="straight">Gerade</option>
+                </select>
+                <select
+                  aria-label="Strichart"
+                  value={String(edge.style?.strokeDasharray ?? "")}
                   onChange={(e) =>
                     formatEdge({
-                      style: { ...edge.style, stroke: e.target.value },
-                      ...(edge.markerEnd
-                        ? {
-                            markerEnd: {
-                              type: "arrowclosed" as never,
-                              color: e.target.value,
-                            },
-                          }
-                        : {}),
+                      style: { ...edge.style, strokeDasharray: e.target.value },
                     })
                   }
-                />
-              </label>
-              <label>
-                Stärke
-                <FormatSamples
-                  name="Linienstärke"
-                  value={Number(edge.style?.strokeWidth || 1.5)}
-                  onChange={(strokeWidth) =>
-                    formatEdge({ style: { ...edge.style, strokeWidth } })
+                >
+                  <option value="">Durchgezogen</option>
+                  <option value="7 5">Gestrichelt</option>
+                  <option value="2 5">Gepunktet</option>
+                </select>
+                <select
+                  aria-label="Pfeilspitzen"
+                  value={
+                    edge.markerStart ? "both" : edge.markerEnd ? "end" : "none"
                   }
-                />
-              </label>
-              <select
-                aria-label="Linienart"
-                value={edge.type}
-                onChange={(e) => formatEdge({ type: e.target.value })}
-              >
-                <option value="default">Geschwungen</option>
-                <option value="smoothstep">Abgerundete Ecken</option>
-                <option value="step">Eckig</option>
-                <option value="straight">Gerade</option>
-              </select>
-              <select
-                aria-label="Strichart"
-                value={String(edge.style?.strokeDasharray ?? "")}
-                onChange={(e) =>
-                  formatEdge({
-                    style: { ...edge.style, strokeDasharray: e.target.value },
-                  })
-                }
-              >
-                <option value="">Durchgezogen</option>
-                <option value="7 5">Gestrichelt</option>
-                <option value="2 5">Gepunktet</option>
-              </select>
-              <select
-                aria-label="Pfeilspitzen"
-                value={
-                  edge.markerStart ? "both" : edge.markerEnd ? "end" : "none"
-                }
-                onChange={(e) => {
-                  const marker = {
-                    type: "arrowclosed" as never,
-                    color: String(edge.style?.stroke),
-                  };
-                  formatEdge({
-                    markerEnd: e.target.value === "none" ? undefined : marker,
-                    markerStart: e.target.value === "both" ? marker : undefined,
-                  });
-                }}
-              >
-                <option value="none">Ohne Pfeil</option>
-                <option value="end">Einseitiger Pfeil</option>
-                <option value="both">Beidseitiger Pfeil</option>
-              </select>
-            </div>
-          )}
-        </StoredPanel>
-      )}
+                  onChange={(e) => {
+                    const marker = {
+                      type: "arrowclosed" as never,
+                      color: String(edge.style?.stroke),
+                    };
+                    formatEdge({
+                      markerEnd: e.target.value === "none" ? undefined : marker,
+                      markerStart:
+                        e.target.value === "both" ? marker : undefined,
+                    });
+                  }}
+                >
+                  <option value="none">Ohne Pfeil</option>
+                  <option value="end">Einseitiger Pfeil</option>
+                  <option value="both">Beidseitiger Pfeil</option>
+                </select>
+              </div>
+            )}
+          </StoredPanel>
+        )}
       {quick && (
         <div
           className="lm-quick"
@@ -3451,7 +3478,15 @@ function BoardEditor() {
                     }
                   />
                 </label>
-                <button onClick={() => updatePreferences({ connection })}>
+                <button
+                  onClick={() =>
+                    updatePreferences(
+                      corkMode
+                        ? { corkConnection: connection }
+                        : { connection },
+                    )
+                  }
+                >
                   Immer
                 </button>
               </>
