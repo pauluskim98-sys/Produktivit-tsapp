@@ -314,7 +314,18 @@ export default function NotebookNavigation({
               beginSize("map:" + item.id);
             }}
           >
-            <button type="button" onClick={() => setMap(item.id)}>
+            <button
+              type="button"
+              onClick={() => setMap(item.id)}
+              onDoubleClick={() =>
+                window.top?.location.assign(
+                  "/lifemap/board" +
+                    (item.id === "main"
+                      ? ""
+                      : "?tab=" + encodeURIComponent(item.id)),
+                )
+              }
+            >
               {item.title}
             </button>
             <button
@@ -364,7 +375,10 @@ export default function NotebookNavigation({
           if (panel) {
             const next = Math.max(
               150,
-              Math.min(window.parent.innerHeight * 0.85, start.height + start.y - e.screenY),
+              Math.min(
+                window.parent.innerHeight * 0.85,
+                start.height + start.y - e.screenY,
+              ),
             );
             panel.setAttribute("data-custom-height", "");
             panel.style.height = next + "px";

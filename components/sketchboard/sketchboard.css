@@ -1224,3 +1224,47 @@
 .lm-settings-tools summary {
   cursor: pointer;
 }
+.lm-embedded .lm-history,
+.lm-embedded .lm-zoom {
+  display: none;
+}
+.lm-embedded .lm-bottom {
+  bottom: 6px;
+  min-height: 32px;
+}
+.lm-embedded .lm-toolbar {
+  bottom: 0;
+  gap: 2px;
+  padding: 3px 6px;
+}
+.lm-embedded .lm-toolbar > button {
+  width: 28px;
+  min-height: 26px;
+  height: 26px;
+  padding: 4px;
+}
+.lm-embedded .lm-toolbar > button svg {
+  width: 15px;
+  height: 15px;
+}
+.lm-hover-link {
+  position: fixed;
+  z-index: 24;
+  transform: translate(-50%, -50%);
+  padding: 4px !important;
+  min-height: 0 !important;
+  width: 25px;
+  height: 25px;
+  background: var(--lm-panel) !important;
+  color: var(--lm-accent) !important;
+  opacity: 0.84;
+  box-shadow: 0 2px 8px #22183122;
+}
+.lm-hover-link:hover,
+.lm-hover-link:focus-visible {
+  opacity: 1;
+}
+.lm-node-link,
+.lm-edge-link {
+  display: none !important;
+}

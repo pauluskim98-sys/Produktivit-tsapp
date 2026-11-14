@@ -1306,6 +1306,11 @@ function BoardEditor() {
       })),
     }));
   };
+  const [linkHover, setLinkHover] = useState<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [linkPointer, setLinkPointer] = useState<{
     x: number;
     y: number;
@@ -1635,7 +1640,7 @@ function BoardEditor() {
   })) as unknown as ShapeNode[];
   return (
     <main
-      className={`lm-app${dark ? " lm-dark" : ""}`}
+      className={`lm-app${dark ? " lm-dark" : ""}${embedded ? " lm-embedded" : ""}`}
       style={
         {
           "--lm-accent": preferences.accent,
@@ -2107,6 +2112,22 @@ function BoardEditor() {
       <div
         ref={host}
         onPointerMove={(e) => {
+          const target = document
+            .elementsFromPoint(e.clientX, e.clientY)
+            .map((item) =>
+              item.closest(".react-flow__node-shape,.react-flow__edge"),
+            )
+            .find(Boolean);
+          const id = target?.getAttribute("data-id");
+          const bounds = target?.getBoundingClientRect();
+          if (!e.buttons && id && bounds && !editing && !preview) {
+            const edge = target!.classList.contains("react-flow__edge");
+            setLinkHover({
+              id: edge ? "line:" + id : id,
+              x: edge ? e.clientX : bounds.right - 16,
+              y: edge ? e.clientY - 11 : bounds.top + 16,
+            });
+          } else setLinkHover(null);
           if (tool === "connect" && connectFrom.current)
             setLinkPointer({ x: e.clientX, y: e.clientY });
         }}
@@ -2787,6 +2808,21 @@ function BoardEditor() {
           </div>
         )}
       </div>
+      {linkHover && (
+        <button
+          type="button"
+          className="lm-hover-link"
+          aria-label="Verbindung beginnen"
+          style={{ left: linkHover.x, top: linkHover.y }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            startLink(linkHover.id);
+            setLinkHover(null);
+          }}
+        >
+          <Waypoints size={15} />
+        </button>
+      )}
       {(selected.length > 0 || selectedEdges.length > 0) && (
         <StoredPanel
           name="element"
@@ -2800,9 +2836,14 @@ function BoardEditor() {
                   maxHeight: "min(55vh, 460px)",
                   overflow: "auto",
                 }
-              : selected[0]
+              : selected[0] || selectedEdges[0]
                 ? (() => {
-                    const n = selected[0];
+                    const edgePoint = anchors[selectedEdges[0]?.id];
+                    const n = selected[0] ?? {
+                      position: edgePoint ?? { x: 0, y: 0 },
+                      width: 0,
+                      height: 0,
+                    };
                     const point = flow.flowToScreenPosition({
                       x: n.position.x + (n.width ?? 0),
                       y: n.position.y,
@@ -2845,9 +2886,11 @@ function BoardEditor() {
                         );
                         return total + across * down;
                       }, 0);
-                    const best = candidates.reduce((a, b) =>
-                      overlap(b) < overlap(a) ? b : a,
-                    );
+                    const best = selected[0]
+                      ? candidates[0]
+                      : candidates.reduce((a, b) =>
+                          overlap(b) < overlap(a) ? b : a,
+                        );
                     return {
                       ...best,
                       right: "auto",
