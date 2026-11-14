@@ -1,6 +1,7 @@
 import type { Node, Edge, Viewport } from "@xyflow/react";
 export const connectionWeight = 1.85;
 export const minimumBoardZoom = 0.000001;
+export const minimumInteractiveZoom = 0.00001;
 
 export const shapeKinds = [
   "rectangle",
@@ -40,6 +41,7 @@ export type ShapeData = {
   fill: string;
   stroke: string;
   strokeWidth: number;
+  borderStyle?: UnderlineStyle;
   radius: number;
   opacity?: number;
   paper?: "plain" | "lines" | "grid";
@@ -287,6 +289,9 @@ export function validateBoard(input: unknown): Board {
         fill: d.fill,
         stroke: d.stroke,
         strokeWidth: d.strokeWidth,
+        ...(["solid", "wavy", "dashed", "double"].includes(d.borderStyle ?? "")
+          ? { borderStyle: d.borderStyle }
+          : {}),
         radius: d.radius,
         ...(typeof d.opacity === "number" && number(d.opacity, 0, 1)
           ? { opacity: d.opacity }

@@ -70,11 +70,14 @@ import {
   PenTool,
   ImagePlus,
   FolderPlus,
+  FileText,
+  Video,
+  PanelsTopLeft,
   Smile,
 } from "lucide-react";
 import {
   emptyBoard,
-  minimumBoardZoom,
+  minimumInteractiveZoom,
   validateBoard,
   emptyLineLabel,
   type LineLabel,
@@ -98,6 +101,9 @@ import {
 import { smoothStroke } from "./smooth-stroke";
 import { BoardEdge, boardEdgePath } from "./board-edge";
 import { useBoardStorage } from "./use-board-storage";
+import { notebookTitle } from "@/components/notebook-navigation";
+import { readNoteLines } from "@/components/planner-notepad";
+import { notebookFolder } from "@/lib/notebook";
 import { StickyPaper, stickyStyles } from "./sticky-paper";
 import { SymbolArt, symbols } from "./symbols";
 import { listenForViewSwipe } from "@/lib/lifemap-swipe";
@@ -209,7 +215,7 @@ function FormatSamples({
   onChange: (n: number) => void;
   rounded?: boolean;
 }) {
-  const values = rounded ? [0, 12, 32] : [1, 3, 7];
+  const values = rounded ? [0, 32, 96] : [1, 3, 7];
   const closest = values.reduce((a, b) =>
     Math.abs(a - value) <= Math.abs(b - value) ? a : b,
   );
@@ -253,10 +259,38 @@ function FormatSamples({
     </span>
   );
 }
+function PatternSample({ style }: { style?: UnderlineStyle }) {
+  return (
+    <svg
+      width="28"
+      height="18"
+      viewBox="0 0 28 18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      aria-hidden
+    >
+      {style === "wavy" ? (
+        <path d="M3 9q3-6 6 0t6 0t6 0t5 0" />
+      ) : style === "double" ? (
+        <path d="M3 6h22M3 12h22" />
+      ) : style ? (
+        <path
+          d="M3 9h22"
+          strokeDasharray={style === "dashed" ? "4 3" : undefined}
+        />
+      ) : (
+        <path d="m10 5 8 8m0-8-8 8" />
+      )}
+    </svg>
+  );
+}
 function UnderlinePicker({
   value,
   onChange,
+  border = false,
 }: {
+  border?: boolean;
   value?: UnderlineStyle;
   onChange: (style?: UnderlineStyle) => void;
 }) {
@@ -270,15 +304,22 @@ function UnderlinePicker({
     >
       <button
         type="button"
-        aria-label="Unterstreichung"
+        aria-label={border ? "Randart" : "Unterstreichung"}
         aria-pressed={!!value}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <Underline size={15} />
+        {border ? (
+          <PatternSample style={value ?? "solid"} />
+        ) : (
+          <Underline size={15} />
+        )}
       </button>
       {open && (
-        <span role="group" aria-label="Art der Unterstreichung">
+        <span
+          role="group"
+          aria-label={border ? "Randart" : "Art der Unterstreichung"}
+        >
           {(
             [
               ["solid", "Einfach"],
@@ -292,16 +333,14 @@ function UnderlinePicker({
               key={label}
               type="button"
               aria-pressed={value === style}
+              aria-label={label}
+              title={label}
               onClick={() => {
                 onChange(style);
                 setOpen(false);
               }}
-              style={{
-                textDecorationLine: style ? "underline" : undefined,
-                textDecorationStyle: style,
-              }}
             >
-              {label}
+              <PatternSample style={style} />
             </button>
           ))}
         </span>
@@ -493,6 +532,7 @@ function StoredPanel({
     y: number;
     width: number;
     height: number;
+    scale: number;
   } | null>(null);
   const panel = useRef<HTMLElement>(null);
   const [formatScale, setFormatScale] = useState(() => {
@@ -515,7 +555,15 @@ function StoredPanel({
           ? { left: style.left / formatScale, top: style.top / formatScale }
           : {}),
         ...(name === "element"
-          ? { width: 310, zoom: formatScale, fontSize: 12 }
+          ? {
+              width: Math.min(
+                size?.width ?? 310,
+                (innerWidth - 16) / formatScale,
+              ),
+              height: size?.height,
+              zoom: formatScale,
+              fontSize: 12,
+            }
           : {}),
         ...(size && name !== "element"
           ? {
@@ -539,6 +587,7 @@ function StoredPanel({
             y: e.clientY,
             width: bounds.width,
             height: bounds.height,
+            scale: formatScale,
           };
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
@@ -546,15 +595,39 @@ function StoredPanel({
           const start = drag.current;
           if (!start || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
           if (name === "element") {
-            const ratio =
-              (e.clientX - start.x + (e.clientY - start.y)) /
-              (start.width + start.height);
-            const scale = Math.max(
-              0.7,
-              Math.min(1.6, (start.width / 310) * (1 + ratio)),
-            );
+            const dx = e.clientX - start.x,
+              dy = e.clientY - start.y;
+            const diagonal =
+              dx * dy > 0 &&
+              Math.min(Math.abs(dx), Math.abs(dy)) >
+                Math.max(Math.abs(dx), Math.abs(dy)) * 0.36;
+            const scale = diagonal
+              ? Math.max(
+                  0.65,
+                  Math.min(
+                    1.8,
+                    start.scale *
+                      (1 + (dx + dy) / (start.width + start.height)),
+                  ),
+                )
+              : start.scale;
+            const next = {
+              width: Math.max(
+                165,
+                Math.min((innerWidth - 16) / scale, (start.width + dx) / scale),
+              ),
+              height: Math.max(
+                85,
+                Math.min(
+                  (innerHeight * 0.72) / scale,
+                  (start.height + dy) / scale,
+                ),
+              ),
+            };
             setFormatScale(scale);
+            setSize(next);
             localStorage.setItem("lifemap-format-scale", String(scale));
+            localStorage.setItem("lifemap-panel-" + name, JSON.stringify(next));
             return;
           }
           const next = {
@@ -572,6 +645,10 @@ function StoredPanel({
         }}
         onDoubleClick={() => {
           setSize(null);
+          if (name === "element") {
+            setFormatScale(1);
+            localStorage.removeItem("lifemap-format-scale");
+          }
           localStorage.removeItem("lifemap-panel-" + name);
         }}
       >
@@ -974,6 +1051,25 @@ function straightenForm(points: PolygonPoint[]): PolygonPoint[] {
   });
 }
 const hiddenTools = ["write", "select", "hand", "rounded"];
+function wavyFrame() {
+  const points: string[] = [];
+  for (let i = 0; i < 96; i++) {
+    const side = Math.floor(i / 24),
+      t = (i % 24) * 4,
+      ripple = i % 2 === 0 ? 0 : 2;
+    const [x, y] =
+      side === 0
+        ? [2 + t, 2 + ripple]
+        : side === 1
+          ? [98 - ripple, 2 + t]
+          : side === 2
+            ? [98 - t, 98 - ripple]
+            : [2 + ripple, 98 - t];
+    points.push(x + "," + y);
+  }
+  return "M" + points.join("L") + "Z";
+}
+const wavyBorder = wavyFrame();
 function curvedOutline(points: PolygonPoint[], close = true): string {
   if (!points.length) return "";
   const [first] = points;
@@ -1080,6 +1176,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   const style: CSSProperties = {
     background: data.fill,
     borderColor: data.stroke,
+    borderStyle: data.borderStyle === "wavy" ? "none" : data.borderStyle,
     boxSizing: "border-box",
     borderWidth: data.strokeWidth,
     borderRadius:
@@ -1186,7 +1283,13 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           <StickyPaper paper={data} className="lm-sticky-surface" />
         </span>
       ) : data.media ? (
-        <MediaCard media={data.media} />
+        <MediaCard
+          media={data.media}
+          onChange={(media) => {
+            edit.checkpoint();
+            edit.patch(id, { media });
+          }}
+        />
       ) : data.kind === "image" && data.image ? (
         <img
           className="lm-shape-bg lm-picture"
@@ -1226,6 +1329,13 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
               opacity={data.opacity ?? 1}
               fill={data.fill}
               stroke={data.stroke}
+              strokeDasharray={
+                data.borderStyle === "dashed"
+                  ? "7 5"
+                  : data.borderStyle === "wavy"
+                    ? "3 2"
+                    : undefined
+              }
               strokeWidth={data.strokeWidth}
               style={{
                 strokeWidth:
@@ -1245,6 +1355,13 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
             points="50,1 99,50 50,99 1,50"
             fill={data.fill}
             stroke={data.stroke}
+            strokeDasharray={
+              data.borderStyle === "dashed"
+                ? "7 5"
+                : data.borderStyle === "wavy"
+                  ? "3 2"
+                  : undefined
+            }
             strokeWidth={data.strokeWidth}
             style={{
               strokeWidth:
@@ -1259,6 +1376,38 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           style={{ ...style, opacity: data.opacity ?? 1 }}
         />
       )}
+      {data.borderStyle === "wavy" &&
+        !["sticky", "image", "media", "ink", "symbol"].includes(data.kind) && (
+          <svg
+            className="lm-shape-bg lm-wavy-border"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden
+          >
+            {data.kind === "circle" || data.kind === "ellipse" ? (
+              <ellipse
+                cx="50"
+                cy="50"
+                rx="48"
+                ry="48"
+                strokeDasharray="3 2"
+                fill="none"
+                stroke={data.stroke}
+                strokeWidth={data.strokeWidth}
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : data.kind === "diamond" || data.points ? null : (
+              <path
+                d={wavyBorder}
+                fill="none"
+                stroke={data.stroke}
+                strokeWidth={data.strokeWidth}
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </svg>
+        )}
       <div
         ref={content}
         className="lm-shape-content"
@@ -1453,7 +1602,29 @@ function LineAnchor() {
     </>
   );
 }
-function MediaCard({ media }: { media: NonNullable<ShapeData["media"]> }) {
+function MediaCard({
+  media,
+  onChange,
+}: {
+  media: NonNullable<ShapeData["media"]>;
+  onChange: (media: NonNullable<ShapeData["media"]>) => void;
+}) {
+  const [address, setAddress] = useState<string | null>(null);
+  const editAddress = () => {
+    setAddress(media.url);
+  };
+  const saveAddress = () => {
+    try {
+      const text = address?.trim();
+      if (!text) return;
+      const url = new URL(
+        /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : "https://" + text,
+      );
+      const next = { ...media, url: url.href, name: url.hostname };
+      if (validMedia(next)) onChange(next);
+    } catch {}
+    setAddress(null);
+  };
   const [playing, setPlaying] = useState(false);
   const url = media.url.startsWith("data:") ? null : new URL(media.url);
   const videoId =
@@ -1481,7 +1652,15 @@ function MediaCard({ media }: { media: NonNullable<ShapeData["media"]> }) {
     } else window.open(url.href, "_blank", "noopener,noreferrer");
   };
   return (
-    <div className="lm-media-card">
+    <div
+      className="lm-media-card"
+      onDoubleClick={(e) => {
+        if (media.kind === "link" || (media.kind === "video" && url)) {
+          e.stopPropagation();
+          editAddress();
+        }
+      }}
+    >
       {playable ? (
         <video
           className="nodrag nopan"
@@ -1510,9 +1689,51 @@ function MediaCard({ media }: { media: NonNullable<ShapeData["media"]> }) {
               : "Link"}
         </span>
       )}
-      <button className="nodrag nopan" onClick={open} title={media.name}>
-        {media.name} ↗
-      </button>
+      {address !== null ? (
+        <input
+          className="nodrag nopan nowheel"
+          aria-label="Webadresse bearbeiten"
+          autoFocus
+          value={address}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => setAddress(e.target.value)}
+          onBlur={saveAddress}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") setAddress(null);
+          }}
+        />
+      ) : (
+        <a
+          className="nodrag nopan lm-media-open"
+          href={url?.href ?? "#"}
+          title={media.name}
+          onClick={(e) => {
+            e.preventDefault();
+            if (media.kind !== "link" && !(media.kind === "video" && url))
+              open();
+          }}
+          onDoubleClick={(e) => {
+            if (media.kind === "link") {
+              e.stopPropagation();
+              editAddress();
+            }
+          }}
+        >
+          {media.name}
+        </a>
+      )}
+      {(media.kind === "link" || (media.kind === "video" && url)) &&
+        address === null && (
+          <button
+            className="nodrag nopan"
+            onClick={open}
+            aria-label="Webseite öffnen"
+          >
+            ↗
+          </button>
+        )}
     </div>
   );
 }
@@ -1539,22 +1760,68 @@ function BoardEditor() {
   useEffect(() => {
     const zoom = (event: WheelEvent) => {
       if (
-        !event.ctrlKey ||
         !(event.target instanceof Element) ||
         !event.target.closest(".lm-app")
       )
         return;
-      event.preventDefault();
-      event.stopPropagation();
-      const current = flow.getViewport();
-      const next = Math.max(
-        minimumBoardZoom,
-        Math.min(4, current.zoom * Math.exp(-event.deltaY * 0.006)),
-      );
       const pane = document
         .querySelector(".lm-canvas")
         ?.getBoundingClientRect();
-      if (!pane) return;
+      const target = event.target;
+      if (
+        !pane ||
+        event.clientY < pane.top ||
+        event.clientY > pane.bottom ||
+        event.clientX < pane.left ||
+        event.clientX > pane.right ||
+        target.closest(".lm-header")
+      )
+        return;
+      if (!event.ctrlKey) {
+        const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
+        for (
+          let item: Element | null = target;
+          item && !item.matches(".lm-app");
+          item = item.parentElement
+        ) {
+          const axis = horizontal ? "X" : "Y",
+            delta = horizontal ? event.deltaX : event.deltaY;
+          const style = getComputedStyle(item);
+          if (
+            !/auto|scroll/.test(
+              axis === "X" ? style.overflowX : style.overflowY,
+            )
+          )
+            continue;
+          const position = horizontal ? item.scrollLeft : item.scrollTop;
+          const remaining = horizontal
+            ? item.scrollWidth - item.clientWidth
+            : item.scrollHeight - item.clientHeight;
+          if (
+            remaining > 1 &&
+            ((delta > 0 && position < remaining - 1) ||
+              (delta < 0 && position > 0))
+          )
+            return;
+        }
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const current = flow.getViewport();
+      if (!event.ctrlKey) {
+        const scale =
+          event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? pane.height : 1;
+        void flow.setViewport({
+          ...current,
+          x: current.x - event.deltaX * scale,
+          y: current.y - event.deltaY * scale,
+        });
+        return;
+      }
+      const next = Math.max(
+        Math.min(minimumInteractiveZoom, current.zoom),
+        Math.min(4, current.zoom * Math.exp(-event.deltaY * 0.006)),
+      );
       const x = event.clientX - pane.left,
         y = event.clientY - pane.top;
       void flow.setViewport({
@@ -1987,7 +2254,7 @@ function BoardEditor() {
   const toolbar = useRef<HTMLElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const mediaKind = useRef<"image" | "video" | "document">("image");
-  const [mediaLink, setMediaLink] = useState("");
+  const [importNotes, setImportNotes] = useState<Record<string, string>>({});
   const [mediaError, setMediaError] = useState("");
   const addMedia = (media: NonNullable<ShapeData["media"]>) => {
     if (!validMedia(media)) {
@@ -2004,9 +2271,35 @@ function BoardEditor() {
         media,
       },
     );
-    setMediaLink("");
     setMediaError("");
     setToolMenu(null);
+  };
+  const pasteMediaLink = async () => {
+    try {
+      const url = new URL((await navigator.clipboard.readText()).trim());
+      if (!["http:", "https:"].includes(url.protocol)) throw Error();
+      const video =
+        /(^|\.)(youtube\.com|youtu\.be)$/.test(url.hostname) ||
+        /\.(mp4|webm)$/i.test(url.pathname);
+      addMedia({
+        kind: video ? "video" : "link",
+        url: url.href,
+        name: url.hostname,
+      });
+    } catch {
+      setMediaError("Kopiere zuerst eine gültige Webadresse.");
+    }
+  };
+  const showTabImport = async () => {
+    setImportAt({ x: innerWidth / 2, y: innerHeight / 2 });
+    setImportNotes({});
+    try {
+      const response = await fetch("/api/state", { cache: "no-store" });
+      if (response.ok) {
+        const { dayNotes } = await response.json();
+        setImportNotes(dayNotes ?? {});
+      }
+    } catch {}
   };
   const handleMediaFile = (file: File, kind: typeof mediaKind.current) => {
     if (kind === "image") {
@@ -2947,6 +3240,16 @@ function BoardEditor() {
       connectIndex >= 0 ? connectIndex + 1 : orderedTools.length,
       0,
       jumpTool,
+    );
+  }
+  const circleIndex = orderedTools.findIndex((t) => t.id === "circle");
+  const ovalIndex = orderedTools.findIndex((t) => t.id === "ellipse");
+  if (circleIndex >= 0 && ovalIndex >= 0 && circleIndex !== ovalIndex - 1) {
+    const [circle] = orderedTools.splice(circleIndex, 1);
+    orderedTools.splice(
+      orderedTools.findIndex((t) => t.id === "ellipse"),
+      0,
+      circle,
     );
   }
   const firstStyleTool = orderedTools.find(
@@ -3952,12 +4255,12 @@ function BoardEditor() {
               }
               panActivationKeyCode={null}
               paneClickDistance={5}
-              panOnScroll
+              panOnScroll={false}
               zoomOnScroll={false}
               zoomOnPinch
               zoomOnDoubleClick={false}
               zoomActivationKeyCode="Control"
-              minZoom={minimumBoardZoom}
+              minZoom={Math.min(minimumInteractiveZoom, board.viewport.zoom)}
               maxZoom={4}
               deleteKeyCode={null}
               colorMode={dark ? "dark" : "light"}
@@ -4367,6 +4670,34 @@ function BoardEditor() {
                   }}
                 >
                   {t.title}
+                </button>
+              ))}
+            {Object.entries(importNotes)
+              .filter(
+                ([key, value]) =>
+                  value &&
+                  (notebookFolder(key) ||
+                    /^(?:(?:week|month):)?\d{4}-\d{2}-\d{2}$/.test(key)),
+              )
+              .map(([key, value]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    const point = importAt;
+                    const text = readNoteLines(value)
+                      .map((line) => line.text)
+                      .join("\n");
+                    add("sticky", point.x, point.y, undefined, undefined, {
+                      text,
+                    });
+                    setEditing("");
+                    setImportAt(null);
+                    setToolMenu(null);
+                  }}
+                >
+                  <FileText size={15} />
+                  {notebookTitle(key, value)}
                 </button>
               ))}
             <label>
@@ -5211,6 +5542,18 @@ function BoardEditor() {
                       })
                     }
                   />
+                  <UnderlinePicker
+                    border
+                    value={data.borderStyle}
+                    onChange={(borderStyle) =>
+                      format({
+                        borderStyle,
+                        ...(data.stroke === "transparent"
+                          ? { stroke: data.color }
+                          : {}),
+                      })
+                    }
+                  />
                 </div>
                 <div className="lm-compact-format">
                   <ColorSwatches
@@ -5404,6 +5747,7 @@ function BoardEditor() {
                         italic,
                         underline,
                         underlineStyle,
+                        borderStyle,
                         textBackground,
                         stickyStyle,
                         stickyMask,
@@ -5426,6 +5770,7 @@ function BoardEditor() {
                             italic,
                             underline,
                             underlineStyle,
+                            borderStyle,
                             textBackground,
                             stickyStyle,
                             stickyMask,
@@ -6024,27 +6369,31 @@ function BoardEditor() {
             )}
             {toolMenu === "polygon" && (
               <div className="lm-form-picker" aria-label="Formvorlagen">
-                <button
-                  onClick={() => {
-                    setPolygonTemplate(null);
-                    setDrawPolygon([]);
-                    setToolMenu(null);
-                  }}
-                >
-                  Freihand
-                </button>
                 <div role="group" aria-label="Freiform-Kanten">
                   <button
+                    aria-label="Gerade Kanten"
+                    title="Gerade Kanten"
                     aria-pressed={!curvedPolygon}
                     onClick={() => setCurvedPolygon(false)}
                   >
-                    Gerade
+                    <svg width="26" height="18" viewBox="0 0 26 18" aria-hidden>
+                      <path d="M3 9h20" stroke="currentColor" strokeWidth="2" />
+                    </svg>
                   </button>
                   <button
+                    aria-label="Gebogene Kanten"
+                    title="Gebogene Kanten"
                     aria-pressed={curvedPolygon}
                     onClick={() => setCurvedPolygon(true)}
                   >
-                    Gebogen
+                    <svg width="26" height="18" viewBox="0 0 26 18" aria-hidden>
+                      <path
+                        d="M3 13Q13 1 23 9"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      />
+                    </svg>
                   </button>
                 </div>
                 {generalPreferences.recentForms.length > 0 && (
@@ -6299,6 +6648,9 @@ function BoardEditor() {
             {toolMenu === "image" && (
               <div className="lm-media-menu">
                 <button
+                  type="button"
+                  title="Ordner erstellen"
+                  aria-label="Ordner erstellen"
                   onClick={() => {
                     const bounds = host.current?.getBoundingClientRect();
                     if (!bounds) return;
@@ -6311,52 +6663,48 @@ function BoardEditor() {
                     setToolMenu(null);
                   }}
                 >
-                  <FolderPlus size={17} /> Ordner erstellen
+                  <FolderPlus size={19} />
                 </button>
-                <button onClick={() => void pickMedia("image")}>
-                  Bilddatei
-                </button>
-                <button onClick={() => void pickMedia("video")}>
-                  Videodatei
-                </button>
-                <button onClick={() => void pickMedia("document")}>
-                  Dokumentdatei
-                </button>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const values = new FormData(e.currentTarget);
-                    const url = mediaLink.trim();
-                    let name = url;
-                    try {
-                      name = new URL(url).hostname;
-                    } catch {}
-                    const choice = String(values.get("kind"));
-                    const kind =
-                      choice === "link" &&
-                      /(?:youtube\.com|youtu\.be|\.(mp4|webm)(?:$|[?#]))/i.test(
-                        url,
-                      )
-                        ? "video"
-                        : (choice as "link" | "video" | "document");
-                    addMedia({ kind, url, name });
-                  }}
+                <button
+                  type="button"
+                  title="Bild"
+                  aria-label="Bild"
+                  onClick={() => void pickMedia("image")}
                 >
-                  <select name="kind" aria-label="Art der Verknüpfung">
-                    <option value="link">Link</option>
-                    <option value="video">Videolink</option>
-                    <option value="document">Dokumentlink</option>
-                  </select>
-                  <input
-                    type="url"
-                    placeholder="https://…"
-                    aria-label="Webadresse"
-                    required
-                    value={mediaLink}
-                    onChange={(e) => setMediaLink(e.target.value)}
-                  />
-                  <button type="submit">Einfügen</button>
-                </form>
+                  <ImagePlus size={19} />
+                </button>
+                <button
+                  type="button"
+                  title="Video"
+                  aria-label="Video"
+                  onClick={() => void pickMedia("video")}
+                >
+                  <Video size={19} />
+                </button>
+                <button
+                  type="button"
+                  title="Dokument"
+                  aria-label="Dokument"
+                  onClick={() => void pickMedia("document")}
+                >
+                  <FileText size={19} />
+                </button>
+                <button
+                  type="button"
+                  title="Tab importieren"
+                  aria-label="Tab importieren"
+                  onClick={() => void showTabImport()}
+                >
+                  <PanelsTopLeft size={19} />
+                </button>
+                <button
+                  type="button"
+                  title="Link aus Zwischenablage"
+                  aria-label="Link aus Zwischenablage"
+                  onClick={() => void pasteMediaLink()}
+                >
+                  <Link2 size={19} />
+                </button>
                 {mediaError && <span role="alert">{mediaError}</span>}
               </div>
             )}

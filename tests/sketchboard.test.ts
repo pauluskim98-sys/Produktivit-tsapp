@@ -154,3 +154,16 @@ test("group representations and jump destinations survive saving", () => {
   assert.equal(restored.nodes[0].data.representGroup, "group-1");
   assert.deepEqual(restored.nodes[0].data.jumps, node.data.jumps);
 });
+
+test("border patterns survive persistence without rejecting older zoom levels", () => {
+  const node = newShape("rounded", 0, 0);
+  node.data.borderStyle = "wavy";
+  const board = emptyBoard();
+  const stored = validateBoard({
+    ...board,
+    nodes: [node],
+    viewport: { ...board.viewport, zoom: 0.000001 },
+  });
+  assert.equal(stored.nodes[0].data.borderStyle, "wavy");
+  assert.equal(stored.viewport.zoom, 0.000001);
+});

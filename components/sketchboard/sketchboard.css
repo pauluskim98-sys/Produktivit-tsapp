@@ -1775,3 +1775,33 @@
   border: 1px solid var(--lm-line);
   padding: 3px 7px;
 }
+
+.lm-format .lm-underline-picker > span {
+  position: static;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+}
+.lm-media-menu {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.lm-media-menu > button {
+  width: 33px;
+  height: 33px;
+  padding: 4px;
+}
+.lm-media-card input {
+  width: 100%;
+  min-width: 0;
+}
+.lm-media-card .lm-media-open {
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.lm-wavy-border {
+  border: 0;
+}
