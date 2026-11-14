@@ -79,6 +79,7 @@ import {
   validPicture,
   validPoints,
 } from "@/lib/sketchboard";
+import { smoothStroke } from "./smooth-stroke";
 import { BoardEdge } from "./board-edge";
 import { useBoardStorage } from "./use-board-storage";
 import { listenForViewSwipe } from "@/lib/lifemap-swipe";
@@ -818,18 +819,7 @@ function BoardEditor() {
     if (points.length < 3) return points;
     if (preferences.pen.straight) return [points[0], points.at(-1)!];
     if (!preferences.pen.smooth) return points;
-    return points.map((point, i) => {
-      if (i === 0 || i === points.length - 1) return point;
-      const neighbors = points.slice(Math.max(0, i - 3), i + 4);
-      const total = neighbors.reduce(
-        ([x, y], [px, py]) => [x + px, y + py],
-        [0, 0],
-      );
-      return [total[0] / neighbors.length, total[1] / neighbors.length] as [
-        number,
-        number,
-      ];
-    });
+    return smoothStroke(points);
   };
   const toolbar = useRef<HTMLElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -945,6 +935,8 @@ function BoardEditor() {
   const selected = board.nodes.filter((n) => n.selected),
     selectedEdges = board.edges.filter((e) => e.selected),
     data = selected[0]?.data;
+  const formatTarget = selected[0]?.id ?? selectedEdges[0]?.id;
+  useEffect(() => setFormatPosition(null), [formatTarget]);
   const checkpoint = () => {
     const h = history.current;
     h.past.push(structuredClone(current.current));
@@ -2151,7 +2143,13 @@ function BoardEditor() {
               }
               const w = Math.abs(e.clientX - start.x),
                 h = Math.abs(e.clientY - start.y),
-                drag = w > 8 || h > 8;
+                drag =
+                  w > 8 ||
+                  h > 8 ||
+                  (tool === "ink" &&
+                    strokePoints.current.some(
+                      ([x, y]) => Math.hypot(x - start.x, y - start.y) > 8,
+                    ));
               if (!drag || leavingText.current) {
                 if (!leavingText.current) setTool("hand");
                 drawing.current = null;
@@ -3056,40 +3054,59 @@ function BoardEditor() {
             )}
             {tool === "ink" && (
               <>
-                <label>
-                  Stift{" "}
-                  <select
-                    value={preferences.pen.style}
-                    onChange={(e) => {
-                      const styles: Record<string, [number, number]> = {
-                        pen: [3, 1],
-                        brush: [9, 0.9],
-                        marker: [12, 0.34],
-                        felt: [6, 1],
-                        water: [11, 0.42],
-                      };
-                      const [width, opacity] = styles[e.target.value];
-                      updatePreferences({
-                        pen: {
-                          ...preferences.pen,
-                          style: e.target.value,
-                          width,
-                          opacity,
-                        },
-                      });
-                    }}
-                  >
-                    <option value="pen">Stift</option>
-                    <option value="brush">Pinsel</option>
-                    <option value="marker">Textmarker</option>
-                    <option value="felt">Filzstift</option>
-                    <option value="water">Wasserfarbe</option>
-                  </select>
-                </label>
-                <label>
-                  Farbe{" "}
+                <div className="lm-pen-presets" aria-label="Stiftspitzen">
+                  {(
+                    [
+                      ["pen", "Stift", 3, 1],
+                      ["brush", "Pinsel", 9, 0.9],
+                      ["marker", "Textmarker", 12, 0.34],
+                      ["felt", "Filzstift", 6, 1],
+                      ["water", "Wasserfarbe", 11, 0.42],
+                    ] as const
+                  ).map(([style, label, width, opacity]) => (
+                    <button
+                      key={style}
+                      type="button"
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={preferences.pen.style === style}
+                      onClick={() =>
+                        updatePreferences({
+                          pen: { ...preferences.pen, style, width, opacity },
+                        })
+                      }
+                    >
+                      <i style={{ width, height: width, opacity }} />
+                    </button>
+                  ))}
+                </div>
+                <div className="lm-pen-presets" aria-label="Stiftfarbe">
+                  {[
+                    "#403451",
+                    "#2273bc",
+                    "#1d8262",
+                    "#b5484e",
+                    "#dc932e",
+                    "#9360c9",
+                  ].map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      title={color}
+                      aria-label={"Stiftfarbe " + color}
+                      aria-pressed={preferences.pen.color === color}
+                      onClick={() =>
+                        updatePreferences({
+                          pen: { ...preferences.pen, color },
+                        })
+                      }
+                    >
+                      <i style={{ background: color }} />
+                    </button>
+                  ))}
                   <input
                     type="color"
+                    aria-label="Eigene Stiftfarbe"
                     value={preferences.pen.color}
                     onChange={(e) =>
                       updatePreferences({
@@ -3097,7 +3114,7 @@ function BoardEditor() {
                       })
                     }
                   />
-                </label>
+                </div>
                 <label>
                   Dicke{" "}
                   <input
@@ -3233,7 +3250,9 @@ function BoardEditor() {
             .filter(
               ({ id }) =>
                 !hiddenTools.includes(id) &&
-                (id === "polygon" || !preferences.hidden.includes(id)),
+                (id === "image" ||
+                  id === "polygon" ||
+                  !preferences.hidden.includes(id)),
             )
             .sort(
               (a, b) =>

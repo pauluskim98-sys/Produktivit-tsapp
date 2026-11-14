@@ -1001,3 +1001,35 @@
 .lm-resizable-panel {
   box-sizing: border-box;
 }
+.lm-pen-presets {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--lm-panel), var(--lm-accent) 6%);
+}
+.lm-pen-presets button {
+  width: 25px;
+  height: 25px;
+  min-height: 0;
+  border-radius: 50%;
+  padding: 0;
+}
+.lm-pen-presets button[aria-pressed="true"] {
+  outline: 1px solid var(--lm-accent);
+}
+.lm-pen-presets i {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.lm-pen-presets input[type="color"] {
+  width: 25px;
+  height: 25px;
+  padding: 2px;
+  border-radius: 50%;
+  border: 0;
+}
