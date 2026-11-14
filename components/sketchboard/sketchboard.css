@@ -1518,3 +1518,66 @@
   flex-basis: 100%;
   opacity: 0.72;
 }
+
+.lm-sticky .lm-shape-content {
+  inset: 15% 10% 10%;
+  padding: 0;
+}
+.lm-shape {
+  transition: scale 110ms ease;
+}
+.react-flow__node-shape:hover .lm-shape {
+  scale: 1.025;
+}
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: calc(var(--lm-edge-width, 9px) * 1.22) !important;
+}
+.lm-group-confirm {
+  position: fixed;
+  z-index: 31;
+  left: 50%;
+  bottom: 94px;
+  translate: -50%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--lm-line);
+  border-radius: 12px;
+  background: var(--lm-panel);
+}
+.lm-palette-style {
+  position: relative;
+  flex: none;
+}
+.lm-palette-style summary {
+  list-style: none;
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid var(--lm-line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.lm-palette-style > div {
+  display: grid;
+  gap: 3px;
+  padding: 4px;
+}
+.lm-palette-style button,
+.lm-palette-style button span {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.lm-palette-style i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.lm-toolbar .lm-toolbar-separator {
+  flex: 0 0 1px;
+  height: 24px;
+  background: var(--lm-line);
+}

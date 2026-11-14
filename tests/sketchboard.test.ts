@@ -92,7 +92,10 @@ test("line endpoints and caption formatting survive persistence", () => {
     ...base,
     id: "branch",
     target: "line:main-line",
-    data: { caption: { text: "Bezug", angle: 90, background: "#ffeecc" } },
+    data: {
+      targetOffset: 0.82,
+      caption: { text: "Bezug", angle: 90, background: "#ffeecc" },
+    },
   };
   const third = {
     ...base,
@@ -106,6 +109,7 @@ test("line endpoints and caption formatting survive persistence", () => {
     edges: [primary, branch, third],
   });
   assert.equal(restored.edges[2].source, "line:branch");
+  assert.equal(restored.edges[1].data?.targetOffset, 0.82);
   assert.equal(
     (restored.edges[1].data?.caption as { angle: number }).angle,
     90,

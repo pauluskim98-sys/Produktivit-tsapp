@@ -318,6 +318,14 @@ export function validateBoard(input: unknown): Board {
     )
       throw new Error("Ungültige Verbindung.");
     edgeIds.add(e.id);
+    const rawOffset = e.data?.targetOffset;
+    const targetOffset =
+      typeof rawOffset === "number" &&
+      Number.isFinite(rawOffset) &&
+      rawOffset >= 0 &&
+      rawOffset <= 1
+        ? rawOffset
+        : undefined;
     const label = e.data?.caption as Partial<LineLabel> | undefined;
     const caption =
       label && typeof label.text === "string"
@@ -341,7 +349,14 @@ export function validateBoard(input: unknown): Board {
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
       type: e.type || "default",
-      ...(caption ? { data: { caption } } : {}),
+      ...(caption || targetOffset !== undefined
+        ? {
+            data: {
+              ...(caption ? { caption } : {}),
+              ...(targetOffset !== undefined ? { targetOffset } : {}),
+            },
+          }
+        : {}),
       style: {
         stroke: e.style!.stroke,
         strokeWidth: e.style!.strokeWidth,

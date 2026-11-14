@@ -5,6 +5,8 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
+  Fragment,
   useRef,
   useState,
   type CSSProperties,
@@ -261,16 +263,18 @@ const defaults = {
   corkConnection: {
     type: "default",
     color: "#ad303b",
-    width: 5,
+    width: 9,
     dash: "",
     arrows: "none",
   },
   accent: "#9360c9",
+  paletteStyle: "pastel",
+  connectionVersion: 1,
   order: [] as string[],
   connection: {
     type: "default",
     color: "#8b8797",
-    width: 5,
+    width: 9,
     dash: "",
     arrows: "none",
   },
@@ -406,6 +410,69 @@ function StoredPanel({
 }
 type PolygonPoint = [number, number];
 
+type Point = { x: number; y: number };
+type Side = "top" | "right" | "bottom" | "left";
+function connectionSide(node: ShapeNode, point: Point) {
+  const w = node.width || 1,
+    h = node.height || 1;
+  const x = Math.max(0, Math.min(1, (point.x - node.position.x) / w));
+  const y = Math.max(0, Math.min(1, (point.y - node.position.y) / h));
+  const sides: [Side, number, number][] = [
+    ["left", x * w, y],
+    ["right", (1 - x) * w, y],
+    ["top", y * h, x],
+    ["bottom", (1 - y) * h, x],
+  ];
+  return sides.reduce((best, side) => (side[1] < best[1] ? side : best));
+}
+function connectionPoint(node: ShapeNode, side: Side, offset: number): Point {
+  const horizontal = side === "top" || side === "bottom";
+  const x = horizontal ? offset : side === "left" ? 0 : 1;
+  const y = horizontal ? (side === "top" ? 0 : 1) : offset;
+  const dx = x - 0.5,
+    dy = y - 0.5;
+  let scale = 1;
+  if (node.data.kind === "ellipse") scale = 0.5 / Math.hypot(dx, dy);
+  if (node.data.points && node.data.kind === "polygon") {
+    const points = node.data.points;
+    let nearest = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const [ax, ay] = points[i].map((value) => value / 100 - 0.5);
+      const [bx, by] = points[(i + 1) % points.length].map(
+        (value) => value / 100 - 0.5,
+      );
+      const ex = bx - ax,
+        ey = by - ay,
+        divisor = dx * ey - dy * ex;
+      if (Math.abs(divisor) < 1e-9) continue;
+      const distance = (ax * ey - ay * ex) / divisor;
+      const along = (ax * dy - ay * dx) / divisor;
+      if (distance > 0 && along >= 0 && along <= 1)
+        nearest = Math.min(nearest, distance);
+    }
+    if (Number.isFinite(nearest)) scale = nearest;
+  }
+  if (node.data.kind === "diamond") scale = 0.5 / (Math.abs(dx) + Math.abs(dy));
+  return {
+    x: node.position.x + (0.5 + dx * scale) * (node.width || 1),
+    y: node.position.y + (0.5 + dy * scale) * (node.height || 1),
+  };
+}
+const elementPalettes = {
+  pastel: { label: "Pastell", colors: palette },
+  vivid: {
+    label: "Kräftig",
+    colors: ["#8951e3", "#df4268", "#f27c32", "#f2c936", "#36a66d", "#318cda"],
+  },
+  earthy: {
+    label: "Erdtöne",
+    colors: ["#a98cbe", "#ba7363", "#d5955d", "#cfbb7e", "#829760", "#638d91"],
+  },
+  muted: {
+    label: "Gedämpft",
+    colors: ["#b0a0be", "#c18e99", "#c9a58e", "#c8b67b", "#8eac9a", "#839fbb"],
+  },
+};
 const formTemplates: [string, PolygonPoint[]][] = [
   [
     "Dreieck",
@@ -543,6 +610,122 @@ const formTemplates: [string, PolygonPoint[]][] = [
       [5, 72],
     ],
   ],
+  [
+    "Halbkreis",
+    [
+      [3, 90],
+      [8, 60],
+      [20, 33],
+      [35, 17],
+      [50, 11],
+      [65, 17],
+      [80, 33],
+      [92, 60],
+      [97, 90],
+    ],
+  ],
+  [
+    "Drachen",
+    [
+      [50, 3],
+      [94, 35],
+      [50, 97],
+      [6, 35],
+    ],
+  ],
+  [
+    "Haus",
+    [
+      [5, 45],
+      [50, 5],
+      [95, 45],
+      [95, 95],
+      [5, 95],
+    ],
+  ],
+  [
+    "Winkelpfeil",
+    [
+      [4, 8],
+      [53, 8],
+      [96, 50],
+      [53, 92],
+      [4, 92],
+      [47, 50],
+    ],
+  ],
+  [
+    "Sanduhr",
+    [
+      [6, 6],
+      [94, 6],
+      [63, 50],
+      [94, 94],
+      [6, 94],
+      [37, 50],
+    ],
+  ],
+  [
+    "Stufen",
+    [
+      [5, 68],
+      [36, 68],
+      [36, 37],
+      [67, 37],
+      [67, 6],
+      [95, 6],
+      [95, 95],
+      [5, 95],
+    ],
+  ],
+  [
+    "Blitz",
+    [
+      [44, 3],
+      [83, 3],
+      [62, 39],
+      [94, 39],
+      [32, 98],
+      [47, 57],
+      [9, 57],
+    ],
+  ],
+  [
+    "Doppelpfeil",
+    [
+      [3, 50],
+      [27, 15],
+      [27, 34],
+      [73, 34],
+      [73, 15],
+      [97, 50],
+      [73, 85],
+      [73, 66],
+      [27, 66],
+      [27, 85],
+    ],
+  ],
+  [
+    "L-Form",
+    [
+      [5, 5],
+      [40, 5],
+      [40, 60],
+      [95, 60],
+      [95, 95],
+      [5, 95],
+    ],
+  ],
+  [
+    "Lesezeichen",
+    [
+      [7, 5],
+      [93, 5],
+      [93, 96],
+      [50, 72],
+      [7, 96],
+    ],
+  ],
 ];
 
 function FormPreview({ points }: { points: PolygonPoint[] }) {
@@ -657,6 +840,29 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   const edit = useContext(EditContext),
     editing = edit.editing === id;
   const area = useRef<HTMLTextAreaElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const box = content.current;
+    const text = box?.querySelector<HTMLElement>(".lm-rendered-text");
+    if (!box || !text || !data.text || editing) return;
+    const fit = () => {
+      let low = 0.3,
+        high = 1;
+      text.style.fontSize = "1em";
+      if (box.scrollHeight <= box.clientHeight + 1) return;
+      for (let i = 0; i < 7; i++) {
+        const mid = (low + high) / 2;
+        text.style.fontSize = mid + "em";
+        if (box.scrollHeight > box.clientHeight + 1) high = mid;
+        else low = mid;
+      }
+      text.style.fontSize = low + "em";
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [data.text, data.fontSize, data.font, data.bold, data.italic, editing]);
   const titleField = useRef<HTMLInputElement>(null);
   const breakAt = data.text.indexOf("\n");
   const heading = breakAt < 0 ? data.text : data.text.slice(0, breakAt);
@@ -834,6 +1040,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         />
       )}
       <div
+        ref={content}
         className="lm-shape-content nowheel"
         data-default-ink={
           data.color === "#29352f" && data.fill === "transparent"
@@ -919,7 +1126,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           </div>
         ) : (
           <span
-            className={data.text ? "" : "lm-placeholder"}
+            className={data.text ? "lm-rendered-text" : "lm-placeholder"}
             style={
               data.text
                 ? {
@@ -1061,6 +1268,12 @@ export default function Sketchboard() {
     </ReactFlowProvider>
   );
 }
+type HistoryEntry = {
+  board: Board;
+  preferences: typeof defaults;
+  tabs: Record<string, Partial<typeof defaults>>;
+  symbols: string[];
+};
 function BoardEditor() {
   const [board, setBoard] = useState<Board>(emptyBoard),
     current = useRef(board);
@@ -1124,7 +1337,7 @@ function BoardEditor() {
       height: number;
     } | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0),
-    history = useRef<{ past: Board[]; future: Board[] }>({
+    history = useRef<{ past: HistoryEntry[]; future: HistoryEntry[] }>({
       past: [],
       future: [],
     });
@@ -1229,11 +1442,13 @@ function BoardEditor() {
     ? { ...generalPreferences, ...tabOverrides[settingsTab] }
     : generalPreferences;
   const updateTab = (id: string, changes: Partial<typeof defaults>) => {
+    checkpoint();
     const next = { ...tabOverrides, [id]: { ...tabOverrides[id], ...changes } };
     setTabOverrides(next);
     localStorage.setItem("lifemap-tab-options", JSON.stringify(next));
   };
   const updatePreferences = (changes: Partial<typeof defaults>) => {
+    if (!("recent" in changes)) checkpoint();
     setPreferences((p) => {
       const next = { ...p, ...changes };
       localStorage.setItem(preferenceKey, JSON.stringify(next));
@@ -1444,6 +1659,10 @@ function BoardEditor() {
           ? saved.hidden
           : [...new Set([...(saved.hidden ?? []), "text"])];
       const order: string[] = saved.order ?? [];
+      if (!saved.connectionVersion) {
+        for (const key of ["connection", "corkConnection"])
+          if (saved[key]?.width <= 5) saved[key] = { ...saved[key], width: 9 };
+      }
       const updatedOrder =
         saved.toolbarVersion === defaults.toolbarVersion ||
         !order.includes("text")
@@ -1498,6 +1717,7 @@ function BoardEditor() {
     nodes: ShapeNode[];
   } | null>(null);
   const [groupPicking, setGroupPicking] = useState(false);
+  const [confirmGroup, setConfirmGroup] = useState(false);
   const groupActive =
     !!groupId && selected.every((n) => n.data.group === groupId);
   const makeGroup = () => {
@@ -1522,6 +1742,7 @@ function BoardEditor() {
       return;
     }
     setGroupPicking(false);
+    setConfirmGroup(false);
     if (selected.length < 2) return;
     checkpoint();
     const keys = new Set(selected.map((n) => n.id));
@@ -1538,10 +1759,16 @@ function BoardEditor() {
   };
   const formatTarget = selected[0]?.id ?? selectedEdges[0]?.id;
   useEffect(() => setFormatPosition(null), [formatTarget]);
+  const snapshot = (): HistoryEntry => ({
+    board: current.current,
+    preferences: generalPreferences,
+    tabs: tabOverrides,
+    symbols: pinnedSymbols,
+  });
   const checkpoint = () => {
     const h = history.current;
     // Board updates are immutable, so the history can share unchanged objects.
-    h.past.push(current.current);
+    h.past.push(snapshot());
     if (h.past.length > 100) h.past.shift();
     h.future = [];
     setHistoryVersion((v) => v + 1);
@@ -1552,9 +1779,18 @@ function BoardEditor() {
       to = redo ? h.past : h.future;
     const previous = from.pop();
     if (!previous) return;
-    to.push(current.current);
-    current.current = previous;
-    setBoard(previous);
+    to.push(snapshot());
+    current.current = previous.board;
+    setBoard(previous.board);
+    setPreferences(previous.preferences);
+    setTabOverrides(previous.tabs);
+    setPinnedSymbols(previous.symbols);
+    localStorage.setItem(preferenceKey, JSON.stringify(previous.preferences));
+    localStorage.setItem("lifemap-tab-options", JSON.stringify(previous.tabs));
+    localStorage.setItem(
+      "lifemap-pinned-symbols",
+      JSON.stringify(previous.symbols),
+    );
     setEditing("");
     setHistoryVersion((v) => v + 1);
   };
@@ -1699,7 +1935,7 @@ function BoardEditor() {
     };
     reader.readAsDataURL(file);
   };
-  const connect = (c: Connection) => {
+  const connect = (c: Connection, targetOffset?: number) => {
     if (!c.source || !c.target || c.source === c.target) return;
     checkpoint();
     setBoard((b) => ({
@@ -1710,9 +1946,12 @@ function BoardEditor() {
           ...c,
           id: crypto.randomUUID(),
           type: connection.type,
-          ...(preferences.lineCaption
-            ? { data: { caption: { ...preferences.lineCaption, text: "" } } }
-            : {}),
+          data: {
+            targetOffset,
+            ...(preferences.lineCaption
+              ? { caption: { ...preferences.lineCaption, text: "" } }
+              : {}),
+          },
           style: {
             stroke: connection.color,
             strokeWidth: connection.width,
@@ -1738,15 +1977,26 @@ function BoardEditor() {
       ],
     }));
   };
-  const connectTo = (id: string) => {
+  const connectTo = (id: string, point?: Point) => {
+    const node = board.nodes.find((n) => n.id === id);
+    const target =
+      node && point
+        ? connectionSide(
+            node,
+            flow.screenToFlowPosition(point, { snapToGrid: false }),
+          )
+        : undefined;
     const source = connectFrom.current;
     if (source && source !== id)
-      connect({
-        source,
-        target: id,
-        sourceHandle: "right",
-        targetHandle: "left",
-      });
+      connect(
+        {
+          source,
+          target: id,
+          sourceHandle: "right",
+          targetHandle: target?.[0] ?? "left",
+        },
+        target?.[2],
+      );
     const current = source === id ? null : id;
     connectFrom.current = current;
     setBoard((b) => ({
@@ -1813,8 +2063,10 @@ function BoardEditor() {
       if (
         (e.ctrlKey || e.metaKey) &&
         (key === "z" || key === "y") &&
-        !settings &&
-        !form
+        !(
+          e.target instanceof Element &&
+          e.target.closest(".lm-settings input,.lm-settings select")
+        )
       ) {
         e.preventDefault();
         e.stopPropagation();
@@ -1839,6 +2091,16 @@ function BoardEditor() {
         return;
       }
       if (!storage.ready) return;
+      if (
+        e.key === "Enter" &&
+        (groupPicking ||
+          confirmGroup ||
+          (tool === "select" && selected.length >= 2 && !groupActive))
+      ) {
+        e.preventDefault();
+        makeGroup();
+        return;
+      }
       if (e.key.toLowerCase() === "g" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         makeGroup();
@@ -1909,6 +2171,7 @@ function BoardEditor() {
       ) {
         e.preventDefault();
         setGroupPicking(false);
+        setConfirmGroup(false);
         setEditing("");
         setTool("hand");
         setToolMenu(null);
@@ -2184,7 +2447,54 @@ function BoardEditor() {
     data: {},
     style: { pointerEvents: "none" },
   })) as unknown as ShapeNode[];
+  const toolSection = (id: string) =>
+    id === "sticky"
+      ? 1
+      : ["connect", "paint", "ink", "image"].includes(id)
+        ? 2
+        : 0;
+  const toolRank = (id: string) =>
+    preferences.order.indexOf(id) + 1 ||
+    100 + tools.findIndex((tool) => tool.id === id);
+  const toolbarTools = tools
+    .filter(
+      ({ id }) => !hiddenTools.includes(id) && !preferences.hidden.includes(id),
+    )
+    .sort(
+      (a, b) =>
+        toolSection(a.id) - toolSection(b.id) ||
+        toolRank(a.id) - toolRank(b.id),
+    );
+  const firstStyleTool = toolbarTools.find(
+    ({ id }) => toolSection(id) === 2,
+  )?.id;
+  const attachedForms = pinnedForms.map((points, i) => (
+    <button
+      key={i}
+      title="Angeheftete freie Form"
+      aria-label={"Angeheftete freie Form " + (i + 1)}
+      aria-pressed={tool === "polygon" && polygonTemplate === points}
+      onClick={() => placeTemplate(points)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setRemoveTool({
+          x: e.clientX,
+          y: e.clientY,
+          remove: () => {
+            toolbarPreferences({
+              pinned: null,
+              pinnedForms: pinnedForms.filter((_, index) => index !== i),
+            });
+            if (polygonTemplate === points) clearCanvasPopups();
+          },
+        });
+      }}
+    >
+      <FormPreview points={points} />
+    </button>
+  ));
   const clearCanvasPopups = () => {
+    setConfirmGroup(false);
     setLinkHover(null);
     setBoard((b) => ({
       ...b,
@@ -2721,7 +3031,7 @@ function BoardEditor() {
                 JSON.stringify(form),
               )
             }
-            onClick={() => updatePreferences({ pinned: form, recent: form })}
+            onClick={() => pinPolygon(form)}
           >
             In die Leiste ziehen
           </button>
@@ -2865,6 +3175,22 @@ function BoardEditor() {
                   ...e.data,
                   startLink: previewEdgeIds.has(e.id) ? undefined : startLink,
                   route: e.type,
+                  targetPoint:
+                    typeof e.data?.targetOffset === "number" &&
+                    !e.target.startsWith("line:")
+                      ? (() => {
+                          const node = board.nodes.find(
+                            (n) => n.id === e.target,
+                          );
+                          return node
+                            ? connectionPoint(
+                                node,
+                                e.targetHandle as Side,
+                                e.data!.targetOffset as number,
+                              )
+                            : undefined;
+                        })()
+                      : undefined,
                   thread: preferences.pattern === "cork",
                   anchor: reportAnchor,
                   connectTo: tool === "connect" ? connectTo : undefined,
@@ -2886,7 +3212,18 @@ function BoardEditor() {
                   nodes: applyNodeChanges(
                     changes.filter(
                       (change) =>
-                        !(groupPicking && change.type === "select") &&
+                        !(
+                          (groupPicking ||
+                            confirmGroup ||
+                            (tool === "select" &&
+                              change.type === "select" &&
+                              !change.selected &&
+                              selected.length >= 2 &&
+                              changes.every(
+                                (c) => c.type === "select" && !c.selected,
+                              ))) &&
+                          change.type === "select"
+                        ) &&
                         (!("id" in change) ||
                           (!change.id.startsWith("line:") &&
                             !previewNodes.some((n) => n.id === change.id))),
@@ -2914,6 +3251,11 @@ function BoardEditor() {
                 }));
               }}
               connectionMode={ConnectionMode.Loose}
+              connectionLineStyle={{
+                stroke: connection.color,
+                strokeWidth: connection.width,
+                strokeDasharray: corkMode ? undefined : connection.dash,
+              }}
               onNodeDragStart={(_, node) => {
                 checkpoint();
                 if (node.data.group)
@@ -2950,7 +3292,7 @@ function BoardEditor() {
                 groupDrag.current = null;
               }}
               onSelectionDragStart={checkpoint}
-              onNodeClick={(_, node) => {
+              onNodeClick={(event, node) => {
                 if (groupPicking) {
                   setBoard((b) => ({
                     ...b,
@@ -2982,9 +3324,18 @@ function BoardEditor() {
                           : { fill },
                   );
                 }
-                if (tool === "connect") connectTo(node.id);
+                if (tool === "connect")
+                  connectTo(node.id, { x: event.clientX, y: event.clientY });
               }}
-              onPaneClick={clearCanvasPopups}
+              onPaneClick={() => {
+                if (
+                  (groupPicking || tool === "select") &&
+                  selected.length >= 2 &&
+                  !confirmGroup
+                )
+                  setConfirmGroup(true);
+                else clearCanvasPopups();
+              }}
               onMoveStart={(event) => {
                 if (
                   event?.type !== "mousedown" &&
@@ -3569,20 +3920,27 @@ function BoardEditor() {
                 }
               : anchors[id.slice(5)];
             if (!start) return null;
-            const end = destination
-              ? {
-                  x: destination.position.x,
-                  y: destination.position.y + (destination.height ?? 0) / 2,
-                }
-              : (edgePoint ??
-                flow.screenToFlowPosition(linkPointer, { snapToGrid: false }));
+            const pointer = flow.screenToFlowPosition(linkPointer, {
+              snapToGrid: false,
+            });
+            const side = destination
+              ? connectionSide(destination, pointer)
+              : undefined;
+            const end =
+              destination && side
+                ? connectionPoint(destination, side[0], side[2])
+                : (edgePoint ?? pointer);
             const [path] = boardEdgePath(connection.type, {
               sourceX: start.x,
               sourceY: start.y,
               targetX: end.x,
               targetY: end.y,
               sourcePosition: node ? Position.Right : Position.Top,
-              targetPosition: edgePoint ? Position.Top : Position.Left,
+              targetPosition: edgePoint
+                ? Position.Top
+                : side
+                  ? (side[0] as Position)
+                  : Position.Left,
             });
             const { x, y, zoom } = flow.getViewport();
             const bounds = host.current?.getBoundingClientRect();
@@ -4003,8 +4361,42 @@ function BoardEditor() {
                     name="Formfüllung"
                     value={data.fill}
                     onChange={(e) => format({ fill: e.target.value })}
-                    presets={palette}
+                    presets={
+                      elementPalettes[
+                        preferences.paletteStyle as keyof typeof elementPalettes
+                      ]?.colors ?? palette
+                    }
                   />
+                  <details className="lm-palette-style">
+                    <summary
+                      aria-label="Farbpalettenstil"
+                      title="Farbpalettenstil"
+                    >
+                      <Palette size={14} />
+                    </summary>
+                    <div>
+                      {Object.entries(elementPalettes).map(([id, style]) => (
+                        <button
+                          type="button"
+                          key={id}
+                          aria-pressed={preferences.paletteStyle === id}
+                          onClick={(e) => {
+                            toolbarPreferences({ paletteStyle: id });
+                            e.currentTarget
+                              .closest("details")
+                              ?.removeAttribute("open");
+                          }}
+                        >
+                          {style.label}
+                          <span aria-hidden>
+                            {style.colors.slice(0, 5).map((color) => (
+                              <i key={color} style={{ background: color }} />
+                            ))}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </details>
                   <ColorSwatches
                     compactBackground
                     name="Schrifthintergrund"
@@ -4479,6 +4871,29 @@ function BoardEditor() {
           </button>
         </div>
       )}
+      {confirmGroup && (
+        <div
+          className="lm-group-confirm"
+          role="dialog"
+          aria-label="Gruppieren?"
+        >
+          <span>Gruppieren?</span>
+          <button
+            type="button"
+            aria-label="Gruppierung bestätigen"
+            onClick={makeGroup}
+          >
+            <Check size={18} />
+          </button>
+          <button
+            type="button"
+            aria-label="Gruppierung abbrechen"
+            onClick={clearCanvasPopups}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
       <div className="lm-bottom">
         <div className="lm-history">
           <button
@@ -4749,6 +5164,7 @@ function BoardEditor() {
                     className="lm-symbol-import"
                     onClick={() => {
                       const next = [...new Set([...pinnedSymbols, pinSymbol])];
+                      checkpoint();
                       setPinnedSymbols(next);
                       localStorage.setItem(
                         "lifemap-pinned-symbols",
@@ -4913,18 +5329,15 @@ function BoardEditor() {
             if (validPoints(points)) pinPolygon(points);
           }}
         >
-          {tools
-            .filter(
-              ({ id }) =>
-                !hiddenTools.includes(id) && !preferences.hidden.includes(id),
-            )
-            .sort(
-              (a, b) =>
-                (preferences.order.indexOf(a.id) + 1 ||
-                  100 + tools.indexOf(a)) -
-                (preferences.order.indexOf(b.id) + 1 || 100 + tools.indexOf(b)),
-            )
-            .map(({ id, label, Icon }) => (
+          {toolbarTools.map(({ id, label, Icon }) => (
+            <Fragment key={id}>
+              {(id === "sticky" ||
+                (preferences.hidden.includes("sticky") &&
+                  id === firstStyleTool)) &&
+                attachedForms}
+              {id === firstStyleTool && (
+                <span className="lm-toolbar-separator" aria-hidden />
+              )}
               <button
                 key={id}
                 data-tool={id}
@@ -4968,7 +5381,7 @@ function BoardEditor() {
                       : tools.map((t) => t.id)
                   ).filter((t) => t !== moved);
                   order.splice(order.indexOf(id), 0, moved);
-                  updatePreferences({ order });
+                  toolbarPreferences({ order });
                 }}
                 onClick={() => {
                   if (tool === id || toolMenu === id) {
@@ -4993,7 +5406,11 @@ function BoardEditor() {
               >
                 <Icon size={21} strokeWidth={1.6} />
               </button>
-            ))}
+            </Fragment>
+          ))}
+          {preferences.hidden.includes("sticky") &&
+            !firstStyleTool &&
+            attachedForms}
           {pinnedSymbols.map((name) => (
             <button
               key={name}
@@ -5005,6 +5422,7 @@ function BoardEditor() {
                   y: e.clientY,
                   remove: () => {
                     const next = pinnedSymbols.filter((item) => item !== name);
+                    checkpoint();
                     setPinnedSymbols(next);
                     localStorage.setItem(
                       "lifemap-pinned-symbols",
@@ -5029,33 +5447,6 @@ function BoardEditor() {
               ) : (
                 <SymbolArt name={name} stroke="currentColor" fill="none" />
               )}
-            </button>
-          ))}
-          {pinnedForms.map((points, i) => (
-            <button
-              key={i}
-              title="Angeheftete freie Form"
-              aria-label={"Angeheftete freie Form " + (i + 1)}
-              aria-pressed={tool === "polygon" && polygonTemplate === points}
-              onClick={() => placeTemplate(points)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setRemoveTool({
-                  x: e.clientX,
-                  y: e.clientY,
-                  remove: () => {
-                    toolbarPreferences({
-                      pinned: null,
-                      pinnedForms: pinnedForms.filter(
-                        (_, index) => index !== i,
-                      ),
-                    });
-                    if (polygonTemplate === points) clearCanvasPopups();
-                  },
-                });
-              }}
-            >
-              <FormPreview points={points} />
             </button>
           ))}
           {colors && (

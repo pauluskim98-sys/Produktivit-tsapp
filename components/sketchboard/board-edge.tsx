@@ -27,6 +27,7 @@ export function BoardEdge(props: EdgeProps) {
   const data = props.data as
     | {
         route?: string;
+        targetPoint?: { x: number; y: number };
         thread?: boolean;
         caption?: LineLabel;
         anchor?: (id: string, x: number, y: number) => void;
@@ -34,7 +35,12 @@ export function BoardEdge(props: EdgeProps) {
         startLink?: (id: string) => void;
       }
     | undefined;
-  const [path, x, y] = boardEdgePath(data?.route, props);
+  const [path, x, y] = boardEdgePath(
+    data?.route,
+    data?.targetPoint
+      ? { ...props, targetX: data.targetPoint.x, targetY: data.targetPoint.y }
+      : props,
+  );
   const line = useRef<SVGPathElement>(null);
   useLayoutEffect(() => {
     const middle = line.current?.getPointAtLength(
@@ -85,9 +91,13 @@ export function BoardEdge(props: EdgeProps) {
         className={"react-flow__edge-path" + (data?.thread ? " lm-thread" : "")}
         d={path}
         style={
-          data?.thread
-            ? { ...style, strokeLinecap: "round", strokeDasharray: undefined }
-            : style
+          {
+            ...style,
+            "--lm-edge-width": (style?.strokeWidth ?? 9) + "px",
+            ...(data?.thread
+              ? { strokeLinecap: "round", strokeDasharray: undefined }
+              : {}),
+          } as React.CSSProperties
         }
         markerEnd={markerEnd}
         markerStart={markerStart}
