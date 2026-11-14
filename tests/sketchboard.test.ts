@@ -167,3 +167,19 @@ test("border patterns survive persistence without rejecting older zoom levels", 
   assert.equal(stored.nodes[0].data.borderStyle, "wavy");
   assert.equal(stored.viewport.zoom, 0.000001);
 });
+
+test("a jump button on empty canvas retains its exact source position", () => {
+  const source = newShape("jump-anchor", 42, 61, "transparent", 24, 24);
+  source.data.jumps = [
+    {
+      id: "jump",
+      label: "Ziel",
+      tab: "main",
+      point: { x: 20, y: 30 },
+      sourceOffset: { x: 0, y: 0 },
+    },
+  ];
+  const restored = validateBoard({ ...emptyBoard(), nodes: [source] });
+  assert.deepEqual(restored.nodes[0].position, { x: 42, y: 61 });
+  assert.deepEqual(restored.nodes[0].data.jumps, source.data.jumps);
+});

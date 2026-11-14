@@ -1805,3 +1805,70 @@
 .lm-wavy-border {
   border: 0;
 }
+
+.lm-toolbar {
+  position: relative;
+}
+.lm-toolbar-drop {
+  width: 0;
+  align-self: stretch;
+  position: relative;
+  pointer-events: none;
+}
+.lm-toolbar-drop::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--lm-accent);
+}
+.lm-pen-presets button {
+  position: relative;
+}
+.lm-pen-presets button[data-pen-label]:is(:hover, :focus-visible)::after {
+  content: attr(data-pen-label);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  translate: -50%;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--lm-panel);
+  color: var(--lm-accent);
+  border: 1px solid var(--lm-line);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 20;
+}
+.lm-placed-jump {
+  position: fixed;
+  z-index: 11;
+  translate: -50% -50%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--lm-panel);
+  border: 1px solid var(--lm-accent);
+  padding: 3px 7px;
+  border-radius: 7px;
+}
+.lm-jump-draft input {
+  width: 100px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.lm-jump-anchor > :not(.react-flow__handle) {
+  visibility: hidden;
+}
+
+.lm-toolbar-drop {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  z-index: 3;
+}

@@ -12,6 +12,7 @@ export const shapeKinds = [
   "text",
   "sticky",
   "folder",
+  "jump-anchor",
   "image",
   "media",
   "symbol",
@@ -27,6 +28,7 @@ export type BoardJump = {
   node?: string;
   group?: string;
   sourceGroup?: string;
+  sourceOffset?: { x: number; y: number };
   point?: { x: number; y: number };
 };
 export type ShapeData = {
@@ -348,6 +350,14 @@ export function validateBoard(input: unknown): Board {
                   number(link.point?.y, -1e10, 1e10)
                 )
                   clean.point = { x: link.point!.x, y: link.point!.y };
+                if (
+                  number(link.sourceOffset?.x, -1e10, 1e10) &&
+                  number(link.sourceOffset?.y, -1e10, 1e10)
+                )
+                  clean.sourceOffset = {
+                    x: link.sourceOffset!.x,
+                    y: link.sourceOffset!.y,
+                  };
                 return [clean];
               }),
             }

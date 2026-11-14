@@ -410,6 +410,7 @@ const defaults = {
   pattern: "plain",
   hidden: ["text"] as string[],
   toolbarVersion: 1,
+  toolbarOrder: [] as string[],
   recent: initialPoints,
   pinned: null as PolygonPoint[] | null,
   recentForms: [] as PolygonPoint[][],
@@ -1550,7 +1551,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       {!!data.jumps?.length && (
         <div className="lm-node-jumps nodrag nopan">
           {data.jumps
-            .filter((link) => !link.sourceGroup)
+            .filter((link) => !link.sourceGroup && !link.sourceOffset)
             .map((link) => (
               <button
                 type="button"
@@ -2052,7 +2053,12 @@ function BoardEditor() {
     );
   };
   type JumpLocation = Pick<BoardJump, "node" | "group" | "point">;
-  type JumpDraft = { tab: string; source: JumpLocation; label: string };
+  type JumpDraft = {
+    tab: string;
+    source: JumpLocation;
+    label: string;
+    position?: Point;
+  };
   const [jumpDraft, setJumpDraft] = useState<JumpDraft | null>(null);
   const [jumpTab, setJumpTab] = useState<string | null>(null);
   const [jumpLabel, setJumpLabel] = useState("Weiter");
@@ -2140,9 +2146,18 @@ function BoardEditor() {
     sessionStorage.setItem("lifemap-jump-view", JSON.stringify(jump));
     await openTab(jump.tab);
   };
-  const pickJump = async (destination: JumpLocation, tab = currentTab) => {
+  const pickJump = async (
+    destination: JumpLocation,
+    tab = currentTab,
+    position?: Point,
+  ) => {
     if (!jumpDraft) {
-      setJumpDraft({ tab: currentTab, source: destination, label: jumpLabel });
+      setJumpDraft({
+        tab: currentTab,
+        source: destination,
+        label: jumpLabel,
+        position: position ?? destination.point,
+      });
       return;
     }
     const jump: BoardJump = {
@@ -2153,13 +2168,34 @@ function BoardEditor() {
       sourceGroup: jumpDraft.source.group,
     };
     const append = (b: Board) => {
-      const host =
+      let host =
         b.nodes.find((n) => n.id === jumpDraft.source.node) ??
         b.nodes.find(
           (n) =>
             n.data.group === jumpDraft.source.group && !!jumpDraft.source.group,
         );
+      if (
+        !host &&
+        jumpDraft.position &&
+        !jumpDraft.source.node &&
+        !jumpDraft.source.group
+      ) {
+        host = newShape(
+          "jump-anchor",
+          jumpDraft.position.x,
+          jumpDraft.position.y,
+          "transparent",
+          24,
+          24,
+        );
+        b = { ...b, nodes: [...b.nodes, host] };
+      }
       if (!host) throw Error("Das Startelement ist nicht mehr vorhanden.");
+      if (jumpDraft.position)
+        jump.sourceOffset = {
+          x: jumpDraft.position.x - host.position.x,
+          y: jumpDraft.position.y - host.position.y,
+        };
       return {
         ...b,
         nodes: b.nodes.map((n) =>
@@ -2203,6 +2239,14 @@ function BoardEditor() {
       setJumpTab(null);
       setTool("hand");
       setToolMenu(null);
+      if (tab === currentTab && destination.node)
+        setBoard((b) => ({
+          ...b,
+          nodes: b.nodes.map((n) => ({
+            ...n,
+            selected: n.id === destination.node,
+          })),
+        }));
       setMediaError("");
     } catch (err) {
       setMediaError(
@@ -3263,9 +3307,14 @@ function BoardEditor() {
     [...new Set([...Object.keys(customSymbols), ...Object.keys(symbols)])],
     generalPreferences.symbolOrder,
   );
-  const attachSymbol = (name: string) => {
+  const attachSymbol = (name: string, slot?: number) => {
     if (pinnedSymbols.includes(name)) return;
-    checkpoint();
+    if (slot === undefined) checkpoint();
+    else {
+      const order = [...visibleToolbar];
+      order.splice(slot, 0, "symbol:" + name);
+      toolbarPreferences({ toolbarOrder: order });
+    }
     const next = [...pinnedSymbols, name];
     setPinnedSymbols(next);
     localStorage.setItem("lifemap-pinned-symbols", JSON.stringify(next));
@@ -3273,6 +3322,8 @@ function BoardEditor() {
   const attachedForms = pinnedForms.map((points, i) => (
     <button
       key={i}
+      data-toolbar-id={"form:" + JSON.stringify(points)}
+      draggable
       title="Angeheftete freie Form"
       aria-label={"Angeheftete freie Form " + (i + 1)}
       aria-pressed={tool === "polygon" && polygonTemplate === points}
@@ -3295,6 +3346,139 @@ function BoardEditor() {
       <FormPreview points={points} />
     </button>
   ));
+  const builtins = orderedTools.map(({ id, label, Icon }) => (
+    <button
+      key={id}
+      data-tool={id}
+      data-toolbar-id={id}
+      title={label}
+      aria-label={label}
+      aria-pressed={tool === id}
+      className={tool === id ? "active" : ""}
+      disabled={!storage.ready}
+      draggable
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setRemoveTool({
+          x: e.clientX,
+          y: e.clientY,
+          remove: () => {
+            toolbarPreferences({
+              hidden: [...preferences.hidden, id],
+            });
+            if (tool === id || toolMenu === id) clearCanvasPopups();
+          },
+        });
+      }}
+      onClick={() => {
+        if (tool === id || (toolMenu === id && id !== "ink")) {
+          setTool("hand");
+          setToolMenu(null);
+          setColors(false);
+          setForm(null);
+          connectFrom.current = null;
+          return;
+        }
+        setEditing("");
+        setColors(id === "paint");
+        setJumpDraft(null);
+        setJumpTab(null);
+        setBoard((b) => ({
+          ...b,
+          nodes: b.nodes.map((n) =>
+            n.selected ? { ...n, selected: false } : n,
+          ),
+          edges: b.edges.map((edge) =>
+            edge.selected ? { ...edge, selected: false } : edge,
+          ),
+        }));
+        setToolMenu(id);
+        if (id === "image") {
+          setTool("hand");
+          return;
+        }
+        if (id === "polygon") {
+          setTool("polygon");
+          setPolygonTemplate(null);
+          setDrawPolygon([]);
+        } else setTool(id);
+        if (id === "paint") setColors(true);
+        setEditing("");
+        connectFrom.current = null;
+      }}
+    >
+      <Icon size={21} strokeWidth={1.6} />
+    </button>
+  ));
+  const symbolButtons = pinnedSymbols.map((name) => (
+    <button
+      key={name}
+      title={name}
+      data-toolbar-id={"symbol:" + name}
+      draggable
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setRemoveTool({
+          x: e.clientX,
+          y: e.clientY,
+          remove: () => {
+            const next = pinnedSymbols.filter((item) => item !== name);
+            checkpoint();
+            setPinnedSymbols(next);
+            localStorage.setItem(
+              "lifemap-pinned-symbols",
+              JSON.stringify(next),
+            );
+          },
+        });
+      }}
+      aria-pressed={tool === "symbols" && symbol === name}
+      onClick={() => {
+        setSymbol(name);
+        setTool("symbols");
+        setToolMenu(null);
+      }}
+    >
+      {customSymbols[name] ? (
+        <img src={customSymbols[name]} className="lm-custom-symbol" alt="" />
+      ) : (
+        <SymbolArt name={name} stroke="currentColor" fill="none" />
+      )}
+    </button>
+  ));
+  const baseToolbar = [...builtins];
+  const noteIndex = orderedTools.findIndex((tool) => tool.id === "sticky");
+  baseToolbar.splice(
+    noteIndex < 0 ? baseToolbar.length : noteIndex,
+    0,
+    ...attachedForms,
+  );
+  baseToolbar.push(...symbolButtons);
+  const toolbarItems = new Map(
+    baseToolbar.map((item) => [String(item.props["data-toolbar-id"]), item]),
+  );
+  const baseOrder = [...toolbarItems.keys()];
+  const visibleToolbar = galleryOrder(
+    baseOrder,
+    preferences.toolbarOrder.length ? preferences.toolbarOrder : ["ink"],
+  );
+  const [toolbarDrop, setToolbarDrop] = useState<{
+    slot: number;
+    x: number;
+  } | null>(null);
+  const dragGhost = useRef<HTMLCanvasElement | null>(null);
+  const dragSlot = (clientX: number) => {
+    const items = [
+      ...(toolbar.current?.querySelectorAll<HTMLElement>(
+        ":scope > [data-toolbar-id]",
+      ) ?? []),
+    ];
+    const index = items.findIndex((el) => {
+      const bounds = el.getBoundingClientRect();
+      return clientX < bounds.left + bounds.width / 2;
+    });
+    return index < 0 ? items.length : index;
+  };
   const clearCanvasPopups = () => {
     setConfirmGroup(false);
     setLinkHover(null);
@@ -4142,7 +4326,14 @@ function BoardEditor() {
                   return;
                 }
                 if (tool === "jump") {
-                  void pickJump({ node: node.id });
+                  void pickJump(
+                    { node: node.id },
+                    currentTab,
+                    flow.screenToFlowPosition(
+                      { x: event.clientX, y: event.clientY },
+                      { snapToGrid: false },
+                    ),
+                  );
                   return;
                 }
                 if (event.ctrlKey && node.data.group) {
@@ -4205,8 +4396,11 @@ function BoardEditor() {
                     { snapToGrid: false },
                   );
                   const group = groupAt(point);
-                  if (jumpDraft || group)
-                    void pickJump(group ? { group } : { point });
+                  void pickJump(
+                    group ? { group } : { point },
+                    currentTab,
+                    point,
+                  );
                   return;
                 }
                 if (
@@ -5106,7 +5300,7 @@ function BoardEditor() {
         })()}
       {board.nodes
         .flatMap((n) => n.data.jumps ?? [])
-        .filter((jump) => jump.sourceGroup)
+        .filter((jump) => jump.sourceGroup && !jump.sourceOffset)
         .map((jump) => {
           const bounds = groupBounds(jump.sourceGroup!);
           if (!bounds) return null;
@@ -5127,6 +5321,52 @@ function BoardEditor() {
             </button>
           );
         })}
+      {board.nodes.flatMap((node) =>
+        (node.data.jumps ?? [])
+          .filter((jump) => jump.sourceOffset)
+          .map((jump) => {
+            const p = flow.flowToScreenPosition({
+              x: node.position.x + jump.sourceOffset!.x,
+              y: node.position.y + jump.sourceOffset!.y,
+            });
+            return (
+              <button
+                key={jump.id}
+                type="button"
+                className="lm-placed-jump"
+                style={{ left: p.x, top: p.y }}
+                onClick={() => void followJump(jump)}
+              >
+                <Link2 size={13} />
+                {jump.label}
+              </button>
+            );
+          }),
+      )}
+      {jumpDraft?.tab === currentTab &&
+        jumpDraft.position &&
+        (() => {
+          const point = flow.flowToScreenPosition(jumpDraft.position);
+          return (
+            <div
+              className="lm-placed-jump lm-jump-draft"
+              style={{ left: point.x, top: point.y }}
+            >
+              <Link2 size={13} />
+              <input
+                autoFocus
+                aria-label="Name des Sprungbuttons"
+                maxLength={80}
+                value={jumpLabel}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => setJumpLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
+            </div>
+          );
+        })()}
       {sourceGroupFrame &&
         jumpDraft?.tab === currentTab &&
         (() => {
@@ -6237,10 +6477,20 @@ function BoardEditor() {
                     <button
                       key={style}
                       type="button"
-                      title={label}
+                      data-pen-label={label}
                       aria-label={label}
                       aria-pressed={pen.style === style}
                       onClick={() => {
+                        setEditing("");
+                        setBoard((b) => ({
+                          ...b,
+                          nodes: b.nodes.map((n) =>
+                            n.selected ? { ...n, selected: false } : n,
+                          ),
+                          edges: b.edges.map((edge) =>
+                            edge.selected ? { ...edge, selected: false } : edge,
+                          ),
+                        }));
                         setTool("ink");
                         setPenOverride({ ...pen, style, width, opacity });
                       }}
@@ -6725,150 +6975,121 @@ function BoardEditor() {
           ref={toolbar}
           className="lm-toolbar"
           aria-label="Zeichenwerkzeuge"
+          onDragStart={(e) => {
+            const id = (e.target as Element).closest<HTMLElement>(
+              "[data-toolbar-id]",
+            )?.dataset.toolbarId;
+            if (!id) return;
+            e.dataTransfer.setData("application/x-lifemap-tool", id);
+            e.dataTransfer.effectAllowed = "move";
+            const ghost = document.createElement("canvas");
+            ghost.width = ghost.height = 1;
+            ghost.style.position = "fixed";
+            ghost.style.left = "-10px";
+            document.body.append(ghost);
+            dragGhost.current = ghost;
+            e.dataTransfer.setDragImage(ghost, 0, 0);
+          }}
+          onDragEnd={() => {
+            dragGhost.current?.remove();
+            dragGhost.current = null;
+            setToolbarDrop(null);
+          }}
+          onDragLeave={(e) => {
+            if (
+              !(e.relatedTarget instanceof Node) ||
+              !e.currentTarget.contains(e.relatedTarget)
+            )
+              setToolbarDrop(null);
+          }}
           onDragOver={(e) => {
             if (
               e.dataTransfer.types.some(
                 (type) =>
                   type === "application/x-lifemap-shape" ||
-                  type === "application/x-lifemap-symbol",
+                  type === "application/x-lifemap-symbol" ||
+                  type === "application/x-lifemap-tool",
               )
-            )
+            ) {
               e.preventDefault();
+              const slot = dragSlot(e.clientX);
+              const nav = e.currentTarget.getBoundingClientRect();
+              const items = e.currentTarget.querySelectorAll<HTMLElement>(
+                ":scope > [data-toolbar-id]",
+              );
+              const before = items[slot]?.getBoundingClientRect(),
+                after = items[slot - 1]?.getBoundingClientRect();
+              setToolbarDrop({
+                slot,
+                x:
+                  before && after
+                    ? (before.left + after.right) / 2 - nav.left
+                    : before
+                      ? before.left - nav.left - 2
+                      : after
+                        ? after.right - nav.left + 2
+                        : 5,
+              });
+            }
           }}
           onDrop={(e) => {
+            setToolbarDrop(null);
+            const moved = e.dataTransfer.getData("application/x-lifemap-tool");
+            if (moved && visibleToolbar.includes(moved)) {
+              e.preventDefault();
+              const slot = dragSlot(e.clientX);
+              const next = visibleToolbar.filter((id) => id !== moved);
+              next.splice(
+                slot - (visibleToolbar.indexOf(moved) < slot ? 1 : 0),
+                0,
+                moved,
+              );
+              toolbarPreferences({ toolbarOrder: next });
+              return;
+            }
             const raw = e.dataTransfer.getData("application/x-lifemap-shape");
             const name = e.dataTransfer.getData("application/x-lifemap-symbol");
             if (name && symbolNames.includes(name)) {
               e.preventDefault();
-              attachSymbol(name);
+              attachSymbol(name, dragSlot(e.clientX));
               return;
             }
             if (!raw) return;
             e.preventDefault();
             const points = JSON.parse(raw);
-            if (validPoints(points)) pinPolygon(points);
+            if (
+              validPoints(points) &&
+              !pinnedForms.some((form) => JSON.stringify(form) === raw)
+            ) {
+              const order = [...visibleToolbar];
+              order.splice(
+                dragSlot(e.clientX),
+                0,
+                "form:" + JSON.stringify(points),
+              );
+              toolbarPreferences({
+                pinned: null,
+                pinnedForms: [...pinnedForms, points],
+                toolbarOrder: order,
+              });
+            }
           }}
         >
-          {orderedTools.map(({ id, label, Icon }) => (
+          {visibleToolbar.map((id) => (
             <Fragment key={id}>
-              {(id === "sticky" ||
-                (preferences.hidden.includes("sticky") &&
-                  id === firstStyleTool)) &&
-                attachedForms}
               {id === firstStyleTool && (
                 <span className="lm-toolbar-separator" aria-hidden />
               )}
-              <button
-                key={id}
-                data-tool={id}
-                title={label}
-                aria-label={label}
-                aria-pressed={tool === id}
-                className={tool === id ? "active" : ""}
-                disabled={!storage.ready}
-                draggable
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setRemoveTool({
-                    x: e.clientX,
-                    y: e.clientY,
-                    remove: () => {
-                      toolbarPreferences({
-                        hidden: [...preferences.hidden, id],
-                      });
-                      if (tool === id || toolMenu === id) clearCanvasPopups();
-                    },
-                  });
-                }}
-                onDragStart={(e) =>
-                  e.dataTransfer.setData("application/x-lifemap-tool", id)
-                }
-                onDragOver={(e) => {
-                  if (
-                    e.dataTransfer.types.includes("application/x-lifemap-tool")
-                  )
-                    e.preventDefault();
-                }}
-                onDrop={(e) => {
-                  const moved = e.dataTransfer.getData(
-                    "application/x-lifemap-tool",
-                  );
-                  if (!moved || moved === id) return;
-                  e.preventDefault();
-                  const order = (
-                    preferences.order.length
-                      ? preferences.order
-                      : tools.map((t) => t.id)
-                  ).filter((t) => t !== moved);
-                  order.splice(order.indexOf(id), 0, moved);
-                  toolbarPreferences({ order });
-                }}
-                onClick={() => {
-                  if (tool === id || toolMenu === id) {
-                    setTool("hand");
-                    setToolMenu(null);
-                    setColors(false);
-                    setForm(null);
-                    connectFrom.current = null;
-                    return;
-                  }
-                  setToolMenu(id);
-                  if (id === "image") return;
-                  if (id === "polygon") {
-                    setTool("polygon");
-                    setPolygonTemplate(null);
-                    setDrawPolygon([]);
-                  } else setTool(id);
-                  if (id === "paint") setColors(true);
-                  setEditing("");
-                  connectFrom.current = null;
-                }}
-              >
-                <Icon size={21} strokeWidth={1.6} />
-              </button>
+              {toolbarItems.get(id)}
             </Fragment>
           ))}
-          {preferences.hidden.includes("sticky") &&
-            !firstStyleTool &&
-            attachedForms}
-          {pinnedSymbols.map((name) => (
-            <button
-              key={name}
-              title={name}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setRemoveTool({
-                  x: e.clientX,
-                  y: e.clientY,
-                  remove: () => {
-                    const next = pinnedSymbols.filter((item) => item !== name);
-                    checkpoint();
-                    setPinnedSymbols(next);
-                    localStorage.setItem(
-                      "lifemap-pinned-symbols",
-                      JSON.stringify(next),
-                    );
-                  },
-                });
-              }}
-              aria-pressed={tool === "symbols" && symbol === name}
-              onClick={() => {
-                setSymbol(name);
-                setTool("symbols");
-                setToolMenu(null);
-              }}
-            >
-              {customSymbols[name] ? (
-                <img
-                  src={customSymbols[name]}
-                  className="lm-custom-symbol"
-                  alt=""
-                />
-              ) : (
-                <SymbolArt name={name} stroke="currentColor" fill="none" />
-              )}
-            </button>
-          ))}
+          {toolbarDrop && (
+            <i
+              className="lm-toolbar-drop"
+              style={{ left: toolbarDrop.x }}
+              aria-hidden
+            />
+          )}
           {colors && (
             <div className="lm-tool-palette">
               {tool === "paint" && (
