@@ -1369,12 +1369,6 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       style={{ rotate: data.rotation ? data.rotation + "deg" : undefined }}
       className={`lm-shape lm-${data.kind}${selected ? " lm-selected" : ""}`}
       data-paper={data.paper ?? "plain"}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        if (edit.inspect(id)) return;
-        if (!["image", "ink", "media", "symbol"].includes(data.kind))
-          edit.begin(id);
-      }}
     >
       <button
         type="button"
@@ -1908,6 +1902,9 @@ type HistoryEntry = {
   preferences: typeof defaults;
   tabs: Record<string, Partial<typeof defaults>>;
   symbols: string[];
+  dark: boolean;
+  penOverride: typeof defaults.pen | null;
+  connectionOverride: typeof defaults.connection | null;
 };
 function BoardEditor() {
   const [board, setBoard] = useState<Board>(emptyBoard),
@@ -2330,6 +2327,7 @@ function BoardEditor() {
         board.nodes.map((n) => n.data.group).filter((id): id is string => !!id),
       ),
     ].find((id) => {
+      if (collapsedGroups.has(id)) return false;
       const b = groupBounds(id);
       return (
         b &&
@@ -2887,6 +2885,7 @@ function BoardEditor() {
     selectedEdges = board.edges.filter((e) => e.selected),
     data = selected[0]?.data;
   const [shownGroup, setShownGroup] = useState<string | null>(null);
+  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [representation, setRepresentation] = useState<string | null>(null);
   const collapsedGroups = new Set(
     board.nodes
@@ -3033,6 +3032,9 @@ function BoardEditor() {
     preferences: generalPreferences,
     tabs: tabOverrides,
     symbols: pinnedSymbols,
+    dark,
+    penOverride,
+    connectionOverride,
   });
   const checkpoint = () => {
     const h = history.current;
@@ -3054,6 +3056,10 @@ function BoardEditor() {
     setPreferences(previous.preferences);
     setTabOverrides(previous.tabs);
     setPinnedSymbols(previous.symbols);
+    setDark(previous.dark);
+    localStorage.setItem("raum-theme", previous.dark ? "dark" : "light");
+    setPenOverride(previous.penOverride);
+    setConnectionOverride(previous.connectionOverride);
     localStorage.setItem(preferenceKey, JSON.stringify(previous.preferences));
     localStorage.setItem("lifemap-tab-options", JSON.stringify(previous.tabs));
     localStorage.setItem(
@@ -3364,9 +3370,13 @@ function BoardEditor() {
     connectTo(id);
   };
   const begin = (id: string) => {
+    if (editing === id) return;
     setBoard((b) => ({
       ...b,
       nodes: b.nodes.map((n) => ({ ...n, selected: n.id === id })),
+      edges: b.edges.map((edge) =>
+        edge.selected ? { ...edge, selected: false } : edge,
+      ),
     }));
     checkpoint();
     setEditing(id);
@@ -3383,8 +3393,6 @@ function BoardEditor() {
   }, [dark]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest(".color-popup,.color-swatches"))
-        return;
       if (
         preview &&
         ["Enter", "Delete", "Backspace", "Escape"].includes(e.key) &&
@@ -3399,19 +3407,14 @@ function BoardEditor() {
         return;
       }
       const key = e.key.toLowerCase();
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        (key === "z" || key === "y") &&
-        !(
-          e.target instanceof Element &&
-          e.target.closest(".lm-settings input,.lm-settings select")
-        )
-      ) {
+      if ((e.ctrlKey || e.metaKey) && (key === "z" || key === "y")) {
         e.preventDefault();
         e.stopPropagation();
         undo(key === "y" || e.shiftKey);
         return;
       }
+      if ((e.target as HTMLElement).closest(".color-popup,.color-swatches"))
+        return;
       if (
         (e.target as HTMLElement).closest(
           "input,textarea,select,[contenteditable=true]",
@@ -4400,6 +4403,7 @@ function BoardEditor() {
             title={dark ? "Helle Ansicht" : "Dunkle Ansicht"}
             aria-label="Farbschema wechseln"
             onClick={() => {
+              checkpoint();
               setDark(!dark);
               localStorage.setItem("raum-theme", !dark ? "dark" : "light");
             }}
@@ -4761,6 +4765,7 @@ function BoardEditor() {
               onClick={() => {
                 const next = { ...tabOverrides };
                 delete next[settingsTab];
+                checkpoint();
                 setTabOverrides(next);
                 localStorage.setItem(
                   "lifemap-tab-options",
@@ -4866,8 +4871,25 @@ function BoardEditor() {
       )}
       <div
         ref={host}
-        onPointerLeave={() => setLinkHover(null)}
+        onPointerLeave={(event) => {
+          if (
+            event.relatedTarget instanceof Element &&
+            event.relatedTarget.closest(
+              ".lm-floating-rotation,.lm-hover-link,.lm-group-frame",
+            )
+          )
+            return;
+          setLinkHover(null);
+          setHoveredGroup(null);
+        }}
         onPointerMove={(e) => {
+          if (!e.buttons && (tool === "hand" || tool === "write")) {
+            const point = flow.screenToFlowPosition(
+              { x: e.clientX, y: e.clientY },
+              { snapToGrid: false },
+            );
+            setHoveredGroup(groupAt(point) ?? null);
+          }
           const target = document
             .elementsFromPoint(e.clientX, e.clientY)
             .map((item) =>
@@ -4919,6 +4941,23 @@ function BoardEditor() {
         }
         className={`lm-canvas ${["hand", "write"].includes(tool) ? "lm-native-hand" : ""} lm-pattern-${preferences.pattern} ${tool === "select" || tool === "paint" ? "lm-crosshair" : ""}${shapeTool ? " lm-drawing" : ""}${tool === "connect" ? " lm-connecting" : ""}${tool === "jump" ? " lm-jump-mode" : ""}`}
         onDoubleClick={(e) => {
+          if (
+            (tool === "hand" || tool === "write") &&
+            (e.target as HTMLElement).closest(
+              ".react-flow__pane,.react-flow__node",
+            )
+          ) {
+            const id = groupAt(
+              flow.screenToFlowPosition(
+                { x: e.clientX, y: e.clientY },
+                { snapToGrid: false },
+              ),
+            );
+            if (id) {
+              jumpView({ group: id });
+              return;
+            }
+          }
           if ((e.target as HTMLElement).classList.contains("react-flow__pane"))
             setQuick({ x: e.clientX, y: e.clientY });
         }}
@@ -5070,7 +5109,7 @@ function BoardEditor() {
                             e.sourceHandle as Side,
                             e.data.sourceOffset,
                           )
-                        : undefined;
+                        : connectionPoint(node, e.sourceHandle as Side, 0.5);
                   })(),
                   targetPoint:
                     board.nodes.find(
@@ -5092,7 +5131,14 @@ function BoardEditor() {
                               )
                             : undefined;
                         })()
-                      : undefined),
+                      : (() => {
+                          const node = board.nodes.find(
+                            (n) => n.id === e.target,
+                          );
+                          return node
+                            ? connectionPoint(node, e.targetHandle as Side, 0.5)
+                            : undefined;
+                        })()),
                   thread: preferences.pattern === "cork",
                   anchor: reportAnchor,
                   connectTo:
@@ -5279,10 +5325,7 @@ function BoardEditor() {
                   }));
                   return;
                 }
-                if (leavingText.current) {
-                  leavingText.current = false;
-                  return;
-                }
+                if (leavingText.current) leavingText.current = false;
 
                 if (tool === "paint" && node.data.kind !== "image") {
                   checkpoint();
@@ -5311,6 +5354,19 @@ function BoardEditor() {
                 }
                 if (tool === "connect")
                   connectTo(node.id, { x: event.clientX, y: event.clientY });
+                else if (
+                  (tool === "hand" || tool === "write") &&
+                  ![
+                    "image",
+                    "media",
+                    "ink",
+                    "symbol",
+                    "jump-anchor",
+                    "connection-anchor",
+                  ].includes(node.data.kind) &&
+                  !(event.target as Element).closest("input,textarea,button")
+                )
+                  begin(node.id);
               }}
               onPaneClick={(event) => {
                 if (representation) {
@@ -5368,6 +5424,29 @@ function BoardEditor() {
                     point,
                   );
                   return;
+                }
+                if (tool === "hand" || tool === "write") {
+                  const id = groupAt(
+                    flow.screenToFlowPosition(
+                      { x: event.clientX, y: event.clientY },
+                      { snapToGrid: false },
+                    ),
+                  );
+                  if (id) {
+                    setEditing("");
+                    setBoard((b) => ({
+                      ...b,
+                      nodes: b.nodes.map((n) => ({
+                        ...n,
+                        selected: n.data.group === id,
+                      })),
+                      edges: b.edges.map((edge) => ({
+                        ...edge,
+                        selected: false,
+                      })),
+                    }));
+                    return;
+                  }
                 }
                 if (
                   (groupPicking || tool === "select") &&
@@ -6188,15 +6267,35 @@ function BoardEditor() {
           </div>
         )}
       </div>
+      {hoveredGroup &&
+        !representation &&
+        (tool === "hand" || tool === "write") &&
+        (() => {
+          const bounds = groupBounds(hoveredGroup);
+          if (!bounds) return null;
+          const point = flow.flowToScreenPosition(bounds);
+          return (
+            <div
+              className="lm-group-hover-zone"
+              aria-hidden
+              style={{
+                left: point.x,
+                top: point.y,
+                width: bounds.width * board.viewport.zoom,
+                height: bounds.height * board.viewport.zoom,
+              }}
+            />
+          );
+        })()}
       {shownGroup &&
         (() => {
           const list = board.nodes.filter((n) => n.data.group === shownGroup);
           const b = groupBounds(shownGroup);
           if (!b) return null;
           const scale = Math.min(
-            1.7,
-            (innerWidth * 0.72) / Math.max(1, b.width),
-            (innerHeight * 0.65) / Math.max(1, b.height),
+            1.12,
+            (innerWidth * 0.48) / Math.max(1, b.width),
+            (innerHeight * 0.48) / Math.max(1, b.height),
           );
           return (
             <div
@@ -6208,8 +6307,8 @@ function BoardEditor() {
                 aria-label="Elementgruppe"
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  width: b.width * scale + 32,
-                  height: b.height * scale + 48,
+                  width: b.width * scale + 28,
+                  height: b.height * scale + 38,
                 }}
               >
                 <div
@@ -6355,7 +6454,23 @@ function BoardEditor() {
                       (!teleportMoved.current && !teleportResize.current)) &&
                     !(event.target as Element).closest(".lm-teleport-resize")
                   )
-                    void followJump(jump);
+                    setTeleportFormat({
+                      nodeId: node.id,
+                      jumpId: jump.id,
+                      x: p.x + 18,
+                      y: p.y + 21,
+                    });
+                }}
+                onDoubleClick={(event) => {
+                  if (
+                    tool === "select" ||
+                    teleportMoved.current ||
+                    teleportResize.current
+                  )
+                    return;
+                  event.stopPropagation();
+                  setTeleportFormat(null);
+                  void followJump(jump);
                 }}
               >
                 <Zap size={13} />
@@ -6399,6 +6514,8 @@ function BoardEditor() {
             Beschriftung{" "}
             <input
               maxLength={80}
+              autoFocus
+              onFocus={(event) => event.currentTarget.select()}
               defaultValue={formattedTeleport.label}
               key={formattedTeleport.id}
               onBlur={(e) => {
@@ -6636,8 +6753,7 @@ function BoardEditor() {
             />
           );
         })()}
-      {!editing &&
-        !representation &&
+      {!representation &&
         (() => {
           const node =
             board.nodes.find(

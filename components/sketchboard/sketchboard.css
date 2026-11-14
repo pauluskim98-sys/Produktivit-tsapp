@@ -2242,3 +2242,12 @@
   border-radius: 50%;
   cursor: grab;
 }
+
+.lm-group-hover-zone {
+  position: fixed;
+  pointer-events: none;
+  z-index: 7;
+  border: 1px solid var(--lm-accent);
+  background: color-mix(in srgb, var(--lm-accent) 11%, transparent);
+  border-radius: 8px;
+}
