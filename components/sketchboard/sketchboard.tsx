@@ -117,6 +117,7 @@ const defaults = {
     straight: false,
   },
   font: "System",
+  textStyle: "regular",
   size: 24,
   background: "",
   pattern: "plain",
@@ -276,7 +277,9 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   useEffect(() => {
     if (editing) {
       area.current?.focus();
-      area.current?.select();
+      const input = area.current;
+      if (input)
+        input.setSelectionRange(input.value.length, input.value.length);
     }
   }, [editing]);
   const style: CSSProperties = {
@@ -1077,6 +1080,12 @@ function BoardEditor() {
       ...node.data,
       font: preferences.font,
       fontSize: preferences.size / zoom,
+      bold:
+        preferences.textStyle === "bold" ||
+        preferences.textStyle === "bold-italic",
+      italic:
+        preferences.textStyle === "italic" ||
+        preferences.textStyle === "bold-italic",
       ...extra,
     };
     node.selected = true;
@@ -1236,6 +1245,28 @@ function BoardEditor() {
         return;
       }
       if (!storage.ready) return;
+      const target = selected.length === 1 ? selected[0] : undefined;
+      if (
+        !editing &&
+        !settings &&
+        !form &&
+        !preview &&
+        (tool === "write" || tool === "hand") &&
+        target &&
+        !["image", "media", "ink"].includes(target.data.kind) &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.isComposing &&
+        e.key.length === 1 &&
+        e.key !== " "
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        begin(target.id);
+        patch(target.id, { text: (target.data.text + e.key).slice(0, 50000) });
+        return;
+      }
       const mod = e.metaKey || e.ctrlKey,
         k = e.key.toLowerCase();
       if (mod && ["z", "y", "c", "d", "a"].includes(k)) {
@@ -1515,184 +1546,190 @@ function BoardEditor() {
           e.target.value = "";
         }}
       />
-      <header className="lm-header">
-        <a href="/lifemap">
-          <CalendarDays size={20} />
-          Kalender
-        </a>
-        <span className="lm-header-divider" />
-        <strong>
-          <Waypoints size={22} />
-          LifeMap
-        </strong>
-        <button
-          className="lm-header-settings"
-          aria-label="Einstellungen"
-          title="Einstellungen"
-          onClick={() => setSettings((open) => !open)}
-        >
-          <Settings size={19} />
-        </button>
-
-        <span className="lm-save" role="status">
-          {storage.status}
-        </span>
-        <button
-          title={dark ? "Helle Ansicht" : "Dunkle Ansicht"}
-          aria-label="Farbschema wechseln"
-          onClick={() => {
-            setDark(!dark);
-            localStorage.setItem("raum-theme", !dark ? "dark" : "light");
-          }}
-        >
-          {dark ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
-        <button
-          title="LifeMap exportieren"
-          aria-label="LifeMap exportieren"
-          onClick={exportBoard}
-        >
-          <Download size={18} />
-        </button>
-        <nav className="lm-board-tabs" aria-label="LifeMap-Tabs">
-          {tabs.map(({ id, title }) => (
-            <div
-              className="lm-tab-item"
-              key={id}
-              data-selected={selectedTabs.includes(id) || undefined}
-              draggable={renaming !== id}
-              onDragStart={(e) => {
-                e.dataTransfer.setData(
-                  "application/x-lifemap-tab",
-                  JSON.stringify({ id, title, color: preferences.accent }),
-                );
-              }}
-              onDragOver={(e) => {
-                if (e.dataTransfer.types.includes("application/x-lifemap-tab"))
-                  e.preventDefault();
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                try {
-                  const source = JSON.parse(
-                    e.dataTransfer.getData("application/x-lifemap-tab"),
-                  ).id;
-                  const item = tabs.find((t) => t.id === source);
-                  if (!item || source === id) return;
-                  const next = tabs.filter((t) => t.id !== source);
-                  next.splice(
-                    next.findIndex((t) => t.id === id),
-                    0,
-                    item,
-                  );
-                  saveTabs(next);
-                } catch {}
-              }}
-            >
-              {renaming === id ? (
-                <input
-                  autoFocus
-                  aria-label="Tab-Name"
-                  maxLength={60}
-                  value={tabTitle}
-                  onChange={(e) => setTabTitle(e.target.value)}
-                  onBlur={renameTab}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
-                    if (e.key === "Escape") setRenaming(null);
-                  }}
-                />
-              ) : (
-                <button
-                  aria-current={id === currentTab ? "page" : undefined}
-                  aria-expanded={tabMenu === id}
-                  onClick={() => {
-                    setTabMenu(null);
-                    if (tool === "select") {
-                      setSelectedTabs((t) =>
-                        t.includes(id) ? t.filter((s) => s !== id) : [...t, id],
-                      );
-                      return;
-                    }
-                    if (id !== currentTab) void openTab(id);
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setTabMenu(tabMenu === id ? null : id);
-                  }}
-                >
-                  {title}
-                </button>
-              )}
-              {tabMenu === id && (
-                <div className="lm-tab-menu">
-                  <button
-                    onClick={() => {
-                      setRenaming(id);
-                      setTabTitle(title);
-                      setTabMenu(null);
-                    }}
-                  >
-                    Umbenennen
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (id === currentTab) exportBoard();
-                      else {
-                        const response = await fetch(
-                          "/api/sketchboard?tab=" + encodeURIComponent(id),
-                        );
-                        if (!response.ok) return;
-                        const result = await response.json();
-                        const url = URL.createObjectURL(
-                          new Blob([JSON.stringify(result.board, null, 2)], {
-                            type: "application/json",
-                          }),
-                        );
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = title + ".json";
-                        a.click();
-                        URL.revokeObjectURL(url);
-                      }
-                      setTabMenu(null);
-                    }}
-                  >
-                    Speichern unter
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSettings(true);
-                      setTabMenu(null);
-                    }}
-                  >
-                    Einstellungen
-                  </button>
-                  <button
-                    onClick={() => {
-                      void closeTab(id);
-                      setTabMenu(null);
-                    }}
-                  >
-                    Löschen
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+      {!embedded && (
+        <header className="lm-header">
+          <a href="/lifemap">
+            <CalendarDays size={20} />
+            Kalender
+          </a>
+          <span className="lm-header-divider" />
+          <strong>
+            <Waypoints size={22} />
+            LifeMap
+          </strong>
           <button
-            aria-label="Neuer LifeMap-Tab"
-            onClick={() => void openTab()}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setImportError("");
-              setImportAt({ x: innerWidth / 2, y: innerHeight / 2 });
+            className="lm-header-settings"
+            aria-label="Einstellungen"
+            title="Einstellungen"
+            onClick={() => setSettings((open) => !open)}
+          >
+            <Settings size={19} />
+          </button>
+
+          <span className="lm-save" role="status">
+            {storage.status}
+          </span>
+          <button
+            title={dark ? "Helle Ansicht" : "Dunkle Ansicht"}
+            aria-label="Farbschema wechseln"
+            onClick={() => {
+              setDark(!dark);
+              localStorage.setItem("raum-theme", !dark ? "dark" : "light");
             }}
           >
-            +
+            {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-        </nav>
-      </header>
+          <button
+            title="LifeMap exportieren"
+            aria-label="LifeMap exportieren"
+            onClick={exportBoard}
+          >
+            <Download size={18} />
+          </button>
+          <nav className="lm-board-tabs" aria-label="LifeMap-Tabs">
+            {tabs.map(({ id, title }) => (
+              <div
+                className="lm-tab-item"
+                key={id}
+                data-selected={selectedTabs.includes(id) || undefined}
+                draggable={renaming !== id}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(
+                    "application/x-lifemap-tab",
+                    JSON.stringify({ id, title, color: preferences.accent }),
+                  );
+                }}
+                onDragOver={(e) => {
+                  if (
+                    e.dataTransfer.types.includes("application/x-lifemap-tab")
+                  )
+                    e.preventDefault();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  try {
+                    const source = JSON.parse(
+                      e.dataTransfer.getData("application/x-lifemap-tab"),
+                    ).id;
+                    const item = tabs.find((t) => t.id === source);
+                    if (!item || source === id) return;
+                    const next = tabs.filter((t) => t.id !== source);
+                    next.splice(
+                      next.findIndex((t) => t.id === id),
+                      0,
+                      item,
+                    );
+                    saveTabs(next);
+                  } catch {}
+                }}
+              >
+                {renaming === id ? (
+                  <input
+                    autoFocus
+                    aria-label="Tab-Name"
+                    maxLength={60}
+                    value={tabTitle}
+                    onChange={(e) => setTabTitle(e.target.value)}
+                    onBlur={renameTab}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      if (e.key === "Escape") setRenaming(null);
+                    }}
+                  />
+                ) : (
+                  <button
+                    aria-current={id === currentTab ? "page" : undefined}
+                    aria-expanded={tabMenu === id}
+                    onClick={() => {
+                      setTabMenu(null);
+                      if (tool === "select") {
+                        setSelectedTabs((t) =>
+                          t.includes(id)
+                            ? t.filter((s) => s !== id)
+                            : [...t, id],
+                        );
+                        return;
+                      }
+                      if (id !== currentTab) void openTab(id);
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setTabMenu(tabMenu === id ? null : id);
+                    }}
+                  >
+                    {title}
+                  </button>
+                )}
+                {tabMenu === id && (
+                  <div className="lm-tab-menu">
+                    <button
+                      onClick={() => {
+                        setRenaming(id);
+                        setTabTitle(title);
+                        setTabMenu(null);
+                      }}
+                    >
+                      Umbenennen
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (id === currentTab) exportBoard();
+                        else {
+                          const response = await fetch(
+                            "/api/sketchboard?tab=" + encodeURIComponent(id),
+                          );
+                          if (!response.ok) return;
+                          const result = await response.json();
+                          const url = URL.createObjectURL(
+                            new Blob([JSON.stringify(result.board, null, 2)], {
+                              type: "application/json",
+                            }),
+                          );
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = title + ".json";
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }
+                        setTabMenu(null);
+                      }}
+                    >
+                      Speichern unter
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSettings(true);
+                        setTabMenu(null);
+                      }}
+                    >
+                      Einstellungen
+                    </button>
+                    <button
+                      onClick={() => {
+                        void closeTab(id);
+                        setTabMenu(null);
+                      }}
+                    >
+                      Löschen
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+            <button
+              aria-label="Neuer LifeMap-Tab"
+              onClick={() => void openTab()}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setImportError("");
+                setImportAt({ x: innerWidth / 2, y: innerHeight / 2 });
+              }}
+            >
+              +
+            </button>
+          </nav>
+        </header>
+      )}
       {!embedded && (
         <aside
           className="lm-notepad"
@@ -1763,7 +1800,7 @@ function BoardEditor() {
             </select>
           </label>
           <label>
-            Schriftgröße{" "}
+            Standardschriftgröße{" "}
             <input
               type="number"
               min={10}
@@ -1775,6 +1812,18 @@ function BoardEditor() {
                 })
               }
             />
+          </label>
+          <label>
+            Standardschriftstil
+            <select
+              value={preferences.textStyle}
+              onChange={(e) => updatePreferences({ textStyle: e.target.value })}
+            >
+              <option value="regular">Normal</option>
+              <option value="bold">Fett</option>
+              <option value="italic">Kursiv</option>
+              <option value="bold-italic">Fett und kursiv</option>
+            </select>
           </label>
           <label>
             Hintergrund{" "}

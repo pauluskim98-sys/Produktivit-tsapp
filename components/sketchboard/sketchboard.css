@@ -1094,3 +1094,4 @@
   background: var(--lm-accent);
   color: white;
 }
+.lm-sticky .lm-sticky-pin {top:2px;left:calc(50% - 12px);width:24px;height:24px;z-index:20;color:#652033;stroke:#652033;filter:drop-shadow(1px 2px 2px #49222b66);}

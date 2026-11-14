@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileText, Folder, PanelLeft, Plus, Search, X } from "lucide-react";
 import { readNoteLines } from "./planner-notepad";
 import { isNotebookFolder, notebookFolder } from "@/lib/notebook";
@@ -48,6 +48,9 @@ export default function NotebookNavigation({
   const [map, setMap] = useState<string | null>(null);
   const [sizeTab, setSizeTab] = useState<string | null>(null);
   const [size, setSize] = useState(320);
+  const resizeStart = useRef<{ y: number; height: number; key: string } | null>(
+    null,
+  );
   useEffect(() => {
     const reload = () => {
       try {
@@ -68,8 +71,9 @@ export default function NotebookNavigation({
         localStorage.getItem("notepad-height:all"),
     );
     panel.style.height = saved
-      ? Math.min(saved, innerHeight * 0.85) + "px"
+      ? Math.min(saved, window.parent.innerHeight * 0.85) + "px"
       : "";
+    panel.toggleAttribute("data-custom-height", Boolean(saved));
   };
   useEffect(() => {
     applyHeight(map ? "map:" + map : active);
@@ -341,26 +345,42 @@ export default function NotebookNavigation({
         type="button"
         aria-label="Notepad-Höhe ziehen"
         onPointerDown={(e) => {
-          beginSize(map ? "map:" + map : active);
+          if (e.button !== 0) return;
+          const panel = e.currentTarget.closest(".calendar-bottom-notes");
+          if (!panel) return;
+          resizeStart.current = {
+            y: e.screenY,
+            height: panel.getBoundingClientRect().height,
+            key: map ? "map:" + map : active,
+          };
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
-          if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          const start = resizeStart.current;
+          if (!start || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
           const panel = document.querySelector<HTMLElement>(
             ".calendar-bottom-notes",
           );
           if (panel) {
             const next = Math.max(
               150,
-              Math.min(innerHeight * 0.85, innerHeight - e.clientY),
+              Math.min(window.parent.innerHeight * 0.85, start.height + start.y - e.screenY),
             );
+            panel.setAttribute("data-custom-height", "");
             panel.style.height = next + "px";
             setSize(next);
           }
         }}
-      >
-        ↕
-      </button>
+        onPointerUp={(e) => {
+          const start = resizeStart.current;
+          resizeStart.current = null;
+          if (start && Math.abs(e.screenY - start.y) > 2) setSizeTab(start.key);
+        }}
+        onPointerCancel={() => {
+          resizeStart.current = null;
+          applyHeight(map ? "map:" + map : active);
+        }}
+      />
       {sizeTab && (
         <div className="notepad-size-options">
           <span>Notepad-Größe speichern</span>

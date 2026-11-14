@@ -7924,3 +7924,7 @@ button[hidden] {
 .notepad-size-grip {position:absolute;top:0;left:50%;z-index:6;transform:translateX(-50%);cursor:ns-resize;touch-action:none;border:1px solid var(--line);border-radius:5px;background:var(--surface);font-size:11px;}
 .notepad-size-options {position:absolute;top:30px;left:50%;transform:translateX(-50%);z-index:9;display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:7px;background:var(--surface);border:1px solid var(--line);border-radius:8px;}
 .calendar-bottom-notes.notes-open:has(.notepad-size-grip) {min-height:0;}
+.calendar-bottom-notes[data-custom-height] {max-height:85vh;}
+.calendar-bottom-notes .notepad-size-grip {top:0;left:0;right:0;width:100%;height:8px;min-height:0;padding:0;transform:none;background:transparent;border:0;border-radius:0;cursor:ns-resize;}
+.calendar-bottom-notes:not(.notes-open) .notepad-size-grip {display:none;}
+.calendar-bottom-notes[data-custom-height] .notebook-workspace {flex:1;min-height:0;}
