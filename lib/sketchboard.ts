@@ -27,6 +27,17 @@ export type ShapeData = {
   radius: number;
   opacity?: number;
   paper?: "plain" | "lines" | "grid";
+  stickyStyle?:
+    | "pin"
+    | "spiral"
+    | "stack"
+    | "heart"
+    | "clip"
+    | "punched"
+    | "scallop"
+    | "frame"
+    | "circle";
+  stickyMask?: string;
   inkStyle?: string;
   color: string;
   fontSize: number;
@@ -234,6 +245,20 @@ export function validateBoard(input: unknown): Board {
       zIndex: number(n.zIndex, -100000, 100000) ? n.zIndex : 0,
       data: {
         kind: d.kind,
+        ...([
+          "pin",
+          "spiral",
+          "stack",
+          "heart",
+          "clip",
+          "punched",
+          "scallop",
+          "frame",
+          "circle",
+        ].includes(d.stickyStyle ?? "")
+          ? { stickyStyle: d.stickyStyle }
+          : {}),
+        ...(validPicture(d.stickyMask) ? { stickyMask: d.stickyMask } : {}),
         ...(typeof d.group === "string" && id(d.group)
           ? { group: d.group }
           : {}),

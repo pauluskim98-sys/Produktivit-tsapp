@@ -61,7 +61,6 @@ import {
   ImagePlus,
   Pentagon,
   Shapes,
-  Pin,
 } from "lucide-react";
 import {
   emptyBoard,
@@ -86,6 +85,7 @@ import {
 import { smoothStroke } from "./smooth-stroke";
 import { BoardEdge } from "./board-edge";
 import { useBoardStorage } from "./use-board-storage";
+import { StickyPaper, stickyStyles } from "./sticky-paper";
 import { SymbolArt, symbols } from "./symbols";
 import { listenForViewSwipe } from "@/lib/lifemap-swipe";
 import "@xyflow/react/dist/style.css";
@@ -463,9 +463,6 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           edit.begin(id);
       }}
     >
-      {data.kind === "sticky" && (
-        <Pin className="lm-sticky-pin" size={18} fill="#aa4251" />
-      )}
       <button
         type="button"
         className="lm-node-link nodrag nopan"
@@ -529,6 +526,10 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           fill={data.fill}
           width={data.strokeWidth}
         />
+      ) : data.kind === "sticky" ? (
+        <span className="lm-sticky-art" style={{ opacity: data.opacity ?? 1 }}>
+          <StickyPaper paper={data} className="lm-sticky-surface" />
+        </span>
       ) : data.media ? (
         <MediaCard media={data.media} />
       ) : data.kind === "image" && data.image ? (
@@ -587,7 +588,6 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           style={{ ...style, opacity: data.opacity ?? 1 }}
         />
       )}
-      {data.kind === "sticky" && <span className="lm-tape" />}
       <div
         className="lm-shape-content nowheel"
         data-default-ink={
@@ -1669,6 +1669,24 @@ function BoardEditor() {
     y: number;
     points: PolygonPoint[];
   } | null>(null);
+  const [stickyImports, setStickyImports] = useState<
+    { name: string; src: string }[]
+  >(() => {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem("lifemap-note-templates") || "[]",
+      );
+      return Array.isArray(saved)
+        ? saved.filter(
+            (item) =>
+              item && typeof item.name === "string" && validPicture(item.src),
+          )
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const [stickyError, setStickyError] = useState("");
   const [pinSymbol, setPinSymbol] = useState<string | null>(null);
   const [customSymbols, setCustomSymbols] = useState<Record<string, string>>(
     () => {
@@ -3370,6 +3388,129 @@ function BoardEditor() {
             </div>
             {data && (
               <>
+                {data.kind === "sticky" && (
+                  <section
+                    className="lm-sticky-options"
+                    aria-label="Notizzettel-Vorlagen"
+                  >
+                    <div
+                      className="lm-sticky-gallery"
+                      role="group"
+                      aria-label="Vorlagen auswählen"
+                      tabIndex={0}
+                    >
+                      {Object.entries(stickyStyles).map(([style, label]) => (
+                        <button
+                          key={style}
+                          type="button"
+                          title={label}
+                          aria-label={label}
+                          aria-pressed={
+                            !data.stickyMask &&
+                            (data.stickyStyle ?? "pin") === style
+                          }
+                          onClick={() =>
+                            format({
+                              stickyStyle: style as ShapeData["stickyStyle"],
+                              stickyMask: undefined,
+                            })
+                          }
+                        >
+                          <StickyPaper
+                            paper={{
+                              fill: data.fill,
+                              paper: data.paper,
+                              stickyStyle: style as ShapeData["stickyStyle"],
+                            }}
+                            className="lm-sticky-surface"
+                          />
+                        </button>
+                      ))}
+                      {stickyImports.map(({ name, src }, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          title={name}
+                          aria-label={name}
+                          aria-pressed={data.stickyMask === src}
+                          onClick={() => format({ stickyMask: src })}
+                        >
+                          <StickyPaper
+                            paper={{ fill: data.fill, stickyMask: src }}
+                            className="lm-sticky-surface"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    <label className="lm-sticky-import">
+                      Form importieren{" "}
+                      <input
+                        type="file"
+                        accept="image/png,image/webp"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!file) return;
+                          if (
+                            file.size > 650_000 ||
+                            !["image/png", "image/webp"].includes(file.type)
+                          ) {
+                            setStickyError(
+                              "PNG oder WebP mit transparentem Hintergrund, bis 650 KB.",
+                            );
+                            return;
+                          }
+                          const ids = new Set(selected.map((node) => node.id));
+                          const reader = new FileReader();
+                          reader.onerror = () =>
+                            setStickyError(
+                              "Die Datei konnte nicht gelesen werden.",
+                            );
+                          reader.onload = () => {
+                            const src = reader.result;
+                            if (!validPicture(src)) {
+                              setStickyError(
+                                "Die Datei konnte nicht als Vorlage gelesen werden.",
+                              );
+                              return;
+                            }
+                            const next = [
+                              ...stickyImports,
+                              { name: file.name.slice(0, 90), src },
+                            ];
+                            try {
+                              localStorage.setItem(
+                                "lifemap-note-templates",
+                                JSON.stringify(next),
+                              );
+                              setStickyImports(next);
+                              setStickyError("");
+                              checkpoint();
+                              setBoard((b) => ({
+                                ...b,
+                                nodes: b.nodes.map((n) =>
+                                  ids.has(n.id) && n.data.kind === "sticky"
+                                    ? {
+                                        ...n,
+                                        data: { ...n.data, stickyMask: src },
+                                      }
+                                    : n,
+                                ),
+                              }));
+                            } catch {
+                              setStickyError(
+                                "Der lokale Vorlagenspeicher ist voll.",
+                              );
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                    {stickyError && <small role="alert">{stickyError}</small>}
+                  </section>
+                )}
+
                 <div className="lm-compact-format">
                   <ColorSwatches
                     name="Formfüllung"
