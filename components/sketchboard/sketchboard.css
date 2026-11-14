@@ -1132,3 +1132,79 @@
 .lm-symbol-picker button {
   font-family: "Segoe UI Emoji", sans-serif;
 }
+.lm-symbol-art {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.lm-symbol-picker .lm-symbol-art {
+  width: 21px;
+  height: 21px;
+}
+.lm-draft[data-preview="symbols"] {
+  border: 0;
+  background: transparent !important;
+  box-shadow: none;
+}
+.lm-link-preview {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0.65;
+}
+.lm-shape .lm-node-link {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  width: 25px;
+  height: 25px;
+  min-height: 0;
+  padding: 3px;
+  z-index: 23;
+  opacity: 0;
+  background: var(--lm-panel);
+  color: var(--lm-accent);
+  transition: opacity 0.12s;
+}
+.lm-shape:hover .lm-node-link,
+.lm-shape .lm-node-link:focus-visible {
+  opacity: 0.8;
+}
+.lm-edge-link {
+  opacity: 0;
+  pointer-events: all;
+  cursor: pointer;
+  color: var(--lm-accent);
+}
+.lm-edge-link rect {
+  fill: var(--lm-panel);
+  stroke: var(--lm-line);
+}
+.react-flow__edge:hover .lm-edge-link,
+.lm-edge-link:hover,
+.lm-edge-link:focus-visible {
+  opacity: 0.88;
+}
+.lm-format {
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+.lm-format-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-block: 6px;
+  border-top: 1px solid var(--lm-line);
+}
+.lm-format label {
+  gap: 3px;
+  font-size: 12px;
+}
+.lm-edge-label-options {
+  padding: 7px;
+  gap: 7px;
+  background: color-mix(in srgb, var(--lm-panel), var(--lm-accent) 4%);
+}

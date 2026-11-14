@@ -2,7 +2,7 @@
 export function listenForViewSwipe(
   direction: 1 | -1,
   navigate: () => void,
-  allowed: () => boolean,
+  allowed: (event: WheelEvent) => boolean,
 ) {
   let total = 0,
     last = 0,
@@ -13,7 +13,7 @@ export function listenForViewSwipe(
       event.deltaMode !== 0 ||
       Math.abs(event.deltaX) > Math.abs(event.deltaY) ||
       Math.sign(event.deltaY) !== direction ||
-      !allowed() ||
+      !allowed(event) ||
       (event.target instanceof Element &&
         event.target.closest(
           "textarea,input,select,[contenteditable],.lm-settings,.lm-notepad,.calendar-bottom-notes",

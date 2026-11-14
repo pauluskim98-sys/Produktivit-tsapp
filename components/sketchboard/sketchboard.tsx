@@ -86,6 +86,7 @@ import {
 import { smoothStroke } from "./smooth-stroke";
 import { BoardEdge } from "./board-edge";
 import { useBoardStorage } from "./use-board-storage";
+import { SymbolArt, symbols } from "./symbols";
 import { listenForViewSwipe } from "@/lib/lifemap-swipe";
 import "@xyflow/react/dist/style.css";
 import "./sketchboard.css";
@@ -297,6 +298,7 @@ const EditContext = createContext({
   end: () => {},
   patch: (_id: string, _data: Partial<ShapeData>) => {},
   checkpoint: () => {},
+  link: (_id: string) => {},
 });
 function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   const edit = useContext(EditContext),
@@ -351,6 +353,18 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       {data.kind === "sticky" && (
         <Pin className="lm-sticky-pin" size={18} fill="#aa4251" />
       )}
+      <button
+        type="button"
+        className="lm-node-link nodrag nopan"
+        aria-label="Verbindung beginnen"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          edit.link(id);
+        }}
+      >
+        <Waypoints size={15} />
+      </button>
       <NodeResizer
         isVisible={selected && !editing}
         minWidth={60}
@@ -396,17 +410,12 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           />
         ))}
       {data.kind === "symbol" ? (
-        <svg className="lm-shape-bg lm-symbol-art" viewBox="0 0 100 100">
-          <text
-            x="50"
-            y="53"
-            dominantBaseline="central"
-            textAnchor="middle"
-            fontSize="76"
-          >
-            {data.text}
-          </text>
-        </svg>
+        <SymbolArt
+          name={data.text}
+          stroke={data.stroke === "transparent" ? data.color : data.stroke}
+          fill={data.fill}
+          width={data.strokeWidth}
+        />
       ) : data.media ? (
         <MediaCard media={data.media} />
       ) : data.kind === "image" && data.image ? (
@@ -899,7 +908,13 @@ function BoardEditor() {
       listenForViewSwipe(
         1,
         () => void goToCalendar(),
-        () => !editing && !notes && !settings && !form,
+        (event) =>
+          event.target instanceof Element &&
+          !!event.target.closest(".lm-header") &&
+          !editing &&
+          !notes &&
+          !settings &&
+          !form,
       ),
     [editing, notes, settings, form],
   );
@@ -1236,6 +1251,16 @@ function BoardEditor() {
       })),
     }));
   };
+  const [linkPointer, setLinkPointer] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const startLink = (id: string) => {
+    setTool("connect");
+    setToolMenu("connect");
+    setEditing("");
+    connectTo(id);
+  };
   const begin = (id: string) => {
     setBoard((b) => ({
       ...b,
@@ -1453,7 +1478,7 @@ function BoardEditor() {
     a.click();
     URL.revokeObjectURL(url);
   }
-  const [symbol, setSymbol] = useState("☀️");
+  const [symbol, setSymbol] = useState("Sonne");
   const embedded = new URLSearchParams(location.search).has("notebookEmbed");
   const shapeTool = !["write", "paint", "select", "hand", "connect"].includes(
     tool,
@@ -1580,7 +1605,9 @@ function BoardEditor() {
       }}
       onTouchStart={(e) => {
         touchStart.current =
-          e.touches.length >= 2 ? e.touches[0].clientY : null;
+          e.touches.length >= 2 && (e.target as Element).closest(".lm-header")
+            ? e.touches[0].clientY
+            : null;
       }}
       onTouchEnd={(e) => {
         if (
@@ -2020,6 +2047,10 @@ function BoardEditor() {
       )}
       <div
         ref={host}
+        onPointerMove={(e) => {
+          if (tool === "connect" && connectFrom.current)
+            setLinkPointer({ x: e.clientX, y: e.clientY });
+        }}
         onContextMenu={(e) => {
           if (
             (e.target as HTMLElement).closest(
@@ -2081,6 +2112,7 @@ function BoardEditor() {
               },
               patch,
               checkpoint,
+              link: startLink,
             }}
           >
             <ReactFlow<ShapeNode>
@@ -2125,6 +2157,7 @@ function BoardEditor() {
                 hidden: fade("line:" + e.id) === 0,
                 data: {
                   ...e.data,
+                  startLink: previewEdgeIds.has(e.id) ? undefined : startLink,
                   route: e.type,
                   anchor: reportAnchor,
                   connectTo: tool === "connect" ? connectTo : undefined,
@@ -2180,10 +2213,7 @@ function BoardEditor() {
                   leavingText.current = false;
                   return;
                 }
-                if (tool === "select" || tool === "hand") {
-                  setTool("write");
-                  return;
-                }
+
                 if (tool === "paint" && node.data.kind !== "image") {
                   checkpoint();
                   patch(
@@ -2228,13 +2258,13 @@ function BoardEditor() {
                   add("text", e.clientX, e.clientY);
                 else setEditing("");
               }}
-              nodesDraggable={!editing && tool === "select"}
+              nodesDraggable={
+                !editing && ["select", "write", "hand"].includes(tool)
+              }
               nodesConnectable={
                 !editing && (tool === "select" || tool === "connect")
               }
-              elementsSelectable={
-                !shapeTool && tool !== "hand" && tool !== "paint"
-              }
+              elementsSelectable={!shapeTool && tool !== "paint"}
               selectionOnDrag={tool === "select"}
               selectionMode={SelectionMode.Partial}
               multiSelectionKeyCode="Shift"
@@ -2618,6 +2648,40 @@ function BoardEditor() {
             />
           </svg>
         )}
+        {tool === "connect" &&
+          connectFrom.current &&
+          linkPointer &&
+          (() => {
+            const id = connectFrom.current;
+            const node = board.nodes.find((n) => n.id === id);
+            const origin = node
+              ? {
+                  x: node.position.x + (node.width ?? 0) / 2,
+                  y: node.position.y + (node.height ?? 0) / 2,
+                }
+              : anchors[id.slice(5)];
+            if (!origin) return null;
+            const a = flow.flowToScreenPosition(origin),
+              b = linkPointer;
+            const middle = (a.x + b.x) / 2;
+            const path =
+              connection.type === "straight"
+                ? `M${a.x} ${a.y} L${b.x} ${b.y}`
+                : connection.type === "default"
+                  ? `M${a.x} ${a.y} C${middle} ${a.y} ${middle} ${b.y} ${b.x} ${b.y}`
+                  : `M${a.x} ${a.y} H${middle} V${b.y} H${b.x}`;
+            return (
+              <svg className="lm-link-preview" aria-hidden>
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={connection.color}
+                  strokeWidth={connection.width}
+                  strokeDasharray={connection.dash || undefined}
+                />
+              </svg>
+            );
+          })()}
         {draft && (
           <div
             className="lm-draft"
@@ -2635,6 +2699,9 @@ function BoardEditor() {
                     : fill,
             }}
           >
+            {tool === "symbols" && (
+              <SymbolArt name={symbol} stroke="#4e485f" fill="none" />
+            )}
             {(tool === "polygon" || tool === "diamond") && (
               <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                 <path
@@ -3403,75 +3470,16 @@ function BoardEditor() {
             )}
             {toolMenu === "symbols" && (
               <div className="lm-symbol-picker">
-                {[
-                  "☀️",
-                  "🌤️",
-                  "☁️",
-                  "🌧️",
-                  "⛈️",
-                  "🌈",
-                  "🌙",
-                  "⭐",
-                  "⛰️",
-                  "🏔️",
-                  "🏝️",
-                  "🌴",
-                  "🌲",
-                  "🌵",
-                  "🌊",
-                  "🌻",
-                  "🍂",
-                  "🍄",
-                  "🔥",
-                  "❄️",
-                  "✈️",
-                  "🛩️",
-                  "🚁",
-                  "🚀",
-                  "⛵",
-                  "🛶",
-                  "🚲",
-                  "🚂",
-                  "🚗",
-                  "🗺️",
-                  "🧭",
-                  "🎒",
-                  "🧳",
-                  "🏕️",
-                  "🏖️",
-                  "🏙️",
-                  "🏡",
-                  "🏰",
-                  "🌉",
-                  "💡",
-                  "🎨",
-                  "🎵",
-                  "🎸",
-                  "🎬",
-                  "📷",
-                  "📚",
-                  "📌",
-                  "🔖",
-                  "💬",
-                  "🎯",
-                  "🧩",
-                  "🏆",
-                  "🎁",
-                  "❤️",
-                  "🍋",
-                  "☕",
-                  "🌿",
-                  "🦋",
-                  "🐚",
-                  "🐾",
-                ].map((value) => (
+                {Object.keys(symbols).map((value) => (
                   <button
                     type="button"
                     key={value}
                     aria-pressed={symbol === value}
+                    aria-label={value}
+                    title={value}
                     onClick={() => setSymbol(value)}
                   >
-                    {value}
+                    <SymbolArt name={value} stroke="currentColor" fill="none" />
                   </button>
                 ))}
               </div>

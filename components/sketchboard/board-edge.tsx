@@ -16,6 +16,7 @@ export function BoardEdge(props: EdgeProps) {
         caption?: LineLabel;
         anchor?: (id: string, x: number, y: number) => void;
         connectTo?: (id: string) => void;
+        startLink?: (id: string) => void;
       }
     | undefined;
   const [path, x, y] =
@@ -97,6 +98,34 @@ export function BoardEdge(props: EdgeProps) {
             : undefined
         }
       />
+      {data?.startLink && (
+        <g
+          className="lm-edge-link"
+          transform={`translate(${x} ${y - 13})`}
+          role="button"
+          aria-label="Verbindung an Linie beginnen"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            data.startLink!("line:" + id);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              data.startLink!("line:" + id);
+            }
+          }}
+        >
+          <rect x="-11" y="-9" width="22" height="18" rx="6" />
+          <path
+            d="M-5 3L0 -3L5 3M-6 3h2M-1-3h2M4 3h2"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+          />
+        </g>
+      )}
       {caption?.text && (
         <g
           className="lm-edge-caption"
