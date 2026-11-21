@@ -2558,6 +2558,7 @@ export default function Planner() {
                 zoneMode={zoneMode}
                 zones={zones}
                 onZoneEdit={setZoneEdit}
+                onZoneDelete={async(zone)=>{try{const result=await api("/api/zones",{action:"delete",id:zone.id});setZones(result.zones);setZoneEdit(current=>current?.id===zone.id?null:current);}catch(error){handleError(error);throw error;}}}
                 days={overview==="day"?[parseDate(anchor)]:days}
                 mobileDay={mobileDay}
                 todos={calendarTodos}

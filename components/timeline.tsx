@@ -1,4 +1,5 @@
 "use client";
+import { createPortal } from "react-dom";
 import { TaskPersonAvatar } from "./person-avatar";
 import TaskPicture from "./task-picture";
 import TaskImportanceButtons from "./task-importance-buttons";
@@ -88,6 +89,7 @@ interface Props {
   zoneMode?: boolean;
   zones?: CalendarZone[];
   onZoneEdit?: (zone:CalendarZone)=>void;
+  onZoneDelete?: (zone:CalendarZone)=>Promise<void>;
 }
 export function dragStartMinute(
   active: {
@@ -455,6 +457,7 @@ function TimeColumn({
   zoneMode,
   zones,
   onZoneEdit,
+  onZoneDelete,
 }: Omit<Props, "days" | "mobileDay" | "renderUnscheduled"> & { day: string }) {
   const { setNodeRef } = useDroppable({
     id: `timegrid:${day}`,
@@ -525,7 +528,7 @@ function TimeColumn({
         const night=part.start<360;
         const top=night?1080+part.start/6:part.start-360;
         const height=(part.end-part.start)/(night?6:1);
-        return <ZoneBlock key={`${zone.id}:${part.start}`} zone={zone} day={day} night={night} top={top*scale} height={height*scale} onEdit={onZoneEdit}/>;
+        return <ZoneBlock key={`${zone.id}:${part.start}`} zone={zone} day={day} night={night} top={top*scale} height={height*scale} onEdit={onZoneEdit} onDelete={onZoneDelete}/>;
       }))}
       {Array.from({ length: 18 }, (_, i) => {
         const hour = (i + 6) % 24;
@@ -652,9 +655,20 @@ function TimeColumn({
   );
 }
 
-function ZoneBlock({zone,day,night,top,height,onEdit}:{
-  zone:CalendarZone;day:string;night:boolean;top:number;height:number;onEdit?:Props["onZoneEdit"];
+function ZoneBlock({zone,day,night,top,height,onEdit,onDelete}:{
+  zone:CalendarZone;day:string;night:boolean;top:number;height:number;onEdit?:Props["onZoneEdit"];onDelete?:Props["onZoneDelete"];
 }) {
+  const [menu,setMenu]=useState<{x:number;y:number}|null>(null);
+  const [deleting,setDeleting]=useState(false);
+  const menuRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    if(!menu)return;
+    const outside=(event:PointerEvent)=>{if(!menuRef.current?.contains(event.target as Node))setMenu(null);};
+    const key=(event:KeyboardEvent)=>{if(event.key==="Escape")setMenu(null);};
+    document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);
+    menuRef.current?.querySelector("button")?.focus();
+    return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);};
+  },[menu]);
   const drag=useDraggable({id:`calendar-zone:${zone.id}:${day}:${night}`,data:{kind:"calendar-zone",zone,day,night}});
   const style={
     top,height,"--zone-color":zone.color,
@@ -663,6 +677,7 @@ function ZoneBlock({zone,day,night,top,height,onEdit}:{
   } as React.CSSProperties;
   return <div className={`calendar-zone ${zone.outline?"zone-outline":""}`} style={style}>
     <button ref={drag.setNodeRef} type="button" className="calendar-zone-label" {...drag.attributes} {...drag.listeners}
+      onContextMenu={event=>{if(!onDelete)return;event.preventDefault();event.stopPropagation();setMenu({x:Math.max(8,Math.min(innerWidth-150,event.clientX)),y:Math.max(8,Math.min(innerHeight-50,event.clientY))});}}
       onClick={()=>onEdit?.(zone)} title={`${zone.name} · Ziehen zum Verschieben · Klick zum Bearbeiten`}>{zone.name}</button>
   </div>;
 }
