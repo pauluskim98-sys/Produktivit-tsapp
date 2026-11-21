@@ -2141,17 +2141,7 @@ export default function Planner() {
         const target = event.target as Element;
         if (target.closest("input,textarea,select,[contenteditable],[role=dialog],[role=menu]") &&
             !target.closest(".legacy-note-todo.group-selected")) return;
-        if (target.closest(".timeline-scroll,.calendar-overview-large")) {
-          event.preventDefault();
-          today();
-          setOverview(null);
-          setDatePreview(null);
-          setPasteTarget(null);
-          setPicked(null);
-          setSelectedIds([]);
-          setSelectionMode(false);
-          setSelectionMenu(null);
-        } else if (selectedIds.length) {
+        if (selectedIds.length) {
           event.preventDefault();
           setSelectionMenu({ x:event.clientX, y:event.clientY });
         }
