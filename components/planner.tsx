@@ -137,6 +137,9 @@ import {
 import Timeline, { dragStartMinute, type TimeChange } from "./timeline";
 import { gridMinute, scheduleAt, toMinutes } from "@/lib/schedule";
 import CategoryIcon from "./category-icon";
+import { lifeTabs, baseLifeTabs } from "@/lib/life-tabs";
+import type { LifeState } from "@/lib/life";
+import { applyTaskTemplate, type TaskTemplate } from "@/lib/task-templates";
 import { useDialog } from "./use-dialog";
 import { isTitleKey, typeTitle } from "./type-title";
 import type { AppState, Todo, ChatMessage, CalendarEvent } from "@/lib/types";
@@ -764,6 +767,8 @@ export default function Planner() {
       dayPanel ||
       (zoneEdit ? `zone:${zoneEdit.id}` : planning ? "planning" : newOpen ? "new" : settings ? "settings" : ""),
   );
+  const notesBeforeCreation = useRef(false);
+  const notesClickCandidate = useRef(false);
   const [notesPosition, setNotesPosition] = useState<"below" | "open" | "closing">("below");
   useEffect(() => {
     if (!document.documentElement.classList.contains("lifemap-notes-frame")) return;
@@ -779,6 +784,8 @@ export default function Planner() {
     return () => observer.disconnect();
   }, []);
   const visibleNotesPosition = newOpen && notesPosition==="open" ? "closing" : notesPosition;
+  const wasCreating=useRef(false);
+  useEffect(()=>{if(wasCreating.current&&!newOpen&&notesBeforeCreation.current){setNotesPosition("open");notesBeforeCreation.current=false;}wasCreating.current=newOpen;},[newOpen]);
   const [notePreferences,setNotePreferences]=useState(defaultNotePreferences);
   const [noteSettingsOpen,setNoteSettingsOpen]=useState(false);
   const [noteToday,setNoteToday]=useState(()=>dateKey(new Date()));
@@ -867,6 +874,7 @@ export default function Planner() {
   useDialog(!!calendarSettings,calendarSettingsId || "");
   const toggleNotes = () => {
     setPasteTarget(null);
+    if(notesPosition==="open"||newOpen){notesBeforeCreation.current=false;notesClickCandidate.current=false;}
     setNotesPosition((position)=>position==="open"?"closing":"open");
   };
   const toggleZones = () => {
@@ -2148,6 +2156,9 @@ export default function Planner() {
       }}
       onClickCapture={(event) => {
         const target=event.target as Element;
+        if(target.closest(".notepad-size-options,.notepad-size-grip"))return;
+        const calendarCreation=target.closest("[data-day-grid],.calendar-overview-large")&&!target.closest("[data-task-id],input,textarea");
+        notesClickCandidate.current=!!calendarCreation&&notesPosition==="open";
         const notePanel=target.closest(".calendar-bottom-notes");
         const blankNoteArea=notePanel && !target.closest("button,a,input,textarea,select,label,summary,[contenteditable],[role=separator],[data-task-id],.selection-toolbar,.note-text-column,.notebook-sidebar");
         if(blankNoteArea && visibleNotesPosition==="below"){
@@ -2157,6 +2168,7 @@ export default function Planner() {
         areaSelection.bind.onClickCapture(event);
         if (event.isPropagationStopped()) return;
         if (blankNoteArea || target.matches(".main-content,.planner-toolbar,.calendar-toolbar-leading,.calendar-category-bar,.calendar-category-zone,.timeline-scroll,.timeline-head,.timeline-body,.timeline-gutter-head,.time-axis,.time-axis span,.calendar-overview-large")) {
+          if(!calendarCreation)notesBeforeCreation.current=false;
           setNotesPosition((position)=>position==="open"?"closing":position);
         }
         const node = (event.target as Element).closest<HTMLElement>(
@@ -2415,6 +2427,7 @@ export default function Planner() {
                 <a className="today-button" href="/lifemap/board" style={{textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6}} title="Freie LifeMap öffnen">◇ LifeMap</a>
               </div>
             <CalendarTabs onCreate={(id,color,suggestions)=>{
+              notesBeforeCreation.current=notesPosition==="open";
               setNewSlot({day:dateKey(new Date()),time:"",category:{id,color,suggestions}});
               setNewOpen(true);
             }} onAdd={(title,id,color)=>{
@@ -2518,7 +2531,9 @@ export default function Planner() {
                 large
                 onExtend={extendAcross}
                 onCreate={(day) => {
-                                setNewSlot({ day, time: "", drawn: false });
+                                notesBeforeCreation.current=notesPosition==="open"||notesClickCandidate.current;
+                  notesClickCandidate.current=false;
+                  setNewSlot({ day, time: "", drawn: false });
                   setNewOpen(true);
                 }}
                 onOpen={(id) => {
@@ -2611,6 +2626,8 @@ export default function Planner() {
                     return;
                   }
                                 setPasteTarget({ day, time });
+                  notesBeforeCreation.current=notesPosition==="open"||notesClickCandidate.current;
+                  notesClickCandidate.current=false;
                   setNewSlot({ day, time, duration, days, drawn });
                   setNewOpen(true);
                 }}
@@ -2989,6 +3006,7 @@ export default function Planner() {
         <Detail
           isNew
           titleSuggestions={newSlot?.category?.suggestions}
+          preserveCalendarSlot={!!newSlot && !newSlot.category}
           showSchedule={!newSlot?.drawn}
           todo={{
             ...newTodo("", newSlot?.day || null, state.todos.length + 1),
@@ -3054,11 +3072,6 @@ export default function Planner() {
             }));
             const planned=planOnSave(todos);
             await mutate({ action: "createMany", todos:planned });
-            if (newSlot?.category) {
-              void api("/api/task-templates",{category:newSlot.category.id,title:draft.title,used:true})
-                .then(()=>window.dispatchEvent(new Event("lifemap-templates-changed")))
-                .catch(handleError);
-            }
             setToast({
               text:
                 todos.length > 1
@@ -3287,6 +3300,7 @@ function DayNote({
 function Detail({
   isNew = false,
   titleSuggestions,
+  preserveCalendarSlot = false,
   editSchedule = false,
   showSchedule = true,
   groupCount = 1,
@@ -3302,6 +3316,7 @@ function Detail({
 }: {
   isNew?: boolean;
   titleSuggestions?: string[];
+  preserveCalendarSlot?: boolean;
   editSchedule?: boolean;
   showSchedule?: boolean;
   groupCount?: number;
@@ -3382,6 +3397,35 @@ function Detail({
     [saving, setSaving] = useState(false),
     [chat, setChat] = useState(false),
     [saved, setSaved] = useState(false);
+  const [templateRows,setTemplateRows]=useState<TaskTemplate[]>([]);
+  const [templateLife,setTemplateLife]=useState<LifeState|null>(null);
+  const [categoryQuery,setCategoryQuery]=useState("");
+  const [categoryIndex,setCategoryIndex]=useState(0);
+  const [titleIndex,setTitleIndex]=useState(-1);
+  const [titleChoicesOpen,setTitleChoicesOpen]=useState(false);
+  const [chosenTemplate,setChosenTemplate]=useState<string|null>(null);
+  const [categoryOpen,setCategoryOpen]=useState(false);
+  useEffect(()=>{
+    let live=true;
+    void Promise.all([fetch("/api/task-templates").then(r=>r.ok?r.json():[]),fetch("/api/life").then(r=>r.ok?r.json():null)])
+      .then(([rows,life])=>{if(live){setTemplateRows(rows);setTemplateLife(life);}}).catch(()=>{});
+    return()=>{live=false;};
+  },[]);
+  const categoryTabs=(templateLife?lifeTabs(templateLife):baseLifeTabs).filter(([id])=>!["weather","goals","todo"].includes(id));
+  const chosenCategories=draft.tags.filter(tag=>tag.startsWith("c:")).map(tag=>tag.slice(2));
+  const matchingCategories=categoryTabs.filter(([id,name])=>!chosenCategories.includes(id)&&name.toLocaleLowerCase("de").includes(categoryQuery.trim().toLocaleLowerCase("de"))).slice(0,8);
+  const choices=templateRows.filter(row=>(!chosenCategories.length||chosenCategories.includes(row.category)) && row.title.toLocaleLowerCase("de").includes(draft.title.trim().toLocaleLowerCase("de")))
+    .filter((row,index,all)=>all.findIndex(item=>item.title===row.title&&item.category===row.category)===index).slice(0,8);
+  const visibleChoices=titleChoicesOpen && chosenTemplate!==draft.title ? choices : [];
+  const addCategory=(id:string)=>{
+    update({tags:[...draft.tags.filter(tag=>tag!=="c:"+id),"c:"+id]});
+    setCategoryQuery("");setCategoryOpen(false);setCategoryIndex(0);
+  };
+  const chooseTemplate=(row:TaskTemplate)=>{
+    rememberDraft();
+    const next=applyTaskTemplate(draft,row,preserveCalendarSlot||!isNew);
+    setDraft(next);setChosenTemplate(row.title);setTitleChoicesOpen(false);setTitleIndex(-1);
+  };
   const [repeatDays, setRepeatDays] = useState<number[]>([]),
     [repeatWeeks, setRepeatWeeks] = useState(8),
     [repeating, setRepeating] = useState(false);
@@ -3586,6 +3630,12 @@ function Detail({
         screenshot ? screenshotOccurrences(screenshot, parsed) : undefined,
         recognized.repeatDays.length ? {days:recognized.repeatDays,weeks:repeatWeeks} : undefined,
       );
+      const categories=parsed.tags.filter(tag=>tag.startsWith("c:")).map(tag=>tag.slice(2));
+      if(categories.length) {
+        const results=await Promise.allSettled(categories.map(category=>api("/api/task-templates",{category,title:parsed.title,todo:parsed,used:isNew})));
+        window.dispatchEvent(new Event("lifemap-templates-changed"));
+        if(results.some(result=>result.status==="rejected"))onError(new Error("Termin gespeichert. Die Vorlage konnte nicht aktualisiert werden."));
+      }
       setScreenshot(null);
       setImportedFields([]);
       draftPast.current = [];
@@ -3774,8 +3824,16 @@ function Detail({
               data-imported={imported("title")}
               value={draft.title}
               maxLength={500}
-              onChange={(e) => update({title:e.target.value})}
+              aria-autocomplete="list"
+              aria-expanded={visibleChoices.length>0}
+              aria-controls="task-template-options"
+              onFocus={()=>setTitleChoicesOpen(true)}
+              onBlur={()=>window.setTimeout(()=>setTitleChoicesOpen(false),130)}
+              onChange={(e) => {update({title:e.target.value});setChosenTemplate(null);setTitleChoicesOpen(true);setTitleIndex(-1);}}
               onKeyDown={(e) => {
+                if(!e.nativeEvent.isComposing && visibleChoices.length && ["ArrowDown","ArrowUp"].includes(e.key)){e.preventDefault();e.stopPropagation();setTitleIndex(index=>index<0?(e.key==="ArrowDown"?0:visibleChoices.length-1):(index+(e.key==="ArrowDown"?1:visibleChoices.length-1))%visibleChoices.length);return;}
+                if(e.key==="Escape"&&titleChoicesOpen){e.preventDefault();e.stopPropagation();setTitleChoicesOpen(false);return;}
+                if(!e.nativeEvent.isComposing&&e.key==="Enter"&&titleIndex>=0&&visibleChoices[titleIndex]){e.preventDefault();e.stopPropagation();chooseTemplate(visibleChoices[titleIndex]);return;}
                 if (
                   e.key !== "Enter" ||
                   e.shiftKey ||
@@ -3849,12 +3907,9 @@ function Detail({
               {recognized.repeatDays.length>0 && <span>{recognized.repeatDays.length===7?"Täglich":recognized.repeatDays.map((day)=>DAYS[day].slice(0,2)).join(", ")} · {repeatWeeks} Wochen</span>}
             </div>
           )}
-          {titleSuggestions && titleSuggestions.some((title)=>title.toLocaleLowerCase("de").includes(draft.title.toLocaleLowerCase("de"))) && (
-            <select aria-label="Gespeicherte Aufgabenvorschläge" value="" onChange={(event)=>update({title:event.target.value})}>
-              <option value="" disabled>Gespeicherte Vorschläge …</option>
-              {titleSuggestions.filter((title)=>title.toLocaleLowerCase("de").includes(draft.title.toLocaleLowerCase("de"))).slice(0,12).map((title)=><option key={title}>{title}</option>)}
-            </select>
-          )}
+          {visibleChoices.length>0 && <div className="task-template-options" id="task-template-options" role="listbox" aria-label="Gespeicherte Aufgaben">
+            {visibleChoices.map((row,index)=><button key={row.category+row.title} type="button" role="option" aria-selected={titleIndex===index} onMouseDown={event=>event.preventDefault()} onClick={()=>chooseTemplate(row)}><span>{row.title}</span><small>{categoryTabs.find(([id])=>id===row.category)?.[1]}</small></button>)}
+          </div>}
           {readingImage && (
             <p role="status" className="assessment-label">
               Screenshot wird gelesen …
@@ -4305,6 +4360,15 @@ function Detail({
                   <Flag size={16} fill={draft.priority===priority?"currentColor":"none"}/>
                 </button>)}
               </fieldset>
+              <div className="detail-category-picker">
+                <div className="detail-category-chips">{chosenCategories.map(id=><button type="button" key={id} title="Reiterzuordnung entfernen" onClick={()=>update({tags:draft.tags.filter(tag=>tag!=="c:"+id)})}>{categoryTabs.find(([key])=>key===id)?.[1]||id}</button>)}</div>
+                <input placeholder="Zu Reiter hinzufügen …" aria-label="Zu Reiter hinzufügen" role="combobox" aria-expanded={categoryOpen&&matchingCategories.length>0} aria-autocomplete="list" aria-controls="task-category-options" value={categoryQuery} onFocus={()=>setCategoryOpen(true)} onBlur={()=>window.setTimeout(()=>setCategoryOpen(false),130)} onChange={event=>{setCategoryQuery(event.target.value);setCategoryOpen(true);setCategoryIndex(0);}}
+                  onKeyDown={event=>{if(["ArrowDown","ArrowUp"].includes(event.key)&&matchingCategories.length){event.preventDefault();event.stopPropagation();setCategoryIndex(index=>(index+(event.key==="ArrowDown"?1:matchingCategories.length-1)+matchingCategories.length)%matchingCategories.length);}
+                    else if(event.key==="Enter"&&categoryOpen&&matchingCategories[categoryIndex]){event.preventDefault();event.stopPropagation();addCategory(matchingCategories[categoryIndex][0]);}
+                    else if(event.key==="Escape"){event.stopPropagation();setCategoryOpen(false);}
+                  }}/>
+                {categoryOpen&&matchingCategories.length>0&&<div className="task-template-options" id="task-category-options" role="listbox">{matchingCategories.map(([id,name],index)=><button type="button" key={id} role="option" aria-selected={categoryIndex===index} onMouseDown={event=>event.preventDefault()} onClick={()=>addCategory(id)}>{name}</button>)}</div>}
+              </div>
               <label className="detail-tags">
                 <span>
                   <Layers2 size={15} aria-hidden="true" />

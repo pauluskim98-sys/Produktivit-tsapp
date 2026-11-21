@@ -433,7 +433,7 @@ export default function NotebookNavigation({
         }}
       />
       {sizeTab && (
-        <div className="notepad-size-options">
+        <div className="notepad-size-options" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
           <span>Notepad-Größe speichern</span>
           {[
             ["Dieser Tab", sizeTab],
