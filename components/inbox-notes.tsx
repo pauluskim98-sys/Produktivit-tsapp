@@ -51,14 +51,10 @@ export default function InboxNotes({
       }
       return {before:text,after};
     });
-    useEffect(() => {
-    const save = (event: Event) => {
-      (event as CustomEvent<Promise<boolean>[]>).detail.push(flush());
+    return () => {
+      registerStore?.(null);
+      registerLegacyDelete?.(null);
     };
-    document.addEventListener("lifemap-save-notebook", save);
-    return () => document.removeEventListener("lifemap-save-notebook", save);
-  }, [flush]);
-  return ()=>{registerStore?.(null);registerLegacyDelete?.(null);};
   });
   useEffect(() => {
     const save = (event: Event) => {
