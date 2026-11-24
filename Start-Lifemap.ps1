@@ -56,8 +56,13 @@ try {
     if ($status -ne 'ready') { throw 'Lifemap konnte nicht starten. Details stehen unter data\desktop\server-error.log.' }
   }
   if ($CheckOnly) { Write-Output 'Lifemap ist erreichbar.'; return }
-  $window = Join-Path $projectPath 'desktop\bin\publish\Lifemap.exe'
-  if (!(Test-Path -LiteralPath $window)) { throw 'Das Windows-Fenster fehlt. Bitte in Codex neu bauen lassen.' }
+  $window = @('desktop/bin/publish','desktop/bin/publish-staged') |
+    ForEach-Object { Join-Path $projectPath $_ } |
+    Where-Object { (Test-Path -LiteralPath (Join-Path $_ 'Lifemap.exe')) -and (Test-Path -LiteralPath (Join-Path $_ 'Lifemap.dll')) } |
+    Sort-Object { (Get-Item -LiteralPath (Join-Path $_ 'Lifemap.dll')).LastWriteTimeUtc } -Descending |
+    Select-Object -First 1 |
+    ForEach-Object { Join-Path $_ 'Lifemap.exe' }
+  if (!$window) { throw 'Das Windows-Fenster fehlt. Bitte in Codex neu bauen lassen.' }
   Start-Process -FilePath $window -WorkingDirectory $projectPath -WindowStyle Normal
 } catch {
   if ($CheckOnly) { throw }

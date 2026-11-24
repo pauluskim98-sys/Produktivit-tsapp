@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 export function useAutosaveText(
   value: string,
   onSave: (text: string) => Promise<void>,
+  draftKey?: string,
 ) {
   const [text, setTextState] = useState(value),
     [error, setError] = useState("");
@@ -30,6 +31,7 @@ export function useAutosaveText(
         try {
           await save(next);
           written.current = next;
+          if (draftKey && localStorage.getItem(draftKey) === next) localStorage.removeItem(draftKey);
           if (latest.current === next) dirty.current = false;
           if (mounted.current) setError("");
           return true;
@@ -52,6 +54,7 @@ export function useAutosaveText(
   const setText = (next: string) => {
     dirty.current = true;
     latest.current = next;
+    if (draftKey) localStorage.setItem(draftKey,next);
     setTextState(next);
   };
   useEffect(() => {
@@ -71,6 +74,8 @@ export function useAutosaveText(
   }, [text, value]);
   useEffect(() => {
     mounted.current = true;
+    const restored = draftKey ? localStorage.getItem(draftKey) : null;
+    if (restored !== null && restored !== latest.current) setText(restored);
     return () => {
       mounted.current = false;
       void flushRef.current();

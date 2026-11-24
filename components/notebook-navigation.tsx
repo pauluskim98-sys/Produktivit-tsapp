@@ -3,14 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, Folder, PanelLeft, Plus, Search, X } from "lucide-react";
 import { readNoteLines } from "./planner-notepad";
-import { isNotebookFolder, notebookFolder } from "@/lib/notebook";
+import { isNotebookFolder, notebookFolder, notebookColumnParent } from "@/lib/notebook";
 
 type Entry = { key: string; title: string; content: string; folder?: string };
 export function notebookTitle(key: string, value: string) {
   if (notebookFolder(key))
     return readNoteLines(value)[0]?.text.trim() || "Unbenannte Notiz";
   const [period, date] = key.includes(":") ? key.split(":") : ["day", key];
-  return `${period === "week" ? "Woche" : period === "month" ? "Monat" : "Tag"} · ${date.split("-").reverse().join(".")}`;
+  return `${period === "week" ? "Woche" : period === "month" ? "Monat" : period === "year" ? "Jahr" : "Tag"} · ${date.split("-").reverse().join(".")}`;
 }
 
 export default function NotebookNavigation({
@@ -29,6 +29,7 @@ export default function NotebookNavigation({
   onClose,
   onCreate,
   onFolder,
+  onSettings,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -44,6 +45,7 @@ export default function NotebookNavigation({
   onOpen: (key: string) => void;
   onClose: (key: string) => void;
   onCreate: (folder?: string) => void;
+  onSettings: (key: string) => void;
   onFolder: (name: string) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
@@ -96,7 +98,7 @@ export default function NotebookNavigation({
   const folders = Object.entries(values)
     .filter(([key, name]) => isNotebookFolder(key) && name)
     .sort((a, b) => a[1].localeCompare(b[1], "de"));
-  const calendar = /^(?:(?:week|month):)?\d{4}-\d{2}-\d{2}$/;
+  const calendar = /^(?:(?:week|month|year):)?\d{4}-\d{2}-\d{2}$/;
   const entries: Entry[] = [
     ...new Set([
       ...calendarKeys,
@@ -109,6 +111,7 @@ export default function NotebookNavigation({
     title: notebookTitle(key, values[key] || ""),
     folder: notebookFolder(key),
     content: readNoteLines(values[key] || "")
+      .concat(Object.entries(values).filter(([entry]) => notebookColumnParent(entry) === key).flatMap(([, content]) => readNoteLines(content)))
       .map((line) => line.text)
       .join(" "),
   }));
@@ -312,7 +315,7 @@ export default function NotebookNavigation({
             }}
             onContextMenu={(e) => {
               e.preventDefault();
-              beginSize(key);
+              onSettings(key);
             }}
           >
             <button

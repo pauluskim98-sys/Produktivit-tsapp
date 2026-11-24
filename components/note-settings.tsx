@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { useDialog } from "./use-dialog";
-import { defaultNotePreferences, noteFonts, noteFontCss, notePeriods, notePeriodNames, type NoteFont, type NotePreferences } from "@/lib/note-todos";
+import { defaultNotePreferences, noteFonts, noteFontCss, type NoteFont, type NotePreferences } from "@/lib/note-todos";
 
 export default function NoteSettings({value,onSave,onClose}:{value:NotePreferences;onSave:(value:NotePreferences)=>void;onClose:()=>void}){
   const [draft,setDraft]=useState(value);
@@ -21,12 +21,6 @@ export default function NoteSettings({value,onSave,onClose}:{value:NotePreferenc
         <label>Schriftgröße <select value={draft.size} onChange={(event)=>setDraft({...draft,size:Number(event.target.value)})}>
           {[12,14,16,18,20,24].map((size)=><option key={size}>{size}</option>)}
         </select></label>
-        <fieldset><legend>Spalten der To-do-Liste</legend>{notePeriods.map((period)=><label key={period}>
-          <input type="checkbox" checked={draft.columns.includes(period)}
-            disabled={draft.columns.length===1 && draft.columns.includes(period)}
-            onChange={(event)=>setDraft({...draft,columns:notePeriods.filter((item)=>item===period?event.target.checked:draft.columns.includes(item))})}/>
-          {notePeriodNames[period]}
-        </label>)}</fieldset>
         <div className="note-settings-actions"><button type="submit">Speichern</button>
           <button type="button" onClick={()=>setDraft(defaultNotePreferences)}>Standardwerte</button></div>
       </form>

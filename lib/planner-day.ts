@@ -15,6 +15,7 @@ export function plannerPeriodTags(tags:string[], period:string, day:string) {
 
 const noteOriginPrefix="note-origin:";
 export function parkedNoteTag(noteDate:string){
+  if(noteDate.startsWith("note-column:"))return `n:${noteDate.split(":")[1]}`;
   return `n:${noteDate.startsWith("note:")?noteDate.split(":").at(-1):noteDate}`;
 }
 export function parkTask(todo:Todo,noteDate:string):Todo {

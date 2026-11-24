@@ -16,6 +16,7 @@ internal static class Program
         {
             Text = "Lifemap",
             Size = new Size(1280, 850),
+            WindowState = checkOnly ? FormWindowState.Normal : FormWindowState.Maximized,
             MinimumSize = new Size(700, 480),
             StartPosition = FormStartPosition.CenterScreen,
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath),

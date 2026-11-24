@@ -16,7 +16,7 @@ export default function InboxNotes({
   onTaskOpen,
   registerStore,
   registerLegacyDelete,
-  todoPanel,
+  todoMode,
   preferences,
   titled,
   focusTitle,
@@ -28,21 +28,21 @@ export default function InboxNotes({
   actions?: React.ReactNode;
   tasks: Todo[];
   onTaskOpen: (id:string)=>void;
-  registerStore: (store:((tasks:Todo[])=>Promise<void>)|null)=>void;
-  registerLegacyDelete: (remove:((ids:string[])=>Promise<{before:string;after:string}>)|null)=>void;
-  todoPanel:React.ReactNode;
+  registerStore?: (store:((tasks:Todo[])=>Promise<void>)|null)=>void;
+  registerLegacyDelete?: (remove:((ids:string[])=>Promise<{before:string;after:string}>)|null)=>void;
+  todoMode?:boolean;
   preferences:NotePreferences;
   titled?:boolean;
   focusTitle?:boolean;
   onSave: (text: string) => Promise<void>;
 }) {
-  const { text, setText, flush, error } = useAutosaveText(value, onSave);
+  const { text, setText, flush, error } = useAutosaveText(value, onSave, `lifemap-notebook-draft:${noteDate}`);
   useEffect(()=>{
-    registerStore(async(tasks)=>{
+    registerStore?.(async(tasks)=>{
       setText(noteWithTasks(text,tasks,titled));
       if(!await flush())throw new Error("Notiz konnte nicht gespeichert werden.");
     });
-    registerLegacyDelete(async(ids)=>{
+    registerLegacyDelete?.(async(ids)=>{
       const after=withoutLegacyNoteTodos(text,noteDate,ids);
       setText(after);
       if(!await flush()){
@@ -51,11 +51,25 @@ export default function InboxNotes({
       }
       return {before:text,after};
     });
-    return ()=>{registerStore(null);registerLegacyDelete(null);};
+    useEffect(() => {
+    const save = (event: Event) => {
+      (event as CustomEvent<Promise<boolean>[]>).detail.push(flush());
+    };
+    document.addEventListener("lifemap-save-notebook", save);
+    return () => document.removeEventListener("lifemap-save-notebook", save);
+  }, [flush]);
+  return ()=>{registerStore?.(null);registerLegacyDelete?.(null);};
   });
+  useEffect(() => {
+    const save = (event: Event) => {
+      (event as CustomEvent<Promise<boolean>[]>).detail.push(flush());
+    };
+    document.addEventListener("lifemap-save-notebook", save);
+    return () => document.removeEventListener("lifemap-save-notebook", save);
+  }, [flush]);
   return (
     <section className="inbox-notes">
-      <PlannerNotepad label={label} value={text} onChange={setText} onBlur={flush} onStep={onStep} noteDate={noteDate} actions={actions} tasks={tasks} onTaskOpen={onTaskOpen} todoPanel={todoPanel} preferences={preferences} titled={titled} focusTitle={focusTitle}/>
+      <PlannerNotepad label={label} value={text} onChange={setText} onBlur={flush} onStep={onStep} noteDate={noteDate} actions={actions} tasks={tasks} onTaskOpen={onTaskOpen} todoMode={todoMode} preferences={preferences} titled={titled} focusTitle={focusTitle}/>
       {error && <small role="status">{error}</small>}
     </section>
   );

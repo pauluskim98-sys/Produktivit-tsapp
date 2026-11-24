@@ -29,14 +29,15 @@ import { autoSchedule, scheduleUntimedOnSave } from "@/lib/auto-schedule";
 import { goalRange } from "@/lib/goals";
 import ResourceDrawer from "./resource-drawer";
 import InboxNotes from "./inbox-notes";
-import NoteTodoBoard from "./note-todo-board";
+import NotebookColumns from "./notebook-columns";
+import { addNotebookColumns, defaultNotebookLayout, notebookColumnKey, readNotebookSession, type NotebookLayout } from "@/lib/notebook-layout";
 import NoteSettings from "./note-settings";
 import { defaultNotePreferences, noteFonts, notePeriods, notePeriod, waitingNoteTodo, putInNoteTodo, type NotePeriod, type NotePreferences } from "@/lib/note-todos";
 import PlannerNotepad, { noteWithTasks, readNoteLines } from "./planner-notepad";
 import { CalendarEventEditor, CalendarOptions } from "./calendar-editor";
 import { useAutosaveText } from "./use-autosave-text";
 import TaskImportanceButtons from "./task-importance-buttons";
-import { taskDay, plannerPeriodTags, parkTask, restoreParkedTask, isFlexibleTask } from "@/lib/planner-day";
+import { taskDay, plannerPeriodTags, parkTask, parkedNoteTag, restoreParkedTask, isFlexibleTask } from "@/lib/planner-day";
 import ColorPicker from "./task-color-picker";
 import TaskDescription from "./task-description";
 import TaskPicture from "./task-picture";
@@ -173,6 +174,7 @@ async function api(url: string, body?: unknown) {
       ? { cache: "no-store" }
       : {
           method: "POST",
+          keepalive: url === "/api/notes",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         },
@@ -597,27 +599,41 @@ export default function Planner() {
   const [storageOpen, setStorageOpen] = useState(false);
   const plannerNotePeriod:TaskPeriod=overview==="day"?"day":overview==="month" || overview==="year"?"month":"week";
   const calendarNoteKeys = [anchor, `week:${periodRange(`week:${anchor}`)!.start}`, `month:${periodRange(`month:${anchor}`)!.start}`];
-  const calendarNoteKey = calendarNoteKeys[plannerNotePeriod==="day"?0:plannerNotePeriod==="week"?1:2];
+  const [notebookHome, setNotebookHome] = useState(calendarNoteKeys[1]);
+  const [notebookReady, setNotebookReady] = useState(false);
+  const [notebookLayouts,setNotebookLayouts] = useState<Record<string,NotebookLayout>>({});
+  const [notebookSettings,setNotebookSettings] = useState<string|null>(null);
   const [noteTabs,setNoteTabs]=useState<string[]>([]);
   const [selectedNotes,setSelectedNotes]=useState<string[]>([]);
   useEffect(()=>{if(!selectionMode)setSelectedNotes([]);},[selectionMode]);
   const [activeNote,setActiveNote]=useState<string|null>(null);
   const [freshNote,setFreshNote]=useState<string|null>(null);
   const [notebookOpen,setNotebookOpen]=useState(false);
-  const [noteTodosCollapsed,setNoteTodosCollapsed]=useState(false);
-  useEffect(()=>setNoteTodosCollapsed(localStorage.getItem("lifemap-note-todos-collapsed")==="true"),[]);
-  const toggleNoteTodos=()=>{
-    const before=noteTodosCollapsed;
-    const apply=async(value:boolean)=>{
-      localStorage.setItem("lifemap-note-todos-collapsed",String(value));
-      setNoteTodosCollapsed(value);
-    };
-    void apply(!before);
-    record({undo:()=>apply(before),redo:()=>apply(!before)});
-  };
-  const availableTabs=noteTabs.filter((key)=>!notebookFolder(key) || !!state.dayNotes[key]);
-  const plannerNoteKey=activeNote && availableTabs.includes(activeNote)?activeNote:calendarNoteKey;
-  const visibleNoteTabs=[...new Set([calendarNoteKey,...availableTabs])];
+  useEffect(() => {
+    const session = readNotebookSession();
+    setNoteTabs(session.tabs);
+    setActiveNote(session.active);
+    setNotebookLayouts(session.layouts);
+    const home = localStorage.getItem("lifemap-notebook-home");
+    if (home && periodRange(home)) setNotebookHome(home);
+    else localStorage.setItem("lifemap-notebook-home", calendarNoteKeys[1]);
+    setNotebookReady(true);
+  }, []);
+  useEffect(() => {
+    if (notebookReady) localStorage.setItem("lifemap-notebook-session", JSON.stringify({
+      tabs: noteTabs, active: activeNote, layouts: notebookLayouts,
+    }));
+  }, [notebookReady, noteTabs, activeNote, notebookLayouts]);
+  const availableTabs = noteTabs;
+  const plannerNoteKey = activeNote && availableTabs.includes(activeNote) ? activeNote : notebookHome;
+  const visibleNoteTabs = [...new Set([notebookHome, ...availableTabs])];
+  const currentNotebookLayout = notebookLayouts[plannerNoteKey] ?? defaultNotebookLayout;
+  function changeNotebookLayout(key:string, next:NotebookLayout) {
+    const previous = notebookLayouts[key] ?? defaultNotebookLayout;
+    const apply = async (layout:NotebookLayout) => setNotebookLayouts(current => ({ ...current, [key]:layout }));
+    void apply(next);
+    record({undo:()=>apply(previous), redo:()=>apply(next)});
+  }
   const openNote=(key:string)=>{
     setNoteTabs((current)=>current.includes(key)?current:[...current,key]);
     setActiveNote(key);
@@ -786,6 +802,33 @@ export default function Planner() {
   const visibleNotesPosition = newOpen && notesPosition==="open" ? "closing" : notesPosition;
   const wasCreating=useRef(false);
   useEffect(()=>{if(wasCreating.current&&!newOpen&&notesBeforeCreation.current){setNotesPosition("open");notesBeforeCreation.current=false;}wasCreating.current=newOpen;},[newOpen]);
+  const notebookCalendarView = overview === "month" || overview === "year" ? overview : overview === "day" ? "" : "week";
+  const previousNotebookView = useRef("");
+  useEffect(() => {
+    const view = notesPosition === "open" ? notebookCalendarView : "";
+    if (view && view !== previousNotebookView.current && notebookReady) {
+      const preferred = visibleNoteTabs.find(key => notebookLayouts[key]?.view === view);
+      if (preferred) setActiveNote(preferred);
+    }
+    previousNotebookView.current = notebookReady ? view : "";
+  }, [notebookReady, notebookCalendarView, notesPosition, notebookLayouts, noteTabs, notebookHome]);
+  useEffect(() => {
+    function saveNotebook(event:KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "s") return;
+      if (visibleNotesPosition !== "open" && !notesPanelRef.current?.contains(document.activeElement)) return;
+      if ((event.target as Element | null)?.closest?.('[role="dialog"]')) return;
+      if (notesPanelRef.current?.querySelector(".notebook-map-frame")) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const saves:Promise<boolean>[] = [];
+      document.dispatchEvent(new CustomEvent("lifemap-save-notebook", {detail:saves}));
+      void Promise.all(saves).then(results => {
+        if (results.length && results.every(Boolean)) setToast({text:"Notiz gespeichert"});
+      });
+    }
+    document.addEventListener("keydown", saveNotebook, true);
+    return () => document.removeEventListener("keydown", saveNotebook, true);
+  }, [visibleNotesPosition]);
   const [notePreferences,setNotePreferences]=useState(defaultNotePreferences);
   const [noteSettingsOpen,setNoteSettingsOpen]=useState(false);
   const [noteToday,setNoteToday]=useState(()=>dateKey(new Date()));
@@ -2691,7 +2734,7 @@ export default function Planner() {
                 if(!newOpen && event.target===event.currentTarget && event.animationName==="notes-slide-out")
                   setNotesPosition((position)=>position==="closing"?"below":position);
               }}>
-              <div className={`notebook-workspace${notebookOpen?" notebook-sidebar-open":""}${noteTodosCollapsed?" todos-folded":""}`}>
+              <div className={`notebook-workspace${notebookOpen?" notebook-sidebar-open":""} notebook-columns-workspace`}>
               <NotebookNavigation open={notebookOpen} onToggle={()=>{
                   setNotebookOpen((open)=>!open);
                   if(!notebookOpen && visibleNotesPosition==="below" && !notesPanelRef.current?.closest("main")?.scrollTop)toggleNotes();
@@ -2699,11 +2742,11 @@ export default function Planner() {
                 selectionMode={selectionMode} selectedNotes={selectedNotes}
                 onSelectNote={key=>setSelectedNotes(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])}
                 onMoveNotes={(keys,before)=>setNoteTabs(current=>{const next=current.filter(key=>!keys.includes(key));const index=next.indexOf(before);next.splice(index<0?next.length:index,0,...keys);return next;})}
-                values={state.dayNotes} calendarKeys={calendarNoteKeys} pinned={calendarNoteKey} tabs={visibleNoteTabs} active={plannerNoteKey}
+                values={state.dayNotes} calendarKeys={[...calendarNoteKeys, `year:${anchor.slice(0,4)}-01-01`]} pinned={notebookHome} tabs={visibleNoteTabs} active={plannerNoteKey}
                 onOpen={(key)=>{
                   openNote(key);
                   if(visibleNotesPosition==="below" && !notesPanelRef.current?.closest("main")?.scrollTop)toggleNotes();
-                }} onClose={closeNote}
+                }} onClose={closeNote} onSettings={setNotebookSettings}
                 onFolder={async(name)=>{
                   const date=`note-folder:${crypto.randomUUID()}`;
                   await api("/api/notes",{date,content:name});
@@ -2719,30 +2762,47 @@ export default function Planner() {
                   setNotesPosition("open");
                 })().catch(handleError);}}
               />
-              <InboxNotes
-                key={plannerNoteKey}
-                label={notebookTitle(plannerNoteKey,state.dayNotes[plannerNoteKey] || "")}
-                titled={!!notebookFolder(plannerNoteKey)}
-                focusTitle={freshNote===plannerNoteKey}
-                noteDate={plannerNoteKey}
-                tasks={state.todos}
-                onTaskOpen={openNoteTask}
-                preferences={notePreferences}
-                todoPanel={<NoteTodoBoard todos={state.todos} today={noteToday} columns={notePreferences.columns} selected={selectedIds}
-                  onToggle={(todo)=>void toggle(todo)} onOpen={openCalendarTask}
-                  onAdd={async(title,period,important)=>{
-                    const position=Math.max(-1,...state.todos.filter((todo)=>notePeriod(todo)===period).map((todo)=>todo.position))+1;
-                    await save(putInNoteTodo(newTodo(title,null,position),period,important,position));
-                  }}/>}
-                registerStore={(store)=>{noteStore.current=store;}}
-                registerLegacyDelete={(remove)=>{noteLegacyDelete.current=remove;}}
-                value={state.dayNotes[plannerNoteKey] || ""}
-                onSave={async(content)=>{
-                  await api("/api/notes",{date:plannerNoteKey,content});
-                  setState((current)=>({...current,dayNotes:{...current.dayNotes,[plannerNoteKey]:content}}));
+              <NotebookColumns key={plannerNoteKey} layout={currentNotebookLayout}
+                onChange={next=>changeNotebookLayout(plannerNoteKey,next)}
+                onRemove={async (column,remaining)=>{
+                  const key=notebookColumnKey(plannerNoteKey,column.id);
+                  if(state.todos.some(todo=>todo.tags.includes("stored") && todo.tags.includes(parkedNoteTag(key)))) {
+                    setToast({text:"Verschiebe zuerst die Kalenderaufgaben aus dieser Spalte."});
+                    return;
+                  }
+                  changeNotebookLayout(plannerNoteKey,{...currentNotebookLayout,columns:remaining});
                 }}
-                actions={<>
-              <button type="button" className="secondary-button" aria-label="Notizfeld-Einstellungen" onClick={()=>setNoteSettingsOpen(true)}><Settings2 size={15}/></button>
+                render={(column,index)=>{
+                  const key=notebookColumnKey(plannerNoteKey,column.id);
+                  return <InboxNotes key={key}
+                    label={notebookTitle(plannerNoteKey,state.dayNotes[plannerNoteKey] || "")}
+                    titled={column.id==="main" && !!notebookFolder(plannerNoteKey)}
+                    focusTitle={column.id==="main" && freshNote===plannerNoteKey}
+                    noteDate={key}
+                    tasks={state.todos}
+                    onTaskOpen={openNoteTask}
+                    preferences={notePreferences}
+                    todoMode={currentNotebookLayout.kind==="todo"}
+                    registerStore={index===0 ? (store)=>{noteStore.current=store;} : undefined}
+                    registerLegacyDelete={index===0 ? (remove)=>{noteLegacyDelete.current=remove;} : undefined}
+                    value={state.dayNotes[key] || ""}
+                    onSave={async(content)=>{
+                      await api("/api/notes",{date:key,content});
+                      setState(current=>({...current,dayNotes:{...current.dayNotes,[key]:content}}));
+                    }}
+                  />;
+                }}
+                footer={<>
+              {currentNotebookLayout.kind==="todo" && state.todos.some(todo=>waitingNoteTodo(todo,noteToday) && !todo.done) &&
+                <details className="notebook-previous-todos">
+                  <summary>Bisherige To-dos</summary>
+                  {state.todos.filter(todo=>waitingNoteTodo(todo,noteToday) && !todo.done).map(todo=>
+                    <div className="note-line" key={todo.id}>
+                      <input type="checkbox" aria-label={`${todo.title} abhaken`} checked={false} onChange={()=>void toggle(todo)}/>
+                      <button type="button" onClick={()=>openCalendarTask(todo.id)}>{todo.title}</button>
+                    </div>)}
+                </details>}
+              <button type="button" className="secondary-button" aria-label="Tab-Einstellungen" onClick={()=>setNotebookSettings(plannerNoteKey)}><Settings2 size={15}/></button>
               <button type="button" className="secondary-button auto-plan-button" disabled={autoPlanning}
                 onClick={async()=>{
                   setAutoPlanning(true);setAutoPlanError("");
@@ -2768,27 +2828,6 @@ export default function Planner() {
               </form>
                 </>}
               />
-              <div className="notebook-todo-heading">
-                {visibleNotesPosition==="below"?
-                  <button type="button" onClick={toggleNotes} aria-label="Notepad öffnen · To-do-Liste">To-do-Liste</button>:
-                  <strong>To-do-Liste</strong>}
-                {(visibleNotesPosition==="below" || noteTodosCollapsed) && (["day","week"] as const).map((period)=>{
-                  const open=state.todos.filter((todo)=>!todo.done && notePeriod(todo)===period && waitingNoteTodo(todo,noteToday));
-                  const important=open.filter((todo)=>todo.priority==="high").length;
-                  const legacy=readNoteLines(state.dayNotes[calendarNoteKeys[period==="day"?0:1]] || "")
-                    .filter((line)=>line.box && !line.done && !line.taskId && line.text.trim()).length;
-                  const normal=open.length-important+legacy;
-                  return (important>0 || normal>0) && <span key={period} className="notebook-todo-badges">
-                    <strong>{period==="day"?"T":"W"}</strong>
-                    {important>0 && <span className="todo-rail-important" title={`${important} offene wichtige To-dos`}>{important}</span>}
-                    {normal>0 && <span className="todo-rail-normal" title={`${normal} offene normale To-dos`}>{normal}</span>}
-                  </span>;
-                })}
-              </div>
-              {visibleNotesPosition!=="below" && <button type="button" className="notebook-todo-rail"
-                aria-label={noteTodosCollapsed?"To-do-Liste ausklappen":"To-do-Liste einklappen"} aria-expanded={!noteTodosCollapsed} onClick={toggleNoteTodos}>
-                {noteTodosCollapsed?<ArrowLeft size={14}/>:<ArrowRight size={14}/>}
-              </button>}
               </div>
               {autoPlanError && <p role="alert">{autoPlanError}</p>}
             </section>
@@ -3081,6 +3120,13 @@ export default function Planner() {
           }}
         />
       )}
+      {notebookSettings && <NotebookTabSettings key={notebookSettings}
+        title={notebookTitle(notebookSettings,state.dayNotes[notebookSettings] || "")}
+        value={notebookLayouts[notebookSettings] ?? defaultNotebookLayout}
+        onSave={layout=>{changeNotebookLayout(notebookSettings,layout);setNotebookSettings(null);}}
+        onClose={()=>setNotebookSettings(null)}
+        onGeneral={()=>{setNotebookSettings(null);setNoteSettingsOpen(true);}}
+      />}
       {noteSettingsOpen && <NoteSettings value={notePreferences} onSave={saveNotePreferences} onClose={()=>setNoteSettingsOpen(false)}/>}
       {zoneEdit && <ZoneEditor key={zoneEdit.id} zone={zoneEdit} existing={zones.some((zone)=>zone.id===zoneEdit.id)}
         onClose={()=>setZoneEdit(null)}
@@ -3227,6 +3273,44 @@ export default function Planner() {
     </div>
   );
 }
+function NotebookTabSettings({title,value,onSave,onClose,onGeneral}: {
+  title:string; value:NotebookLayout; onSave:(layout:NotebookLayout)=>void; onClose:()=>void; onGeneral:()=>void;
+}) {
+  const [draft,setDraft]=useState(value);
+  const [count,setCount]=useState(String(value.columns.length));
+  useDialog(true,"notebook-tab-settings");
+  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
+    <form className="modal notebook-tab-settings" role="dialog" aria-modal="true" aria-label="Tab-Einstellungen"
+      onKeyDown={event=>{if(event.key==="Escape"){event.stopPropagation();onClose();}}}
+      onSubmit={event=>{
+        event.preventDefault();
+        const total=Math.max(draft.kind==="weekly"?7:1,Math.min(Math.max(50,value.columns.length),Math.floor(Number(count)||1)));
+        onSave({...draft,columns:addNotebookColumns(draft.columns.slice(0,total),total)});
+      }}>
+      <h2>{title}</h2>
+      <label>Tabtyp<select value={draft.kind} onChange={event=>{
+        const kind=event.target.value as NotebookLayout["kind"];
+        setDraft({...draft,kind,view:kind==="weekly" && !draft.view?"week":draft.view});
+        if(kind==="weekly" && Number(count)<7)setCount("7");
+      }}>
+        <option value="note">Notiz</option><option value="todo">To-do-Liste</option><option value="weekly">Wochenliste</option>
+      </select></label>
+      <label>Automatisch öffnen<select value={draft.view} onChange={event=>setDraft({...draft,view:event.target.value as NotebookLayout["view"]})}>
+        <option value="">Manuell öffnen</option><option value="week">Wochentab</option><option value="month">Monatstab</option><option value="year">Jahrestab</option>
+      </select></label>
+      <label>Spalten<input type="number" value={count} min={draft.kind==="weekly"?7:1} max={Math.max(50,value.columns.length)} onChange={event=>setCount(event.target.value)}/></label>
+      <label>Hintergrund<select value={draft.design} onChange={event=>setDraft({...draft,design:event.target.value as NotebookLayout["design"]})}>
+        <option value="plain">Blanko</option><option value="lined">Liniert</option><option value="grid">Kariert</option>
+      </select></label>
+      <label>Farbe<input type="color" aria-label="Hintergrundfarbe" value={draft.color||"#ffffff"} onChange={event=>setDraft({...draft,color:event.target.value})}/></label>
+      <div className="notebook-settings-actions">
+        <button type="button" className="secondary-button" onClick={onGeneral}>Allgemeine Einstellungen</button>
+        <button type="submit" className="primary-button">Speichern</button>
+      </div>
+    </form>
+  </div>;
+}
+
 function DayNote({
   preferences,
   tasks,

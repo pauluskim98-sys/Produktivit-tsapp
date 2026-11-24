@@ -7962,3 +7962,60 @@ button[hidden] {
 .detail-category-picker > .task-template-options {position:absolute;top:100%;left:0;right:0;z-index:5;}
 .calendar-workspace .planner-toolbar {padding-top:5px;padding-bottom:5px;row-gap:4px;min-height:0;}
 .calendar-workspace .calendar-tab {padding-top:4px;padding-bottom:4px;min-height:28px;}
+
+.notebook-workspace.notebook-columns-workspace {
+  grid-template-columns:24px minmax(0,1fr);
+  grid-template-areas:"rail tabs" "rail editor";
+}
+.notebook-workspace.notebook-columns-workspace.notebook-sidebar-open {
+  grid-template-columns:24px clamp(144px,20vw,260px) minmax(0,1fr);
+  grid-template-areas:"rail tabs tabs" "rail sidebar editor";
+}
+.notebook-column-editor {
+  grid-area:editor; position:relative; min-width:0; display:flex; flex-direction:column;
+  border:1px solid var(--line); border-radius:8px; background:var(--surface);
+}
+.notebook-column-scroll {overflow:auto; flex:1; min-height:0;}
+.notebook-column-grid {display:grid; min-height:100%;}
+.notebook-column {min-width:0; display:flex; flex-direction:column;}
+.notebook-column + .notebook-column {border-left:1px solid var(--line);}
+.notebook-column-head {
+  position:sticky; top:0; z-index:3; min-height:25px; padding:4px 8px;
+  font-size:11px; color:var(--secondary); background:var(--surface);
+}
+.notebook-column:last-child .notebook-column-head {padding-right:34px;}
+.notebook-column-divider {
+  position:absolute; inset:0 -5px 0 auto; width:10px; cursor:col-resize; touch-action:none; z-index:1;
+}
+.notebook-column-divider:is(:hover,:active,:focus-visible) {background:var(--green-soft); border-radius:3px;}
+.notebook-add-column {position:absolute; top:2px; right:5px; z-index:4; cursor:pointer;}
+.notebook-column-menu {
+  position:absolute; z-index:2; top:100%; left:3px; background:var(--surface);
+  border:1px solid var(--line); border-radius:6px; padding:3px; white-space:nowrap;
+}
+.notebook-column .note-checklist {
+  display:flex; flex-direction:column; min-width:0; border:none; background:transparent; flex:1;
+}
+.notebook-column .notepad-content {flex:1; display:flex; flex-direction:column; overflow:visible;}
+.notebook-column .planner-notepad {flex:1;}
+.notebook-column .note-line {min-width:0;}
+.notebook-column .note-line textarea {min-width:0;}
+.notebook-column .note-upload {font-size:0; padding:4px; min-height:0;}
+.notebook-column-editor .notebook-column-actions {margin:0; padding:4px 8px; border-top:1px solid var(--line); cursor:default;}
+.notebook-column-editor[data-design="lined"] .notebook-column-grid,
+.notebook-column-editor[data-design="grid"] .notebook-column-grid {
+  background-image:linear-gradient(to bottom,color-mix(in srgb,currentColor 9%,transparent) 1px,transparent 1px);
+  background-size:20px 20px;
+}
+.notebook-column-editor[data-design="grid"] .notebook-column-grid {
+  background-image:linear-gradient(to bottom,color-mix(in srgb,currentColor 9%,transparent) 1px,transparent 1px),
+    linear-gradient(to right,color-mix(in srgb,currentColor 9%,transparent) 1px,transparent 1px);
+}
+.notebook-workspace:has(.notebook-map-frame) .notebook-column-editor {visibility:hidden;}
+.notebook-tab-settings {width:min(440px,94vw); display:grid; gap:10px;}
+.notebook-tab-settings label {display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:12px;}
+.notebook-settings-actions {display:flex; justify-content:space-between; gap:8px; margin-top:6px;}
+.lifemap-notes-frame .modal-backdrop:has(.notebook-tab-settings),
+.lifemap-notes-frame .notebook-tab-settings,
+.lifemap-notes-frame .notebook-tab-settings * {visibility:visible;}
+.lifemap-notes-frame .modal-backdrop:has(.notebook-tab-settings) {z-index:1010;}
