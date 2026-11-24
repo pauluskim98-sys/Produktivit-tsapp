@@ -30,7 +30,8 @@ import { goalRange } from "@/lib/goals";
 import ResourceDrawer from "./resource-drawer";
 import InboxNotes from "./inbox-notes";
 import NotebookColumns from "./notebook-columns";
-import { addNotebookColumns, defaultNotebookLayout, notebookColumnKey, readNotebookSession, type NotebookLayout } from "@/lib/notebook-layout";
+import ColorSwatches from "./color-swatches";
+import { addNotebookColumns, defaultNotebookLayout, notebookColumnKey, notebookFeatures, readNotebookSession, type NotebookColumn, type NotebookLayout } from "@/lib/notebook-layout";
 import NoteSettings from "./note-settings";
 import { defaultNotePreferences, noteFonts, notePeriods, notePeriod, waitingNoteTodo, putInNoteTodo, type NotePeriod, type NotePreferences } from "@/lib/note-todos";
 import PlannerNotepad, { noteWithTasks, readNoteLines } from "./planner-notepad";
@@ -602,6 +603,7 @@ export default function Planner() {
   const [notebookHome, setNotebookHome] = useState(calendarNoteKeys[1]);
   const [notebookReady, setNotebookReady] = useState(false);
   const [notebookLayouts,setNotebookLayouts] = useState<Record<string,NotebookLayout>>({});
+  const [columnSettings,setColumnSettings] = useState<NotebookColumn|null>(null);
   const [notebookSettings,setNotebookSettings] = useState<string|null>(null);
   const [noteTabs,setNoteTabs]=useState<string[]>([]);
   const [selectedNotes,setSelectedNotes]=useState<string[]>([]);
@@ -2764,6 +2766,7 @@ export default function Planner() {
               />
               <NotebookColumns key={plannerNoteKey} layout={currentNotebookLayout}
                 onChange={next=>changeNotebookLayout(plannerNoteKey,next)}
+                onSettings={setColumnSettings}
                 onRemove={async (column,remaining)=>{
                   const key=notebookColumnKey(plannerNoteKey,column.id);
                   if(state.todos.some(todo=>todo.tags.includes("stored") && todo.tags.includes(parkedNoteTag(key)))) {
@@ -2772,7 +2775,7 @@ export default function Planner() {
                   }
                   changeNotebookLayout(plannerNoteKey,{...currentNotebookLayout,columns:remaining});
                 }}
-                render={(column,index)=>{
+                render={(column)=>{
                   const key=notebookColumnKey(plannerNoteKey,column.id);
                   return <InboxNotes key={key}
                     label={notebookTitle(plannerNoteKey,state.dayNotes[plannerNoteKey] || "")}
@@ -2782,9 +2785,9 @@ export default function Planner() {
                     tasks={state.todos}
                     onTaskOpen={openNoteTask}
                     preferences={notePreferences}
-                    todoMode={currentNotebookLayout.kind==="todo"}
-                    registerStore={index===0 ? (store)=>{noteStore.current=store;} : undefined}
-                    registerLegacyDelete={index===0 ? (remove)=>{noteLegacyDelete.current=remove;} : undefined}
+                    todoMode={notebookFeatures(currentNotebookLayout,column).todo}
+                    registerStore={column.id==="main" ? (store)=>{noteStore.current=store;} : undefined}
+                    registerLegacyDelete={column.id==="main" ? (remove)=>{noteLegacyDelete.current=remove;} : undefined}
                     value={state.dayNotes[key] || ""}
                     onSave={async(content)=>{
                       await api("/api/notes",{date:key,content});
@@ -2793,7 +2796,7 @@ export default function Planner() {
                   />;
                 }}
                 footer={<>
-              {currentNotebookLayout.kind==="todo" && state.todos.some(todo=>waitingNoteTodo(todo,noteToday) && !todo.done) &&
+              {notebookFeatures(currentNotebookLayout).todo && state.todos.some(todo=>waitingNoteTodo(todo,noteToday) && !todo.done) &&
                 <details className="notebook-previous-todos">
                   <summary>Bisherige To-dos</summary>
                   {state.todos.filter(todo=>waitingNoteTodo(todo,noteToday) && !todo.done).map(todo=>
@@ -3120,6 +3123,13 @@ export default function Planner() {
           }}
         />
       )}
+      {columnSettings && <NotebookTabSettings key={columnSettings.id}
+        title={columnSettings.title || "Spalteneinstellungen"}
+        column={columnSettings}
+        value={currentNotebookLayout}
+        onSave={layout=>{changeNotebookLayout(plannerNoteKey,layout);setColumnSettings(null);}}
+        onClose={()=>setColumnSettings(null)}
+      />}
       {notebookSettings && <NotebookTabSettings key={notebookSettings}
         title={notebookTitle(notebookSettings,state.dayNotes[notebookSettings] || "")}
         value={notebookLayouts[notebookSettings] ?? defaultNotebookLayout}
@@ -3273,10 +3283,14 @@ export default function Planner() {
     </div>
   );
 }
-function NotebookTabSettings({title,value,onSave,onClose,onGeneral}: {
-  title:string; value:NotebookLayout; onSave:(layout:NotebookLayout)=>void; onClose:()=>void; onGeneral:()=>void;
+const notebookSwatches = ["#ffffff","#e3efe5","#e4edfb","#f9efcb","#f3e7f8"];
+function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral}: {
+  title:string; value:NotebookLayout; column?:NotebookColumn; onSave:(layout:NotebookLayout)=>void; onClose:()=>void; onGeneral?:()=>void;
 }) {
-  const [draft,setDraft]=useState(value);
+  const [draft,setDraft]=useState(() => ({
+    ...value, features:notebookFeatures(value,column),
+    color:column?.color ?? value.color, design:column?.design ?? value.design,
+  }));
   const [count,setCount]=useState(String(value.columns.length));
   useDialog(true,"notebook-tab-settings");
   return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
@@ -3284,27 +3298,41 @@ function NotebookTabSettings({title,value,onSave,onClose,onGeneral}: {
       onKeyDown={event=>{if(event.key==="Escape"){event.stopPropagation();onClose();}}}
       onSubmit={event=>{
         event.preventDefault();
-        const total=Math.max(draft.kind==="weekly"?7:1,Math.min(Math.max(50,value.columns.length),Math.floor(Number(count)||1)));
+        if(column){
+          onSave({...value,columns:value.columns.map(item=>item.id===column.id
+            ? {...item,features:draft.features,color:draft.color,design:draft.design} : item)});
+          return;
+        }
+        const total=Math.max(draft.features.weekdays?7:1,Math.min(Math.max(50,value.columns.length),Math.floor(Number(count)||1)));
         onSave({...draft,columns:addNotebookColumns(draft.columns.slice(0,total),total)});
       }}>
       <h2>{title}</h2>
-      <label>Tabtyp<select value={draft.kind} onChange={event=>{
-        const kind=event.target.value as NotebookLayout["kind"];
-        setDraft({...draft,kind,view:kind==="weekly" && !draft.view?"week":draft.view});
-        if(kind==="weekly" && Number(count)<7)setCount("7");
-      }}>
-        <option value="note">Notiz</option><option value="todo">To-do-Liste</option><option value="weekly">Wochenliste</option>
-      </select></label>
+      <fieldset className="notebook-feature-options">
+        <legend>Funktionen</legend>
+        <label><input type="checkbox" checked={draft.features.todo}
+          onChange={event=>setDraft({...draft,features:{...draft.features,todo:event.target.checked}})}/> To-do-Kästchen</label>
+        <label><input type="checkbox" checked={draft.features.weekdays}
+          onChange={event=>{
+            const weekdays=event.target.checked;
+            setDraft({...draft,features:{...draft.features,weekdays},view:weekdays && !draft.view?"week":draft.view});
+            if(!column && weekdays && Number(count)<7)setCount("7");
+          }}/> Wochentage</label>
+      </fieldset>
+      {!column && <>
       <label>Automatisch öffnen<select value={draft.view} onChange={event=>setDraft({...draft,view:event.target.value as NotebookLayout["view"]})}>
         <option value="">Manuell öffnen</option><option value="week">Wochentab</option><option value="month">Monatstab</option><option value="year">Jahrestab</option>
       </select></label>
-      <label>Spalten<input type="number" value={count} min={draft.kind==="weekly"?7:1} max={Math.max(50,value.columns.length)} onChange={event=>setCount(event.target.value)}/></label>
+      <label>Spalten<input type="number" value={count} min={draft.features.weekdays?7:1} max={Math.max(50,value.columns.length)} onChange={event=>setCount(event.target.value)}/></label>
+      </>}
       <label>Hintergrund<select value={draft.design} onChange={event=>setDraft({...draft,design:event.target.value as NotebookLayout["design"]})}>
         <option value="plain">Blanko</option><option value="lined">Liniert</option><option value="grid">Kariert</option>
       </select></label>
-      <label>Farbe<input type="color" aria-label="Hintergrundfarbe" value={draft.color||"#ffffff"} onChange={event=>setDraft({...draft,color:event.target.value})}/></label>
+      <div className="notebook-tab-colors"><span>Farbe</span>
+        <ColorSwatches name="notebook-background" presets={notebookSwatches} value={draft.color||"#ffffff"}
+          onChange={event=>setDraft({...draft,color:event.target.value})}/>
+      </div>
       <div className="notebook-settings-actions">
-        <button type="button" className="secondary-button" onClick={onGeneral}>Allgemeine Einstellungen</button>
+        {onGeneral && <button type="button" className="secondary-button" onClick={onGeneral}>Allgemeine Einstellungen</button>}
         <button type="submit" className="primary-button">Speichern</button>
       </div>
     </form>

@@ -7980,12 +7980,13 @@ button[hidden] {
 .notebook-column {position:relative; min-width:0; display:flex; flex-direction:column;}
 .notebook-column + .notebook-column {border-left:1px solid var(--line);}
 .notebook-column-head {
-  position:sticky; top:0; z-index:3; min-height:25px; padding:4px 8px;
+  position:sticky; top:0; z-index:3; min-height:25px; padding:4px;
+  display:flex; align-items:center; gap:2px; flex-wrap:wrap;
   font-size:11px; color:var(--secondary); background:var(--surface);
 }
-.notebook-column:first-child .notebook-column-head {padding-left:34px;}
+.notebook-weekday {flex:0 0 100%; padding-inline:3px; font-weight:650;}
 .notebook-column-title {
-  display:block; width:100%; min-width:0; padding:2px 0; border:0; background:transparent;
+  display:block; width:0; flex:1 1 12px; min-width:0; padding:2px 0; border:0; background:transparent;
   color:var(--text); font:inherit; font-size:12px; font-weight:650;
 }
 .notebook-column-title:focus {outline:none;}
@@ -7993,11 +7994,14 @@ button[hidden] {
   position:absolute; inset:0 -6px 0 auto; width:12px; cursor:col-resize; touch-action:none; z-index:4;
 }
 .notebook-column-divider:is(:hover,:active,:focus-visible) {background:var(--green-soft); border-radius:3px;}
-.notebook-add-column {position:absolute; top:2px; left:5px; z-index:5; cursor:pointer;}
-.notebook-column-menu {
-  position:absolute; z-index:2; top:100%; left:3px; background:var(--surface);
-  border:1px solid var(--line); border-radius:6px; padding:3px; white-space:nowrap;
+.notebook-column-head :is(.notebook-add-column,.notebook-column-action) {
+  display:grid; place-items:center; padding:2px; border:0; border-radius:4px;
+  background:transparent; color:inherit; cursor:pointer;
 }
+.notebook-column-head button:hover {background:var(--green-soft);}
+.notebook-column-action {opacity:0;}
+.notebook-column-head:is(:hover,:focus-within) .notebook-column-action {opacity:1;}
+@media (hover:none) {.notebook-column-action {opacity:1;}}
 .notebook-column .note-checklist {
   display:flex; flex-direction:column; min-width:0; border:none; background:transparent; flex:1;
 }
@@ -8024,3 +8028,33 @@ button[hidden] {
 .lifemap-notes-frame .notebook-tab-settings,
 .lifemap-notes-frame .notebook-tab-settings * {visibility:visible;}
 .lifemap-notes-frame .modal-backdrop:has(.notebook-tab-settings) {z-index:1010;}
+
+
+.notebook-feature-options {border:1px solid var(--line); border-radius:7px; padding:7px 9px;}
+.notebook-tab-settings .notebook-feature-options label {display:inline-flex; gap:5px; margin:3px 10px 3px 0;}
+.notebook-tab-colors {display:flex; align-items:center; gap:12px; flex-wrap:wrap;}
+.notebook-column[data-design="plain"] {background-color:var(--surface);}
+.notebook-column[data-design="lined"], .notebook-column[data-design="grid"] {
+  background-color:var(--surface);
+  background-image:linear-gradient(to bottom,color-mix(in srgb,currentColor 9%,transparent) 1px,transparent 1px);
+  background-size:20px 20px;
+}
+.notebook-column[data-design="grid"] {
+  background-image:linear-gradient(to bottom,color-mix(in srgb,currentColor 9%,transparent) 1px,transparent 1px),
+    linear-gradient(to right,color-mix(in srgb,currentColor 9%,transparent) 1px,transparent 1px);
+}
+.lifemap-notes-frame .color-popup,.lifemap-notes-frame .color-popup * {visibility:visible;}
+.notebook-picture {position:relative; overflow:visible;}
+.notebook-picture-space {position:relative;}
+.notebook-picture-frame {position:relative; max-width:100%; z-index:1;}
+.notebook-picture-frame:is(:hover,:focus-within) {z-index:2;}
+.notebook-picture-frame img {display:block; width:100%; height:auto; border-radius:4px; cursor:grab; touch-action:none;}
+.notebook-picture-frame img:active {cursor:grabbing;}
+.notebook-picture-frame button {
+  position:absolute; display:grid; place-items:center; padding:3px; border:1px solid var(--line);
+  border-radius:6px; color:var(--text); background:var(--surface); visibility:hidden; touch-action:none;
+}
+.notebook-picture-frame:is(:hover,:focus-within) button,.notebook-picture-frame button:focus-visible {visibility:visible;}
+.notebook-picture-rotate {top:0; left:50%; transform:translateX(-50%); cursor:grab;}
+.notebook-picture-resize {bottom:0; right:0; cursor:nwse-resize;}
+.notebook-picture-caret {display:block; min-height:16px; width:20px; cursor:text; outline:none;}

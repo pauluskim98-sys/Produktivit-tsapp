@@ -1,8 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addNotebookColumns, notebookColumnKey } from "../lib/notebook-layout.ts";
+import { addNotebookColumns, defaultNotebookLayout, notebookColumnKey, notebookFeatures } from "../lib/notebook-layout.ts";
 import { notebookColumnParent } from "../lib/notebook.ts";
 import { parkedNoteTag } from "../lib/planner-day.ts";
+
+test("legacy notebook modes, combined features and column overrides resolve independently", () => {
+  const weekly = { ...defaultNotebookLayout, kind:"weekly" as const };
+  assert.deepEqual(notebookFeatures(weekly), {todo:false, weekdays:true});
+  const combined = { ...weekly, features:{todo:true, weekdays:true} };
+  assert.deepEqual(notebookFeatures(combined), {todo:true, weekdays:true});
+  assert.deepEqual(notebookFeatures(combined, {id:"main",features:{todo:false}}), {todo:false, weekdays:true});
+});
 
 test("adding columns preserves manual widths and assigns only new columns flexible widths", () => {
   const columns = [{ id: "main", width: 240 }, { id: crypto.randomUUID() }];

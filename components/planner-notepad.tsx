@@ -1,4 +1,5 @@
 "use client";
+import NotebookPicture, { isNotePicture, noteAttachment, type NotePicture } from "./notebook-picture";
 import ColorSwatches from "@/components/color-swatches";
 import { useEffect, useId, useRef, useState } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
@@ -10,7 +11,7 @@ import type { NotePreferences } from "@/lib/note-todos";
 import { parkedNoteTag } from "@/lib/planner-day";
 import { record } from "@/lib/client-history";
 import { NoteTodoCheck } from "./note-todo-board";
-type Line = { text:string; box:boolean; done?:boolean; size?:number; bold?:boolean; italic?:boolean; color?:string; taskId?:string; runs?:NoteRun[] };
+type Line = { text:string; box:boolean; done?:boolean; size?:number; bold?:boolean; italic?:boolean; color?:string; taskId?:string; picture?:NotePicture; runs?:NoteRun[] };
 const prefix="lifemap-lines:v1\n";
 const blank=(text="",box=false):Line=>({text,box});
 export function readNoteLines(value:string):Line[] {
@@ -35,7 +36,7 @@ function LegacyTodoLine({id,line,noteDate,index,onToggle,onMove}:{id:string;line
   </div>;
 }
 export function noteWithTasks(value:string,todos:Todo[],titled=false) {
-  const lines=readNoteLines(value).filter((line,index)=>(titled && index===0) || line.text || line.taskId);
+  const lines=readNoteLines(value).filter((line,index)=>(titled && index===0) || line.text || line.taskId || line.picture);
   const next=prefix+JSON.stringify([...lines,...todos.filter((todo)=>!lines.some((line)=>line.taskId===todo.id)).map((todo)=>({text:todo.title,box:false,taskId:todo.id}))]);
   if(next.length>10000)throw new Error("Die Notiz ist voll.");return next;
 }
@@ -87,13 +88,13 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
   const lines=readNoteLines(value);
   if(todoMode) {
     for(const [index,line] of lines.entries()) {
-      if(!(titled && index===0) && !line.taskId) lines[index]={...line,box:true};
+      if(!(titled && index===0) && !line.taskId && !line.picture) lines[index]={...line,box:true};
     }
-    if(!lines.some((line,index)=>!(titled && index===0) && !line.taskId && !line.done)) lines.push(blank("",true));
+    if(!lines.some((line,index)=>!(titled && index===0) && !line.taskId && !line.picture && !noteAttachment(line.text) && !line.done)) lines.push(blank("",true));
   }
   if(lines.every((line)=>line.taskId || (todoPanel && line.box)))lines.push(blank());
   if(titled && lines.length===1)lines.push(blank("",todoMode));
-  function commit(next:Line[]) { const serialized=prefix+JSON.stringify(next); if(serialized.length>10000) {setError("Die Notiz ist voll.");return;} setError("");onChange(serialized); }
+  function commit(next:Line[]) { const serialized=prefix+JSON.stringify(next.length ? next : [blank("",todoMode)]); if(serialized.length>10000) {setError("Die Notiz ist voll.");return;} setError("");onChange(serialized); }
   function patch(i:number, update:Partial<Line>) { commit(lines.map((l,j)=>i===j?{...l,...update}:l)); }
   function insert(i:number, before:string, after:string) { commit([...lines.slice(0,i),{...lines[i],text:before},blank(after,lines[i].box),...lines.slice(i+1)]); requestAnimationFrame(()=>{fields.current[i+1]?.focus();fields.current[i+1]?.setSelectionRange(0,0);}); }
   async function upload(files: File[]) {
@@ -104,12 +105,24 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
       const response = await fetch("/api/storage", { method: "POST", body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      const links = result.added.map((id: string) => { const item = result.items.find((item: { id: string }) => item.id === id); return `[${item?.name || "Datei"}](/api/storage?file=${encodeURIComponent(id)})`; });
-      commit([...readNoteLines(latest.current), ...links.map((link:string)=>blank(link))]);
+      const links:Line[] = result.added.map((id: string) => {
+        const item = result.items.find((entry: { id: string }) => entry.id === id);
+        const name = item?.name || "Datei";
+        return isNotePicture(name)
+          ? { ...blank(), picture:{id,name} }
+          : blank(`[${name}](/api/storage?file=${encodeURIComponent(id)})`);
+      });
+      commit([...readNoteLines(latest.current), ...links]);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  const attachments = Array.from(lines.map((l)=>l.text).join("\n").matchAll(/\[([^\]]+)\]\((\/api\/storage\?file=[a-zA-Z0-9%-]+)\)/g));
   const renderLine=(line:Line,i:number)=>{
+        const attachment = noteAttachment(line.text);
+        const picture = line.picture ?? (attachment?.image ? {name:attachment.name,id:attachment.id} : undefined);
+        if(picture)return <NotebookPicture key={`${picture.id}:${i}`} picture={picture}
+          onChange={next=>patch(i,{text:"",box:false,picture:next})}
+          onRemove={()=>commit(lines.filter((_,index)=>index!==i))}/>;
+        if(attachment)return <a className="notebook-file-link" key={i}
+          href={`/api/storage?file=${encodeURIComponent(attachment.id)}`} target="_blank" rel="noreferrer">{attachment.name}</a>;
         if(titled && i===0)return <input key={i} className="notebook-title" aria-label="Notiztitel" placeholder="Titel" maxLength={150} value={line.text} onBlur={onBlur}
           ref={focusTitle?(element)=>{if(element && !element.dataset.titleReady){element.dataset.titleReady="true";element.focus();element.select();}}:undefined}
           onChange={(event)=>patch(0,{text:event.target.value})} onKeyDown={(event)=>{
@@ -204,7 +217,6 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
       }}>{lines.map(renderLine)}</div>}
 
     </div>
-    <div className="note-attachments">{attachments.map((match,index) => <a key={index} href={match[2]} target="_blank" rel="noreferrer">{ /\.(png|jpe?g|gif|webp)$/i.test(match[1]) ? <img src={match[2]} alt={match[1]} /> : match[1]}</a>)}</div>
     </div>
     {(actions || !compact) && <div className="note-actions">
       {!compact && <label className="note-upload"><Paperclip size={14} /> Datei oder Bild anhängen<input aria-label="Datei oder Bild anhängen" type="file" multiple onChange={(e) => { void upload(Array.from(e.target.files || [])); e.target.value = ""; }} /></label>}

@@ -1,25 +1,60 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Settings2, Trash2 } from "lucide-react";
 import {
-  addNotebookColumns, type NotebookColumn, type NotebookLayout,
+  notebookFeatures, type NotebookColumn, type NotebookLayout,
 } from "@/lib/notebook-layout";
 
 const weekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
-const minimumWidth = 88;
+const minimumWidth = 48;
 
-export default function NotebookColumns({ layout, onChange, onRemove, render, footer }: {
+export default function NotebookColumns({ layout, onChange, onRemove, onSettings, render, footer }: {
   layout: NotebookLayout;
   onChange: (layout: NotebookLayout) => void;
   onRemove: (column: NotebookColumn, remaining: NotebookColumn[]) => Promise<void>;
+  onSettings: (column: NotebookColumn) => void;
   footer: ReactNode;
   render: (column: NotebookColumn, index: number) => ReactNode;
 }) {
   const grid = useRef<HTMLDivElement>(null);
   const drag = useRef<AbortController | null>(null);
   const [preview, setPreview] = useState<NotebookColumn[] | null>(null);
-  const [menu, setMenu] = useState<string | null>(null);
+  const [alignedWidths, setAlignedWidths] = useState<number[] | null>(null);
+  const alignWeek = notebookFeatures(layout).weekdays && layout.columns.length === 7 &&
+    layout.columns.every(column => column.width === undefined);
+  useEffect(() => {
+    const list = grid.current;
+    if (!alignWeek || !list) { setAlignedWidths(null); return; }
+    const workspace = list.closest(".calendar-workspace");
+    if (!workspace) return;
+    let watched: Element[] = [];
+    const observer = new ResizeObserver(measure);
+    function measure() {
+      const days = Array.from(workspace!.querySelectorAll(".timeline-head > .timeline-day-head"))
+        .map(day => day.getBoundingClientRect()).filter(rect => rect.width > 0);
+      if (days.length !== 7) { setAlignedWidths(null); return; }
+      const start = list!.getBoundingClientRect().left + (list!.parentElement?.scrollLeft || 0);
+      const widths = days.map((day,index) => day.right - (index === 0 ? start : days[index - 1].right));
+      setAlignedWidths(previous => widths.every(width => width >= 48)
+        ? previous?.every((width,index) => Math.abs(width - widths[index]) < 0.5) ? previous : widths
+        : null);
+    }
+    function watch() {
+      const targets = [list!, ...workspace!.querySelectorAll(".timeline-head")];
+      if (targets.length !== watched.length || targets.some((target,index) => target !== watched[index])) {
+        observer.disconnect();
+        targets.forEach(target => observer.observe(target));
+        watched = targets;
+      }
+      measure();
+    }
+    const mutations = new MutationObserver(watch);
+    const main = workspace.querySelector("main");
+    if (main) mutations.observe(main, {childList:true,subtree:true});
+    watch();
+    return () => {observer.disconnect(); mutations.disconnect();};
+  }, [alignWeek]);
   const columns = preview || layout.columns;
   useEffect(() => () => drag.current?.abort(), []);
 
@@ -30,7 +65,8 @@ export default function NotebookColumns({ layout, onChange, onRemove, render, fo
   }
 
   function resize(pair: NonNullable<ReturnType<typeof widths>>, offset: number) {
-    const width = Math.max(minimumWidth, Math.min(pair.left + pair.right - minimumWidth, pair.left + offset));
+    const minimum = Math.min(minimumWidth, (pair.left + pair.right) / 2);
+    const width = Math.max(minimum, Math.min(pair.left + pair.right - minimum, pair.left + offset));
     const lastFlexible = layout.columns.findLastIndex(column => column.width === undefined);
     return layout.columns.map((column, index) => {
       if (index === pair.index) return { ...column, width: index === lastFlexible && layout.columns[pair.index + 1].width !== undefined ? undefined : width };
@@ -45,7 +81,6 @@ export default function NotebookColumns({ layout, onChange, onRemove, render, fo
     if (!pair) return;
     event.preventDefault();
     event.stopPropagation();
-    setMenu(null);
     drag.current?.abort();
     const controller = new AbortController();
     const { pointerId, clientX: start } = event;
@@ -71,22 +106,24 @@ export default function NotebookColumns({ layout, onChange, onRemove, render, fo
   }
 
   return (
-    <div className="notebook-column-editor note-text-column" data-design={layout.design} style={{ backgroundColor: layout.color || undefined }}
-      onPointerDown={(event) => { if (!(event.target as Element).closest(".notebook-column-menu")) setMenu(null); }}
-      onKeyDown={(event) => { if (event.key === "Escape") setMenu(null); }}>
+    <div className="notebook-column-editor note-text-column" data-design={layout.design} style={{ backgroundColor: layout.color || undefined }}>
       <div className="notebook-column-scroll">
         <div className="notebook-column-grid" ref={grid}
-          style={{ gridTemplateColumns: columns.map(column => column.width ? `${column.width}px` : `minmax(${minimumWidth}px, 1fr)`).join(" ") }}>
+          style={{ gridTemplateColumns: columns.map((column,index) => {
+            const width = column.width ?? (preview ? undefined : alignedWidths?.[index]);
+            return width ? `${width}px` : "minmax(0, 1fr)";
+          }).join(" ") }}>
           {columns.map((column, index) => (
-            <section key={column.id} className="notebook-column"
-              onContextMenu={(event) => {
-                if (columns.length < 2 || (event.target as Element).closest("input,textarea,[contenteditable]")) return;
-                event.preventDefault();
-                event.stopPropagation();
-                setMenu(column.id);
-              }}>
+            <section key={column.id} className="notebook-column" data-design={column.design}
+              style={{backgroundColor:column.color || undefined}}>
               <div className="notebook-column-head">
-                {layout.kind === "weekly" && <span>{weekdays[index % 7]}</span>}
+                {notebookFeatures(layout,column).weekdays && <span className="notebook-weekday">{weekdays[index % 7]}</span>}
+                <button className="notebook-add-column" type="button" aria-label={`Spalte vor Spalte ${index + 1} hinzufügen`}
+                  onClick={() => {
+                    const next = [...layout.columns];
+                    next.splice(index,0,{id:crypto.randomUUID()});
+                    onChange({...layout,columns:next});
+                  }}><Plus size={14}/></button>
                 <input
                   key={column.title || ""}
                   className="notebook-column-title"
@@ -109,12 +146,10 @@ export default function NotebookColumns({ layout, onChange, onRemove, render, fo
                     event.currentTarget.blur();
                   }}
                 />
-                {column.id === menu && <div className="notebook-column-menu" role="menu">
-                  <button type="button" role="menuitem" onClick={() => {
-                    setMenu(null);
-                    void onRemove(column, columns.filter(item => item.id !== column.id));
-                  }}>Spalte löschen</button>
-                </div>}
+                <button className="notebook-column-action" type="button" aria-label={`Einstellungen für Spalte ${index + 1}`}
+                  onClick={()=>onSettings(column)}><Settings2 size={13}/></button>
+                {columns.length > 1 && <button className="notebook-column-action" type="button" aria-label={`Spalte ${index + 1} löschen`}
+                  onClick={()=>void onRemove(column,layout.columns.filter(item=>item.id!==column.id))}><Trash2 size={13}/></button>}
               </div>
               {render(column, index)}
               {index < columns.length - 1 && <div className="notebook-column-divider" tabIndex={0}
@@ -132,8 +167,6 @@ export default function NotebookColumns({ layout, onChange, onRemove, render, fo
           ))}
         </div>
       </div>
-      <button className="notebook-add-column" type="button" aria-label="Spalte hinzufügen" title="Spalte hinzufügen"
-        onClick={() => onChange({ ...layout, columns: addNotebookColumns(layout.columns, layout.columns.length + 1) })}><Plus size={15}/></button>
       <div className="note-actions notebook-column-actions">{footer}</div>
     </div>
   );
