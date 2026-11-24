@@ -7977,18 +7977,23 @@ button[hidden] {
 }
 .notebook-column-scroll {overflow:auto; flex:1; min-height:0;}
 .notebook-column-grid {display:grid; min-height:100%;}
-.notebook-column {min-width:0; display:flex; flex-direction:column;}
+.notebook-column {position:relative; min-width:0; display:flex; flex-direction:column;}
 .notebook-column + .notebook-column {border-left:1px solid var(--line);}
 .notebook-column-head {
   position:sticky; top:0; z-index:3; min-height:25px; padding:4px 8px;
   font-size:11px; color:var(--secondary); background:var(--surface);
 }
-.notebook-column:last-child .notebook-column-head {padding-right:34px;}
+.notebook-column:first-child .notebook-column-head {padding-left:34px;}
+.notebook-column-title {
+  display:block; width:100%; min-width:0; padding:2px 0; border:0; background:transparent;
+  color:var(--text); font:inherit; font-size:12px; font-weight:650;
+}
+.notebook-column-title:focus {outline:none;}
 .notebook-column-divider {
-  position:absolute; inset:0 -5px 0 auto; width:10px; cursor:col-resize; touch-action:none; z-index:1;
+  position:absolute; inset:0 -6px 0 auto; width:12px; cursor:col-resize; touch-action:none; z-index:4;
 }
 .notebook-column-divider:is(:hover,:active,:focus-visible) {background:var(--green-soft); border-radius:3px;}
-.notebook-add-column {position:absolute; top:2px; right:5px; z-index:4; cursor:pointer;}
+.notebook-add-column {position:absolute; top:2px; left:5px; z-index:5; cursor:pointer;}
 .notebook-column-menu {
   position:absolute; z-index:2; top:100%; left:3px; background:var(--surface);
   border:1px solid var(--line); border-radius:6px; padding:3px; white-space:nowrap;

@@ -1,4 +1,4 @@
-export type NotebookColumn = { id: string; width?: number };
+export type NotebookColumn = { id: string; width?: number; title?: string };
 export type NotebookLayout = {
   kind: "note" | "todo" | "weekly";
   view: "" | "week" | "month" | "year";
