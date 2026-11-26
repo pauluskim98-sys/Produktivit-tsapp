@@ -20,7 +20,11 @@ export default function NotebookMoodPicker({ day, value, onSave }: {
       {moodColors.map((color,index)=><button key={color} type="button"
         style={{backgroundColor:color}} aria-label={moodLabels[index]}
         aria-pressed={(score ?? value?.score)===index}
-        onClick={()=>{setScore(index);setReason(value?.reason||"");}}/>)}
+        onClick={()=>{
+          if(score===index){setScore(null);return;}
+          setScore(index);
+          setReason(value?.reason||"");
+        }}/>)}
     </div>
     {score!==null && <form className="notebook-mood-form" onSubmit={event=>{
       event.preventDefault();

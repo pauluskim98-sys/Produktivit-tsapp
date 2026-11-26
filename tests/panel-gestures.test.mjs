@@ -27,7 +27,9 @@ function setup(storage = false) {
     }
     closest(selector) {
       if (selector === ".weather-hours") return this.weather ? this : null;
-      if (selector === ".calendar-bottom-notes .note-checklist") return this.notes ? this : null;
+      if (selector === ".calendar-bottom-notes") return this.notes ? this : null;
+      if (selector === ".notebook-column-scroll" || selector === ".calendar-bottom-notes .notebook-column-scroll")
+        return this.notes && this.notes !== "footer" ? this : null;
       if (selector === ".timeline-scroll,.calendar-overview-large") return this.panel ? null : this;
       return selector === ".app-shell" ? this : this.panel ? this : null;
     }

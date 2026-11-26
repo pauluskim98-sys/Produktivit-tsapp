@@ -37,7 +37,7 @@ export default function InboxNotes({
   todoMode?:boolean;
   rows?:number;
   onFocusColumn?:()=>void;
-  columnHeader?:{legacyTitle?:string};
+  columnHeader?:{legacyTitle?:string;showHint?:boolean};
   preferences:NotePreferences;
   titled?:boolean;
   focusTitle?:boolean;

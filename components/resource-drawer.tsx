@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import {
   Folder,
   FolderPlus,
@@ -30,12 +30,14 @@ export default function ResourceDrawer({
   onOpen,
   onToggle,
   onClose,
+  headerControls,
 }: {
   open: boolean;
   pinned: boolean;
   onOpen: () => void;
   onToggle: () => void;
   onClose: () => void;
+  headerControls?: ReactNode;
 }) {
   const [items, setItems] = useState<Item[]>([]),
     [parent, setParent] = useState<string | null>(null),
@@ -171,15 +173,18 @@ export default function ResourceDrawer({
   }
   return (
     <>
-      <button
-        className="resource-toggle icon-button"
-        aria-label={open && pinned ? "Dokumente schließen" : "Dokumente öffnen"}
-        aria-expanded={open}
-        onClick={onToggle}
-        onDragEnter={onOpen}
-      >
-        <Archive size={17} />
-      </button>
+      <div className="resource-header-tools">
+        <button
+          className="resource-toggle icon-button"
+          aria-label={open && pinned ? "Dokumente schließen" : "Dokumente öffnen"}
+          aria-expanded={open}
+          onClick={onToggle}
+          onDragEnter={onOpen}
+        >
+          <Archive size={17} />
+        </button>
+        {headerControls && <div className="resource-header-secondary">{headerControls}</div>}
+      </div>
       <aside
         className={`resource-drawer ${open ? "is-open" : ""}`}
         aria-label="Dokumente"

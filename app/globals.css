@@ -8170,3 +8170,18 @@ button[hidden] {
 .lifemap-notes-frame :is(.notebook-journal,.notebook-add-row-dialog) * {visibility:visible;}
 .lifemap-notes-frame .modal-backdrop:has(.notebook-journal,.notebook-add-row-dialog) {z-index:1010;}
 .notebook-row-context {position:absolute; top:100%; left:0; z-index:5; display:grid; width:max-content; max-width:100%; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:4px;}
+
+.calendar-workspace :is(.unscheduled-tasks,.notebook-column-scroll,.notepad-content,.notebook-tabs) {
+  scrollbar-width:none;
+}
+.notebook-mood-entry > button {opacity:0;}
+.notebook-mood-entry:is(:hover,:focus-within) > button {opacity:1;}
+.resource-header-tools {
+  position:fixed; right:15px; top:9px; z-index:39;
+  display:grid; justify-items:end; gap:3px;
+}
+.resource-header-tools .resource-toggle {position:static;}
+.resource-header-secondary {display:flex; gap:2px;}
+.resource-header-secondary .icon-button {width:28px; height:27px; background:var(--surface); border:1px solid var(--line); border-radius:7px;}
+.calendar-workspace .planner-toolbar {padding-right:68px;}
+@media (hover:none) {.notebook-mood-entry > button {opacity:1;}}

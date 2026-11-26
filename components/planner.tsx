@@ -2258,6 +2258,27 @@ export default function Planner() {
         onOpen={() => setStorageOpen(true)}
         onToggle={toggleStorage}
         onClose={closeStorage}
+        headerControls={<>
+          <IconButton
+            title={dark ? "Helles Design" : "Dunkles Design"}
+            onClick={() => {
+              const previous = dark;
+              setDark(!dark);
+              record({
+                undo: async () => setDark(previous),
+                redo: async () => setDark(!previous),
+              });
+            }}
+          >
+            {dark ? <Sun size={16} /> : <Moon size={16} />}
+          </IconButton>
+          <IconButton
+            title="Kalender & Einstellungen"
+            onClick={() => setSettings(true)}
+          >
+            <Settings2 size={16} />
+          </IconButton>
+        </>}
       />
       {shortcutHints.firstUse && (
         <ShortcutWelcome onChoose={shortcutHints.configure} />
@@ -2497,25 +2518,6 @@ export default function Planner() {
                 />
                 Erledigte
               </label>
-              <IconButton
-                title={dark ? "Helles Design" : "Dunkles Design"}
-                onClick={() => {
-                  const previous = dark;
-                  setDark(!dark);
-                  record({
-                    undo: async () => setDark(previous),
-                    redo: async () => setDark(!previous),
-                  });
-                }}
-              >
-                {dark ? <Sun size={16} /> : <Moon size={16} />}
-              </IconButton>
-              <IconButton
-                title="Kalender & Einstellungen"
-                onClick={() => setSettings(true)}
-              >
-                <Settings2 size={16} />
-              </IconButton>
               <button type="button" className="today-button zone-mode-toggle" aria-pressed={zoneMode} title="Zonenmodus (Z)" onClick={toggleZones}>Zonen</button>
               <span className="save-indicator" aria-live="polite">
                 {busy ? "Speichert …" : ""}
@@ -2770,7 +2772,7 @@ export default function Planner() {
                   }
                   changeNotebookLayout(plannerNoteKey,{...currentNotebookLayout,columns:remaining});
                 }}
-                render={(column)=>{
+                render={(column,index)=>{
                   const key=notebookColumnKey(plannerNoteKey,column.id);
                   return <InboxNotes key={key}
                     label={notebookTitle(plannerNoteKey,state.dayNotes[plannerNoteKey] || "")}
@@ -2782,7 +2784,7 @@ export default function Planner() {
                     preferences={notePreferences}
                     todoMode={notebookFeatures(currentNotebookLayout,column).todo}
                     rows={currentNotebookLayout.rows}
-                    columnHeader={{legacyTitle:column.title}}
+                    columnHeader={{legacyTitle:column.title,showHint:index===0}}
                     onFocusColumn={()=>{lastNotebookColumn.current[plannerNoteKey]=column.id;}}
                     registerStore={column.id==="main" ? (store)=>{noteStore.current=store;} : undefined}
                     registerLegacyDelete={column.id==="main" ? (remove)=>{noteLegacyDelete.current=remove;} : undefined}
