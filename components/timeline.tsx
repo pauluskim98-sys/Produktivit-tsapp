@@ -58,10 +58,17 @@ export interface TimeChange {
   time: string;
   duration: number;
 }
+export type PendingCreation = {
+  start: number;
+  time: string;
+  duration: number;
+  days: string[];
+};
 interface Props {
   days: Date[];
   moods?:Record<string,NotebookMood>;
   mobileDay: string;
+  pendingCreation?:PendingCreation;
   todos: Todo[];
   events: CalendarEvent[];
   colors: Record<string, string>;
@@ -82,6 +89,7 @@ interface Props {
     duration?: number,
     days?: string[],
     drawn?: boolean,
+    preview?:PendingCreation,
   ) => void;
   onSelectSlot: (day: string, time: string) => void;
   onDayOpen: (day: string) => void;
@@ -884,7 +892,9 @@ export default function Timeline(props: Props) {
                 day >= [final.day, final.endDay].sort()[0] &&
                 day <= [final.day, final.endDay].sort()[1],
             );
-          props.onCreate(days[0], range.time, range.duration, days, true);
+          props.onCreate(days[0], range.time, range.duration, days, true,{
+            days,start:range.start,time:range.time,duration:range.duration,
+          });
         } else {
           // Pointer capture targets the container on release, so handle taps here.
           suppressClick.current = true;
@@ -974,28 +984,17 @@ export default function Timeline(props: Props) {
               key={day}
             >
               <TimeColumn {...props} day={day} scale={scale} />
-              {draft &&
-                day >= [draft.day, draft.endDay].sort()[0] &&
-                day <= [draft.day, draft.endDay].sort()[1] &&
-                (() => {
-                  const range = creationRange(draft.anchor, draft.current);
-                  return (
-                    <div
-                      className="creation-preview"
-                      style={{
-                        top: range.start * scale,
-                        height: Math.max(8, range.duration * scale),
-                      }}
-                    >
-                      <span>
-                        {range.time} –{" "}
-                        {toTime(
-                          (toMinutes(range.time) + range.duration) % 1440,
-                        )}
-                      </span>
-                    </div>
-                  );
-                })()}
+              {(() => {
+                const active = draft && day >= [draft.day,draft.endDay].sort()[0] &&
+                  day <= [draft.day,draft.endDay].sort()[1] ? creationRange(draft.anchor,draft.current) : null;
+                const pending = !draft && props.pendingCreation?.days.includes(day) ? props.pendingCreation : null;
+                const range=active ?? pending;
+                if(!range)return null;
+                return <div className="creation-preview" data-pending={pending ? "true" : undefined}
+                  style={{top:range.start*scale,height:Math.max(8,range.duration*scale)}}>
+                  <span>{range.time} – {toTime((toMinutes(range.time)+range.duration)%1440)}</span>
+                </div>;
+              })()}
             </div>
           );
         })}

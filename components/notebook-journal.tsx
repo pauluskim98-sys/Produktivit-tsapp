@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BookOpen, ChevronLeft, ChevronRight, Plus, Search, X } from "lucide-react";
 import { addDays, dateKey, parseDate } from "@/lib/dates";
 import { periodRange } from "@/lib/calendar-interactions";
@@ -18,8 +18,8 @@ const blankSurface=(target:Element)=>target.matches(".notebook-journal,.journal-
 const dateLabel = (date:string) => parseDate(date).toLocaleDateString("de-DE");
 const journalKey=(date:string)=>`journal:${date}`;
 
-function JournalEditor({value,date,preferences,save}: {
-  value:string;date:string;preferences:NotePreferences;save:(text:string)=>Promise<void>;
+function JournalEditor({value,date,preferences,save,dateControls}: {
+  value:string;date:string;preferences:NotePreferences;dateControls:ReactNode;save:(text:string)=>Promise<void>;
 }) {
   const headedValue=useMemo(()=>{
     const [first,...rest]=readNoteLines(value);
@@ -48,7 +48,7 @@ function JournalEditor({value,date,preferences,save}: {
     selection?.addRange(caret);
   }}>
     <PlannerNotepad value={text} onChange={setText} onBlur={flush} preferences={{...preferences,size:preferences.size+3}}
-      label={`Tagebuch am ${dateLabel(date)}`} compact titled/>
+      label={`Tagebuch am ${dateLabel(date)}`} compact titled titleTrailing={dateControls}/>
     {error && <p role="alert">{error}</p>}
   </div>;
 }
@@ -159,6 +159,23 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
   };
   const saveBookmarks=(next:Bookmark[])=>void onSave("journal-bookmarks",JSON.stringify(next)).catch(err=>setError(err.message));
   const shown=preview ? periodRange(`${preview}:${date}`) : null;
+  const dateControls=<div className="journal-date" onMouseLeave={()=>setPreview(null)}>
+              <button type="button" aria-label="Vorheriger Tag" onClick={()=>choose(dateKey(addDays(selected,-1)))}><ChevronLeft size={16}/></button>
+              {(["week","month","year"] as const).map((period,index)=>
+                <button key={period} type="button"
+                  aria-label={`${period==="week"?"Wochen":period==="month"?"Monats":"Jahres"}kalender öffnen`}
+                  onMouseEnter={()=>setPreview(period)} onFocus={()=>setPreview(period)}
+                  onClick={()=>enterCalendar(period)}>{index===0?selected.getDate()+".":index===1?selected.toLocaleDateString("de-DE",{month:"long"}):selected.getFullYear()}</button>)}
+              <button type="button" aria-label="Nächster Tag" onClick={()=>choose(dateKey(addDays(selected,1)))}><ChevronRight size={16}/></button>
+              {shown && <div className="journal-date-grid" data-period={preview}>
+                {preview==="year" ? Array.from({length:12},(_,i)=>new Date(selected.getFullYear(),i,1)).map(month=>
+                  <div key={dateKey(month)} className="journal-mini-month"><strong>{month.toLocaleDateString("de-DE",{month:"short"})}</strong>
+                    {periodRange(`month:${dateKey(month)}`)?.days.map(day=><button key={day} type="button" title={dateLabel(day)} onClick={()=>choose(day)}>{Number(day.slice(-2))}</button>)}
+                  </div>) : shown.days.map(day=><button key={day} type="button" aria-current={day===date?"date":undefined} onClick={()=>choose(day)}>
+                    {preview==="week"?parseDate(day).toLocaleDateString("de-DE",{weekday:"short"})+" ":""}{Number(day.slice(-2))}
+                  </button>)}
+              </div>}
+            </div>;
   return <div className={embedded?"journal-inline":"journal-layer"} data-docked={docked} data-placed={!!position}>
     <section ref={journal} className="modal notebook-journal"
       style={position && !embedded ? {left:position.x,top:position.y,width:position.width,height:position.height,maxWidth:"calc(100vw - 8px)",maxHeight:"calc(100dvh - 8px)"} : undefined}
@@ -197,24 +214,7 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
               <strong>{dateLabel(lesson.date)}</strong><span>{lesson.text}</span>
             </button>)}
           </div> : <>
-            <div className="journal-date" onMouseLeave={()=>setPreview(null)}>
-              <button type="button" aria-label="Vorheriger Tag" onClick={()=>choose(dateKey(addDays(selected,-1)))}><ChevronLeft size={16}/></button>
-              {(["week","month","year"] as const).map((period,index)=>
-                <button key={period} type="button"
-                  aria-label={`${period==="week"?"Wochen":period==="month"?"Monats":"Jahres"}kalender öffnen`}
-                  onMouseEnter={()=>setPreview(period)} onFocus={()=>setPreview(period)}
-                  onClick={()=>enterCalendar(period)}>{index===0?selected.getDate()+".":index===1?selected.toLocaleDateString("de-DE",{month:"long"}):selected.getFullYear()}</button>)}
-              <button type="button" aria-label="Nächster Tag" onClick={()=>choose(dateKey(addDays(selected,1)))}><ChevronRight size={16}/></button>
-              {shown && <div className="journal-date-grid" data-period={preview}>
-                {preview==="year" ? Array.from({length:12},(_,i)=>new Date(selected.getFullYear(),i,1)).map(month=>
-                  <div key={dateKey(month)} className="journal-mini-month"><strong>{month.toLocaleDateString("de-DE",{month:"short"})}</strong>
-                    {periodRange(`month:${dateKey(month)}`)?.days.map(day=><button key={day} type="button" title={dateLabel(day)} onClick={()=>choose(day)}>{Number(day.slice(-2))}</button>)}
-                  </div>) : shown.days.map(day=><button key={day} type="button" aria-current={day===date?"date":undefined} onClick={()=>choose(day)}>
-                    {preview==="week"?parseDate(day).toLocaleDateString("de-DE",{weekday:"short"})+" ":""}{Number(day.slice(-2))}
-                  </button>)}
-              </div>}
-            </div>
-            <JournalEditor key={date} value={notes[journalKey(date)]||""} date={date} preferences={preferences} save={text=>onSave(journalKey(date),text)}/>
+            <JournalEditor key={date} value={notes[journalKey(date)]||""} date={date} preferences={preferences} dateControls={dateControls} save={text=>onSave(journalKey(date),text)}/>
             {weekText && weekdayNote && <button className="journal-source" type="button" onClick={()=>onOpenNote(weekdayNote.key)}>{weekText}</button>}
             {moods[date] && <p className="journal-day-mood" style={{color:moodColors[moods[date].score]}}>{moodLabels[moods[date].score]} · {moods[date].reason}</p>}
             {lessons.filter(lesson=>lesson.date===date).map((lesson,index)=><p className="journal-day-lesson" key={index}>{lesson.text}</p>)}

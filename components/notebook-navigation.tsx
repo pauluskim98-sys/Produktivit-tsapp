@@ -33,7 +33,7 @@ export default function NotebookNavigation({
   onSelectNote: (key: string) => void;
   onMoveNotes: (keys: string[], before: string) => void;
   values: Record<string, string>;
-  titles: Record<string,{title?:string}>;
+  titles: Record<string,{title?:string;kind?:string}>;
   onRename: (key:string,title:string) => void;
   pinned: string;
   tabs: string[];
@@ -44,7 +44,7 @@ export default function NotebookNavigation({
   onSettings: (key: string) => void;
 }) {
   const [renaming,setRenaming] = useState<string|null>(null);
-  const titleFor = (key:string) => titles[key]?.title || notebookTitle(key, values[key] || "");
+  const titleFor = (key:string) => titles[key]?.kind==="journal" ? "Tagebuch" : titles[key]?.title || notebookTitle(key, values[key] || "");
   const [maps, setMaps] = useState<
     { id: string; title: string; color: string }[]
   >([]);
@@ -127,6 +127,7 @@ export default function NotebookNavigation({
         {tabs.map((key) => (
           <div
             className="notebook-tab"
+            data-kind={titles[key]?.kind}
             key={key}
             data-active={(!map && active === key) || undefined}
             data-selected={selectedNotes.includes(key) || undefined}
@@ -173,7 +174,7 @@ export default function NotebookNavigation({
               }}/> : <button
               type="button"
               aria-current={!map && active === key ? "page" : undefined}
-              onDoubleClick={()=>setRenaming(key)}
+              onDoubleClick={()=>{if(titles[key]?.kind!=="journal")setRenaming(key);}}
               onClick={() => {
                 if (selectionMode && notebookFolder(key)) {
                   onSelectNote(key);

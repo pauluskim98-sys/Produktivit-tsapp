@@ -82,7 +82,7 @@ export function noteWithTasks(value:string,todos:Todo[],titled=false) {
   const next=prefix+JSON.stringify([...lines,...todos.filter((todo)=>!lines.some((line)=>line.taskId===todo.id)).map((todo)=>({text:todo.title,box:false,taskId:todo.id}))]);
   if(next.length>10000)throw new Error("Die Notiz ist voll.");return next;
 }
-export default function PlannerNotepad({ value, onChange, onBlur, label, autoFocus=false, compact=false, onStep, noteDate, actions, tasks, onTaskOpen, todoPanel, todoMode=false, rows=0, columnHeader, sharedUpload=false, preferences, titled=false, focusTitle=false }: { value: string; onChange: (value: string) => void; onBlur: () => unknown; label: string; autoFocus?:boolean; compact?:boolean; onStep?:(direction:number)=>void; noteDate?:string; actions?:React.ReactNode; tasks?:Todo[]; onTaskOpen?:(id:string)=>void; todoPanel?:React.ReactNode; todoMode?:boolean; rows?:number; columnHeader?:{legacyTitle?:string;showHint?:boolean}; sharedUpload?:boolean; preferences?:NotePreferences; titled?:boolean; focusTitle?:boolean }) {
+export default function PlannerNotepad({ value, onChange, onBlur, label, autoFocus=false, compact=false, onStep, noteDate, actions, tasks, onTaskOpen, todoPanel, todoMode=false, rows=0, columnHeader, sharedUpload=false, preferences, titled=false, focusTitle=false, titleTrailing }: { value: string; onChange: (value: string) => void; onBlur: () => unknown; label: string; autoFocus?:boolean; compact?:boolean; onStep?:(direction:number)=>void; noteDate?:string; actions?:React.ReactNode; tasks?:Todo[]; onTaskOpen?:(id:string)=>void; todoPanel?:React.ReactNode; todoMode?:boolean; rows?:number; columnHeader?:{legacyTitle?:string;showHint?:boolean}; sharedUpload?:boolean; preferences?:NotePreferences; titled?:boolean; focusTitle?:boolean; titleTrailing?:React.ReactNode }) {
   const latest = useRef(value); latest.current = value;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -186,7 +186,8 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
           onRemove={()=>commit(lines.filter((_,index)=>index!==i))}/>;
         if(attachment)return <a className="notebook-file-link" key={i}
           href={`/api/storage?file=${encodeURIComponent(attachment.id)}`} target="_blank" rel="noreferrer">{attachment.name}</a>;
-        if(!columnHeader && titled && i===0)return <input key={i} className="notebook-title" aria-label="Notiztitel" placeholder="Titel" maxLength={150} value={line.text} onBlur={onBlur}
+        if(!columnHeader && titled && i===0){
+          const title=<input key={i} className="notebook-title" aria-label="Notiztitel" placeholder="Titel" maxLength={150} value={line.text} onBlur={onBlur}
           ref={focusTitle?(element)=>{if(element && !element.dataset.titleReady){element.dataset.titleReady="true";element.focus();element.select();}}:undefined}
           onChange={(event)=>patch(0,{text:event.target.value})} onKeyDown={(event)=>{
             if(event.key==="Enter" && !event.nativeEvent.isComposing){
@@ -194,6 +195,8 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
               event.currentTarget.closest(".note-text-column")?.querySelector<HTMLElement>(".rich-note-field")?.focus();
             }
           }}/>;
+          return titleTrailing ? <div className="notebook-title-row">{title}{titleTrailing}</div> : title;
+        }
         if(line.taskId && tasks && onTaskOpen){
           const todo=tasks.find((item)=>item.id===line.taskId && item.tags.includes("stored") && noteDate && item.tags.includes(parkedNoteTag(noteDate)));
           return todo ? <div key={todo.id} data-note-task={todo.id}><PeriodTask todo={todo} compact onOpen={onTaskOpen}/></div> : null;

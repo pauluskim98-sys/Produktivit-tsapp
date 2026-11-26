@@ -8293,3 +8293,39 @@ body:has(.task-detail-backdrop:not(.is-closing)) .journal-layer .notebook-journa
 .notebook-tab-settings .notebook-journal-kind {display:flex; justify-content:flex-start; gap:8px;}
 .notebook-workspace:has(.notebook-map-frame) > .notebook-journal-slot {visibility:hidden;}
 @media(max-width:620px){.journal-layer .notebook-journal{width:calc(100vw - 36px);height:calc(100dvh - 34px);}}
+
+.notepad-flow-marker {height:0; flex:none; pointer-events:none;}
+.calendar-bottom-notes.notes-below {
+  position:sticky; bottom:calc(var(--note-rail-height,36px) - var(--note-panel-height,400px));
+  z-index:12;
+}
+.lifemap-notes-frame .calendar-bottom-notes.notes-below {position:fixed; bottom:0;}
+.notebook-tab[data-kind="journal"] {border-color:#aa7549; color:color-mix(in srgb,#aa7549 75%,var(--ink));}
+.notebook-tab[data-kind="journal"][data-active] {background:color-mix(in srgb,#aa7549 15%,var(--surface));}
+.creation-preview[data-pending="true"] {border-style:solid;}
+.journal-writing {--journal-rule-step:31px; --journal-paper:color-mix(in srgb,var(--surface) 98%,#f6d4a4); --journal-rule:color-mix(in srgb,var(--line) 60%,transparent);}
+.journal-writing .note-checklist {background:var(--journal-paper);}
+.journal-writing .note-text-column {
+  background:repeating-linear-gradient(transparent 0 calc(var(--journal-rule-step) - 1px),var(--journal-rule) 0 var(--journal-rule-step));
+}
+.journal-writing .notebook-title-row {
+  display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px;
+  min-height:var(--journal-rule-step); padding:0 4px;
+  background:linear-gradient(transparent calc(100% - 1px),var(--journal-rule) 0),var(--journal-paper);
+}
+.journal-writing .notebook-title-row .notebook-title {
+  min-width:0; height:var(--journal-rule-step); line-height:var(--journal-rule-step);
+  margin:0; padding:0; border:none; border-radius:0;
+}
+.journal-writing .rich-note-field {
+  min-height:var(--journal-rule-step); line-height:var(--journal-rule-step);
+  padding:0 4px; border-radius:0;
+  background:repeating-linear-gradient(transparent 0 calc(var(--journal-rule-step) - 1px),var(--journal-rule) 0 var(--journal-rule-step)),var(--journal-paper);
+}
+.journal-writing .journal-date {justify-content:flex-end; margin:0; font-size:11px; white-space:nowrap;}
+.journal-writing .journal-date-grid {right:0; left:auto; width:min(380px,62vw);}
+@media(max-width:560px){
+  .journal-writing .notebook-title-row {gap:3px; padding-inline:0;}
+  .journal-writing .journal-date {gap:0; font-size:9px;}
+  .journal-writing .journal-date > button {padding-inline:1px;}
+}

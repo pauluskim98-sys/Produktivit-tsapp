@@ -140,6 +140,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import Timeline, { dragStartMinute, type TimeChange } from "./timeline";
+import type { PendingCreation } from "./timeline";
 import { gridMinute, scheduleAt, toMinutes } from "@/lib/schedule";
 import CategoryIcon from "./category-icon";
 import { lifeTabs, baseLifeTabs } from "@/lib/life-tabs";
@@ -809,6 +810,7 @@ export default function Planner() {
     duration?: number;
     days?: string[];
     drawn?: boolean;
+    preview?:PendingCreation;
     category?: { id: string; color: TaskColor; suggestions: string[] };
   } | null>(null);
   const [dragged, setDragged] = useState<Todo | null>(null),
@@ -840,7 +842,12 @@ export default function Planner() {
     report();
     return () => observer.disconnect();
   }, []);
-  const visibleNotesPosition = newOpen && notesPosition==="open" ? "closing" : notesPosition;
+  const visibleNotesPosition = newOpen && notesPosition==="open" ? "below" : notesPosition;
+  useEffect(()=>{
+    if(notesPosition!=="closing")return;
+    const fallback=window.setTimeout(()=>setNotesPosition(current=>current==="closing"?"below":current),240);
+    return ()=>window.clearTimeout(fallback);
+  },[notesPosition]);
   const wasCreating=useRef(false);
   useEffect(()=>{if(wasCreating.current&&!newOpen&&notesBeforeCreation.current){setNotesPosition("open");notesBeforeCreation.current=false;}wasCreating.current=newOpen;},[newOpen]);
   useEffect(() => {
@@ -893,22 +900,29 @@ export default function Planner() {
   };
   const workspaceRef=useRef<HTMLDivElement>(null);
   const notesPanelRef=useRef<HTMLElement>(null);
+  const notesFlowRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{
     const panel=notesPanelRef.current;
     const main=panel?.closest("main");
     if(!panel || !main || visibleNotesPosition!=="below")return;
     const calendar=main.querySelector<HTMLElement>(".timeline-scroll,.calendar-overview-large");
-    const editor=panel.querySelector<HTMLElement>(".notebook-column-editor,.notebook-journal-slot");
-    if(!calendar || !editor)return;
+    const marker=notesFlowRef.current;
+    const tabs=panel.querySelector<HTMLElement>(".notebook-tabs");
+    if(!calendar || !marker || !tabs)return;
     const fit=()=>{
+      const rect=panel.getBoundingClientRect();
+      const rail=Math.ceil(tabs.getBoundingClientRect().bottom-rect.top+4);
+      panel.style.setProperty("--note-panel-height",`${Math.ceil(rect.height)}px`);
+      panel.style.setProperty("--note-rail-height",`${rail}px`);
       const viewportTop=main.getBoundingClientRect().top+main.clientTop;
-      const overhead=editor.getBoundingClientRect().top-viewportTop+main.scrollTop-calendar.getBoundingClientRect().height;
-      main.style.setProperty("--calendar-before-notes",`${Math.max(180,Math.ceil(main.clientHeight-overhead))}px`);
+      const gap=parseFloat(getComputedStyle(main).rowGap)||0;
+      const margin=parseFloat(getComputedStyle(panel).marginTop)||0;
+      const overhead=marker.getBoundingClientRect().top-viewportTop+main.scrollTop-calendar.getBoundingClientRect().height+gap+margin+rail;
+      main.style.setProperty("--calendar-before-notes",`${Math.max(180,Math.floor(main.clientHeight-overhead))}px`);
     };
     fit();
     const observer=new ResizeObserver(fit);
-    observer.observe(main);
-    for(const item of [main.querySelector(".planner-toolbar"),panel.querySelector(".notebook-tabs")]){
+    for(const item of [main,panel,tabs,main.querySelector(".planner-toolbar")]){
       if(item)observer.observe(item);
     }
     return ()=>observer.disconnect();
@@ -2688,7 +2702,8 @@ export default function Planner() {
                 }}
                 onDayOpen={setDayPanel}
                 onJournalDay={setJournalDate}
-                onCreate={(day, time, duration, days, drawn) => {
+                pendingCreation={newOpen ? newSlot?.preview : undefined}
+                onCreate={(day, time, duration, days, drawn, preview) => {
                   if (zoneMode) {
                     const start=toMinutes(time);
                     setZoneEdit({id:crypto.randomUUID(),name:"",color:"#47866d",outline:false,start,
@@ -2700,7 +2715,7 @@ export default function Planner() {
                                 setPasteTarget({ day, time });
                   notesBeforeCreation.current=notesPosition==="open"||notesClickCandidate.current;
                   notesClickCandidate.current=false;
-                  setNewSlot({ day, time, duration, days, drawn });
+                  setNewSlot({ day, time, duration, days, drawn, preview });
                   setNewOpen(true);
                 }}
                 onEvent={setCalendarEventEdit}
@@ -2759,9 +2774,10 @@ export default function Planner() {
                 )}
               />
             )}
+            <div className="notepad-flow-marker" ref={notesFlowRef} aria-hidden="true"/>
             <section ref={notesPanelRef} tabIndex={-1} className={`calendar-bottom-notes notes-${visibleNotesPosition}`} aria-label="Kalendernotizen" inert={visibleNotesPosition==="closing"}
               onAnimationEnd={(event)=>{
-                if(!newOpen && event.target===event.currentTarget && event.animationName==="notes-slide-out")
+                if(event.target===event.currentTarget && event.animationName==="notes-slide-out")
                   setNotesPosition((position)=>position==="closing"?"below":position);
               }}>
               <div className="notebook-workspace notebook-columns-workspace">
