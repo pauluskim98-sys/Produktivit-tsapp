@@ -8185,3 +8185,36 @@ button[hidden] {
 .resource-header-secondary .icon-button {width:28px; height:27px; background:var(--surface); border:1px solid var(--line); border-radius:7px;}
 .calendar-workspace .planner-toolbar {padding-right:68px;}
 @media (hover:none) {.notebook-mood-entry > button {opacity:1;}}
+
+.journal-layer {
+  position:fixed; inset:0; z-index:44; pointer-events:none;
+  display:flex; justify-content:flex-end; align-items:flex-start; padding:12px 16px;
+}
+.journal-layer::before {
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:#14221826; backdrop-filter:blur(3px); opacity:0; transition:opacity 140ms ease;
+}
+.journal-layer:has(.notebook-journal:hover)::before {opacity:1;}
+.journal-layer .notebook-journal {
+  position:relative; pointer-events:auto; display:flex; flex-direction:column;
+  width:min(1280px,calc(100vw - 88px)); height:min(870px,calc(100dvh - 24px));
+  max-height:none; padding:18px; overflow:hidden;
+}
+.journal-layer[data-docked="true"] .notebook-journal {width:min(560px,max(320px,44vw),calc(100vw - 32px));}
+body:has(.task-detail-backdrop:not(.is-closing)) .journal-layer {justify-content:flex-start;}
+body:has(.task-detail-backdrop:not(.is-closing)) .journal-layer .notebook-journal {
+  width:min(520px,calc(100vw - 440px)); min-width:220px;
+}
+.journal-layer .journal-body {flex:1 1 auto; min-height:0; max-height:none;}
+.journal-layer .journal-page .planner-notepad {min-height:clamp(240px,42dvh,520px);}
+.journal-page .notebook-title {border-bottom:1px solid var(--line); border-radius:0; margin-bottom:8px;}
+.journal-sticker > input {min-width:0; width:100%;}
+.lifemap-notes-frame .journal-layer {z-index:1010;}
+.lifemap-notes-frame .journal-layer .notebook-journal,.lifemap-notes-frame .journal-layer .notebook-journal * {visibility:visible;}
+@media(max-width:620px) {
+  .journal-layer {padding-inline:8px;}
+  .journal-layer .notebook-journal {width:calc(100vw - 36px); padding:10px;}
+  .journal-layer[data-docked="true"] .notebook-journal {width:calc(100vw - 56px);}
+  .journal-header {flex-wrap:wrap;}
+  .journal-header .journal-search {margin-left:0; order:3; flex:1 0 100%;}
+}

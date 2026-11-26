@@ -526,9 +526,7 @@ export default function Planner() {
     [planningInput, setPlanningInput] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null),
-    [query, setQuery] = useState(""),
-    [tagFilter, setTagFilter] = useState(""),
-    [showDone, setShowDone] = useState(true);
+    [query, setQuery] = useState("");
   const [settings, setSettings] = useState(false),
     [newOpen, setNewOpen] = useState(false),
     [dark, setDark] = useState(false);
@@ -548,6 +546,24 @@ export default function Planner() {
   const [activeNote,setActiveNote]=useState<string|null>(null);
   const [freshNote,setFreshNote]=useState<string|null>(null);
   const [journalDate,setJournalDate]=useState<string|null>(null);
+  useEffect(()=>{
+    const url=new URL(location.href);
+    if(url.searchParams.get("journal")!=="1")return;
+    setJournalDate(dateKey(new Date()));
+    url.searchParams.delete("journal");
+    window.history.replaceState(window.history.state,"",url);
+  },[]);
+  useEffect(()=>{
+    const openJournal=(event:KeyboardEvent)=>{
+      if(event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey ||
+        event.key.toLowerCase()!=="t" || !(event.target instanceof Element) ||
+        event.target.closest("input,textarea,select,[contenteditable]") || document.querySelector('[role="dialog"]'))return;
+      event.preventDefault();
+      setJournalDate(current=>current ?? anchor);
+    };
+    window.addEventListener("keydown",openJournal);
+    return ()=>window.removeEventListener("keydown",openJournal);
+  },[anchor]);
   const [moodView,setMoodView]=useState(false);
   const [notebookRowColumn,setNotebookRowColumn]=useState<string|null>(null);
   const lastNotebookColumn=useRef<Record<string,string>>({});
@@ -2005,8 +2021,6 @@ export default function Planner() {
   const weekKeys = days.map(dateKey);
   const end = days[6];
   const visible = (todo: Todo) =>
-    (showDone || !todo.done) &&
-    (!tagFilter || todo.tags.includes(tagFilter)) &&
     (!query ||
       `${todo.title} ${todo.description} ${todo.tags.join(" ")}`
         .toLowerCase()
@@ -2014,7 +2028,6 @@ export default function Planner() {
   const calendarEvents = state.events.filter((event)=>!hiddenCalendars.includes(event.connectionId));
   const calendarTodos = hiddenCalendars.includes("lifemap") ? [] : state.todos.filter((todo)=>visible(todo) && !todo.tags.includes("stored") && !waitingNoteTodo(todo,noteToday))
     .map((todo)=>({...todo,calendarGroupColor:nativeGroupColor(todo.title,nativeCalendar.rules)}));
-  const tags = [...new Set(state.todos.flatMap((todo)=>todo.tags))].filter((tag)=>!/^[chdnq]:|^note-origin:/.test(tag) && !["stored","auto:day"].includes(tag) && !tag.startsWith("note-todo:")).sort();
   const current = state.todos.find((todo)=>todo.id===selected);
   const eventsFor = (day: string) =>
     calendarEvents.filter((e) =>
@@ -2466,7 +2479,7 @@ export default function Planner() {
                 <button className="today-button" onClick={today}>
                   Heute
                 </button>
-                <button type="button" className="today-button" onClick={()=>setJournalDate(anchor)}><BookOpen size={14}/> Tagebuch</button>
+                <button type="button" className="today-button" title="Tagebuch öffnen (T)" onClick={()=>setJournalDate(anchor)}><BookOpen size={14}/> Tagebuch</button>
                 <button type="button" className="today-button" aria-pressed={moodView} onClick={()=>setMoodView(current=>!current)}>Moodtracker</button>
                 <a className="today-button" href="/lifemap/board" style={{textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6}} title="Freie LifeMap öffnen">◇ LifeMap</a>
               </div>
@@ -2496,27 +2509,7 @@ export default function Planner() {
                   >
                     <X size={13} />
                   </button>
-                ) : (
-                  <kbd>⌘ K</kbd>
-                )}
-              </label>
-              <select
-                aria-label="Nach Tag filtern"
-                value={tagFilter}
-                onChange={(e) => setTagFilter(e.target.value)}
-              >
-                <option value="">Alle Tags</option>
-                {tags.map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-              <label className="done-toggle">
-                <input
-                  type="checkbox"
-                  checked={showDone}
-                  onChange={(e) => setShowDone(e.target.checked)}
-                />
-                Erledigte
+                ) : null}
               </label>
               <button type="button" className="today-button zone-mode-toggle" aria-pressed={zoneMode} title="Zonenmodus (Z)" onClick={toggleZones}>Zonen</button>
               <span className="save-indicator" aria-live="polite">
@@ -3147,7 +3140,9 @@ export default function Planner() {
           const noteKey=column && notebookColumnKey(key,column.id);
           return noteKey ? {key:noteKey,content:state.dayNotes[noteKey]||""} : undefined;
         })()}
-        preferences={notePreferences} onDate={setJournalDate} onClose={()=>setJournalDate(null)}
+        preferences={notePreferences} onDate={setJournalDate} onCalendarDay={day=>{
+          setAnchor(day);setMobileDay(day);setDatePreview(null);setOverview("day");
+        }} onClose={()=>setJournalDate(null)}
         onSave={saveJournalNote} onOpenNote={key=>{
           setJournalDate(null);openNote(notebookColumnParent(key) ?? key);setNotesPosition("open");
         }}/>}

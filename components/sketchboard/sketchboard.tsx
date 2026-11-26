@@ -2058,8 +2058,8 @@ function BoardEditor() {
     left: number;
     top: number;
   } | null>(null);
-  const goToCalendar = async () => {
-    if (await storage.finish()) location.assign("/lifemap");
+  const goToCalendar = async (journal=false) => {
+    if (await storage.finish()) location.assign(journal?"/lifemap?journal=1":"/lifemap");
   };
   const loadImport = (value: unknown) => {
     try {
@@ -2662,10 +2662,10 @@ function BoardEditor() {
   useEffect(() => {
     const switchView = (event: KeyboardEvent) => {
       if (event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey ||
-        event.key.toLowerCase() !== "k" || editing || settings || form ||
+        !["k","t"].includes(event.key.toLowerCase()) || editing || settings || form ||
         !(event.target instanceof Element) || event.target.closest("input,textarea,select,[contenteditable]")) return;
       event.preventDefault();
-      void goToCalendar();
+      void goToCalendar(event.key.toLowerCase()==="t");
     };
     window.addEventListener("keydown",switchView);
     return () => window.removeEventListener("keydown",switchView);
