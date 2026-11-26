@@ -1,4 +1,4 @@
-export type NotebookFeatures = { todo?: boolean; weekdays?: boolean };
+export type NotebookFeatures = { todo?: boolean; weekdays?: boolean; mood?: boolean };
 export type NotebookColumn = {
   id: string;
   width?: number;
@@ -8,6 +8,8 @@ export type NotebookColumn = {
   design?: NotebookLayout["design"];
 };
 export type NotebookLayout = {
+  title?: string;
+  rows?: number;
   kind: "note" | "todo" | "weekly";
   features?: NotebookFeatures;
   view: "" | "week" | "month" | "year";
@@ -17,15 +19,30 @@ export type NotebookLayout = {
 };
 
 export function notebookFeatures(layout: NotebookLayout, column?: NotebookColumn) {
+  const weekdays = column?.features?.weekdays ?? layout.features?.weekdays ?? (layout.kind === "weekly");
   return {
     todo: column?.features?.todo ?? layout.features?.todo ?? (layout.kind === "todo"),
-    weekdays: column?.features?.weekdays ?? layout.features?.weekdays ?? (layout.kind === "weekly"),
+    weekdays,
+    mood: weekdays && (column?.features?.mood ?? layout.features?.mood ?? false),
   };
 }
 
 export const defaultNotebookLayout: NotebookLayout = {
   kind: "note", view: "", color: "", design: "plain", columns: [{ id: "main" }],
 };
+
+export type NotebookTemplate = { id: string; name: string; layout: NotebookLayout };
+
+export function applyNotebookTemplate(current: NotebookLayout, template: NotebookLayout): NotebookLayout {
+  const columns = template.columns.map((column, index) => ({
+    ...column, id: current.columns[index]?.id ?? crypto.randomUUID(),
+  }));
+  return {...template, title:current.title, columns:[...columns, ...current.columns.slice(columns.length)]};
+}
+
+export const moodColors = ["#479763", "#dfb32e", "#de822d", "#cd5554"];
+export const moodLabels = ["Gut", "Okay", "Schwierig", "Schlecht"];
+export type NotebookMood = { date: string; score: number; reason: string };
 
 export function notebookColumnKey(note: string, id: string) {
   return id === "main" ? note : `note-column:${id}:${note}`;

@@ -9,11 +9,14 @@ import {
 const weekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
 const minimumWidth = 48;
 
-export default function NotebookColumns({ layout, onChange, onRemove, onSettings, render, footer }: {
+export default function NotebookColumns({ layout, onChange, onRemove, onSettings, renderMood, hideMainPlaceholder, highlight, render, footer }: {
   layout: NotebookLayout;
   onChange: (layout: NotebookLayout) => void;
   onRemove: (column: NotebookColumn, remaining: NotebookColumn[]) => Promise<void>;
   onSettings: (column: NotebookColumn) => void;
+  renderMood?: (column:NotebookColumn,index:number)=>ReactNode;
+  hideMainPlaceholder?: boolean;
+  highlight?: number;
   footer: ReactNode;
   render: (column: NotebookColumn, index: number) => ReactNode;
 }) {
@@ -115,9 +118,16 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
           }).join(" ") }}>
           {columns.map((column, index) => (
             <section key={column.id} className="notebook-column" data-design={column.design}
+              data-highlighted={highlight===index || undefined}
+              onContextMenu={event=>{
+                if((event.target as Element).closest("input,textarea,[contenteditable],button,.notebook-picture"))return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.currentTarget.querySelector<HTMLInputElement>(".notebook-column-title")?.focus();
+              }}
               style={{backgroundColor:column.color || undefined}}>
               <div className="notebook-column-head">
-                {notebookFeatures(layout,column).weekdays && <span className="notebook-weekday">{weekdays[index % 7]}</span>}
+                {notebookFeatures(layout,column).weekdays && <div className="notebook-weekday"><span>{weekdays[index % 7]}</span>{renderMood?.(column,index)}</div>}
                 <button className="notebook-add-column" type="button" aria-label={`Spalte vor Spalte ${index + 1} hinzufügen`}
                   onClick={() => {
                     const next = [...layout.columns];
@@ -128,7 +138,7 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
                   key={column.title || ""}
                   className="notebook-column-title"
                   aria-label={`Überschrift für Spalte ${index + 1}`}
-                  placeholder="Überschrift"
+                  placeholder={hideMainPlaceholder && column.id==="main" ? "" : "Überschrift"}
                   defaultValue={column.title || ""}
                   maxLength={120}
                   onBlur={(event) => {

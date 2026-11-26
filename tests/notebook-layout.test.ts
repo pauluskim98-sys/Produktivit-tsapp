@@ -1,15 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addNotebookColumns, defaultNotebookLayout, notebookColumnKey, notebookFeatures } from "../lib/notebook-layout.ts";
+import { addNotebookColumns, applyNotebookTemplate, defaultNotebookLayout, notebookColumnKey, notebookFeatures } from "../lib/notebook-layout.ts";
 import { notebookColumnParent } from "../lib/notebook.ts";
 import { parkedNoteTag } from "../lib/planner-day.ts";
 
 test("legacy notebook modes, combined features and column overrides resolve independently", () => {
   const weekly = { ...defaultNotebookLayout, kind:"weekly" as const };
-  assert.deepEqual(notebookFeatures(weekly), {todo:false, weekdays:true});
+  assert.deepEqual(notebookFeatures(weekly), {todo:false, weekdays:true, mood:false});
   const combined = { ...weekly, features:{todo:true, weekdays:true} };
-  assert.deepEqual(notebookFeatures(combined), {todo:true, weekdays:true});
-  assert.deepEqual(notebookFeatures(combined, {id:"main",features:{todo:false}}), {todo:false, weekdays:true});
+  assert.deepEqual(notebookFeatures(combined), {todo:true, weekdays:true, mood:false});
+  assert.deepEqual(notebookFeatures(combined, {id:"main",features:{todo:false}}), {todo:false, weekdays:true, mood:false});
+});
+
+test("mood tracking requires weekday columns", () => {
+  const layout = {...defaultNotebookLayout, features:{mood:true}};
+  assert.equal(notebookFeatures(layout).mood,false);
+  assert.equal(notebookFeatures(layout,{id:"main",features:{weekdays:true}}).mood,true);
+});
+
+test("applying a template keeps note and column identities", () => {
+  const layout = {...defaultNotebookLayout,title:"Vorhanden",columns:[{id:"main"},{id:"existing"}]};
+  const source = {...defaultNotebookLayout,title:"Vorlage",columns:[{id:"other",title:"Neuer Spaltentitel"}]};
+  const applied = applyNotebookTemplate(layout,source);
+  assert.equal(applied.title,"Vorhanden");
+  assert.equal(applied.columns[0].title,"Neuer Spaltentitel");
+  assert.deepEqual(applied.columns.map(column=>column.id),["main","existing"]);
 });
 
 test("adding columns preserves manual widths and assigns only new columns flexible widths", () => {

@@ -2659,6 +2659,17 @@ function BoardEditor() {
       ),
     [editing, notes, settings, form],
   );
+  useEffect(() => {
+    const switchView = (event: KeyboardEvent) => {
+      if (event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey ||
+        event.key.toLowerCase() !== "k" || editing || settings || form ||
+        !(event.target instanceof Element) || event.target.closest("input,textarea,select,[contenteditable]")) return;
+      event.preventDefault();
+      void goToCalendar();
+    };
+    window.addEventListener("keydown",switchView);
+    return () => window.removeEventListener("keydown",switchView);
+  });
   const strokePoints = useRef<[number, number][]>([]);
   const displayStroke = (points: [number, number][]) => {
     if (points.length < 3) return points;

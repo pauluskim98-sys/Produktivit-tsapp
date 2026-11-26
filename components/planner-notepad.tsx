@@ -1,4 +1,6 @@
 "use client";
+import { sliceNoteRuns } from "@/lib/note-format";
+import { moodColors, moodLabels, type NotebookMood } from "@/lib/notebook-layout";
 import NotebookPicture, { isNotePicture, noteAttachment, type NotePicture } from "./notebook-picture";
 import ColorSwatches from "@/components/color-swatches";
 import { useEffect, useId, useRef, useState } from "react";
@@ -11,7 +13,7 @@ import type { NotePreferences } from "@/lib/note-todos";
 import { parkedNoteTag } from "@/lib/planner-day";
 import { record } from "@/lib/client-history";
 import { NoteTodoCheck } from "./note-todo-board";
-type Line = { text:string; box:boolean; done?:boolean; size?:number; bold?:boolean; italic?:boolean; color?:string; taskId?:string; picture?:NotePicture; runs?:NoteRun[] };
+type Line = { text:string; box:boolean; done?:boolean; size?:number; bold?:boolean; italic?:boolean; color?:string; taskId?:string; picture?:NotePicture; heading?:string; mood?:NotebookMood; runs?:NoteRun[] };
 const prefix="lifemap-lines:v1\n";
 const blank=(text="",box=false):Line=>({text,box});
 export function readNoteLines(value:string):Line[] {
@@ -35,15 +37,21 @@ function LegacyTodoLine({id,line,noteDate,index,onToggle,onMove}:{id:string;line
     </button>
   </div>;
 }
+export function withNotebookMood(value:string,mood:NotebookMood,titled=false) {
+  const lines=readNoteLines(value).filter(line=>line.mood?.date!==mood.date);
+  if(titled && !lines.length)lines.push(blank());
+  return prefix+JSON.stringify([...lines,{...blank(),mood}]);
+}
 export function noteWithTasks(value:string,todos:Todo[],titled=false) {
-  const lines=readNoteLines(value).filter((line,index)=>(titled && index===0) || line.text || line.taskId || line.picture);
+  const lines=readNoteLines(value).filter((line,index)=>(titled && index===0) || line.text || line.taskId || line.picture || line.heading || line.mood);
   const next=prefix+JSON.stringify([...lines,...todos.filter((todo)=>!lines.some((line)=>line.taskId===todo.id)).map((todo)=>({text:todo.title,box:false,taskId:todo.id}))]);
   if(next.length>10000)throw new Error("Die Notiz ist voll.");return next;
 }
-export default function PlannerNotepad({ value, onChange, onBlur, label, autoFocus=false, compact=false, onStep, noteDate, actions, tasks, onTaskOpen, todoPanel, todoMode=false, preferences, titled=false, focusTitle=false }: { value: string; onChange: (value: string) => void; onBlur: () => unknown; label: string; autoFocus?:boolean; compact?:boolean; onStep?:(direction:number)=>void; noteDate?:string; actions?:React.ReactNode; tasks?:Todo[]; onTaskOpen?:(id:string)=>void; todoPanel?:React.ReactNode; todoMode?:boolean; preferences?:NotePreferences; titled?:boolean; focusTitle?:boolean }) {
+export default function PlannerNotepad({ value, onChange, onBlur, label, autoFocus=false, compact=false, onStep, noteDate, actions, tasks, onTaskOpen, todoPanel, todoMode=false, rows=0, preferences, titled=false, focusTitle=false }: { value: string; onChange: (value: string) => void; onBlur: () => unknown; label: string; autoFocus?:boolean; compact?:boolean; onStep?:(direction:number)=>void; noteDate?:string; actions?:React.ReactNode; tasks?:Todo[]; onTaskOpen?:(id:string)=>void; todoPanel?:React.ReactNode; todoMode?:boolean; rows?:number; preferences?:NotePreferences; titled?:boolean; focusTitle?:boolean }) {
   const latest = useRef(value); latest.current = value;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [headingIndex,setHeadingIndex]=useState<number|null>(null);
   const [menu,setMenu] = useState<number|null>(null);
   const [todoWidth,setTodoWidth]=useState(57);
   const widthRef=useRef(57);
@@ -88,12 +96,14 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
   const lines=readNoteLines(value);
   if(todoMode) {
     for(const [index,line] of lines.entries()) {
-      if(!(titled && index===0) && !line.taskId && !line.picture) lines[index]={...line,box:true};
+      if(!(titled && index===0) && !line.taskId && !line.picture && !line.mood) lines[index]={...line,box:true};
     }
-    if(!lines.some((line,index)=>!(titled && index===0) && !line.taskId && !line.picture && !noteAttachment(line.text) && !line.done)) lines.push(blank("",true));
+    if(!lines.some((line,index)=>!(titled && index===0) && !line.taskId && !line.picture && !line.mood && !noteAttachment(line.text) && !line.done)) lines.push(blank("",true));
   }
   if(lines.every((line)=>line.taskId || (todoPanel && line.box)))lines.push(blank());
   if(titled && lines.length===1)lines.push(blank("",todoMode));
+  const emptyRows=lines.filter((line,index)=>!(titled && index===0) && !line.text && !line.heading && !line.taskId && !line.picture && !line.mood).length;
+  for(let i=emptyRows;i<rows;i++)lines.push(blank("",todoMode));
   function commit(next:Line[]) { const serialized=prefix+JSON.stringify(next.length ? next : [blank("",todoMode)]); if(serialized.length>10000) {setError("Die Notiz ist voll.");return;} setError("");onChange(serialized); }
   function patch(i:number, update:Partial<Line>) { commit(lines.map((l,j)=>i===j?{...l,...update}:l)); }
   function insert(i:number, before:string, after:string) { commit([...lines.slice(0,i),{...lines[i],text:before},blank(after,lines[i].box),...lines.slice(i+1)]); requestAnimationFrame(()=>{fields.current[i+1]?.focus();fields.current[i+1]?.setSelectionRange(0,0);}); }
@@ -115,7 +125,8 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
       commit([...readNoteLines(latest.current), ...links]);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  const renderLine=(line:Line,i:number)=>{
+  const renderLineBody=(line:Line,i:number)=>{
+        if(line.mood)return null;
         const attachment = noteAttachment(line.text);
         const picture = line.picture ?? (attachment?.image ? {name:attachment.name,id:attachment.id} : undefined);
         if(picture)return <NotebookPicture key={`${picture.id}:${i}`} picture={picture}
@@ -128,7 +139,7 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
           onChange={(event)=>patch(0,{text:event.target.value})} onKeyDown={(event)=>{
             if(event.key==="Enter" && !event.nativeEvent.isComposing){
               event.preventDefault();
-              event.currentTarget.parentElement?.querySelector<HTMLElement>(".rich-note-field")?.focus();
+              event.currentTarget.closest(".note-text-column")?.querySelector<HTMLElement>(".rich-note-field")?.focus();
             }
           }}/>;
         if(line.taskId && tasks && onTaskOpen){
@@ -136,10 +147,39 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
           return todo ? <div key={todo.id} data-note-task={todo.id}><PeriodTask todo={todo} compact onOpen={onTaskOpen}/></div> : null;
         }
         if(todoMode && line.done && !line.taskId)return null;
-        if(preferences && !line.box && !line.taskId)return <RichNoteLine key={i} text={line.text}
-          runs={line.runs || ((line.size || line.bold || line.italic || line.color) ? [{text:line.text,size:line.size,bold:line.bold,italic:line.italic,color:line.color}] : undefined)}
-          label={`${label}, Zeile ${i+1}`} preferences={preferences} autoFocus={autoFocus && i===0} compact={compact}
-          onChange={(text,runs)=>patch(i,{text,runs})} onBlur={onBlur} onFiles={(files)=>void upload(files)}/>;
+        if(preferences && !line.taskId && (!line.box || !todoPanel)) {
+          const content=<RichNoteLine text={line.text}
+            runs={line.runs || ((line.size || line.bold || line.italic || line.color) ? [{text:line.text,size:line.size,bold:line.bold,italic:line.italic,color:line.color}] : undefined)}
+            label={`${label}, Zeile ${i+1}`} preferences={preferences} autoFocus={autoFocus && i===0} compact={compact}
+            placeholder={line.box?"To-do hinzufügen …":"Notiz schreiben …"}
+            onChange={(text,runs)=>patch(i,{text,runs})} onBlur={onBlur} onFiles={(files)=>void upload(files)}
+            onKeyDown={(event,start,end)=>{
+              if(!line.box || event.nativeEvent.isComposing)return;
+              if(event.key==="Enter" && !event.shiftKey){
+                event.preventDefault();
+                event.stopPropagation();
+                const row=event.currentTarget.closest(".notebook-text-row");
+                const next=[...lines];
+                const runs=line.runs ?? [{text:line.text}];
+                next.splice(i,1,{...line,text:line.text.slice(0,start),runs:sliceNoteRuns(runs,0,start)},
+                  {...blank(line.text.slice(end),true),runs:sliceNoteRuns(runs,end,line.text.length)});
+                commit(next);
+                requestAnimationFrame(()=>row?.nextElementSibling?.querySelector<HTMLElement>(".rich-note-field")?.focus());
+              }
+              if(event.key==="Backspace" && !todoMode && start===0 && end===0){
+                event.preventDefault();
+                event.stopPropagation();
+                patch(i,{box:false,done:false});
+              }
+            }}/>;
+          if(!line.box)return content;
+          return <div className="note-line">
+            <input type="checkbox" aria-label={`Zeile ${i+1} abhaken`} checked={!!line.done}
+              onChange={event=>{patch(i,{done:event.target.checked});if(todoMode)void onBlur();}}
+              onKeyDown={event=>{if(!todoMode && event.key==="Backspace"){event.preventDefault();patch(i,{box:false,done:false});}}}/>
+            {content}
+          </div>;
+        }
         const legacyId=todoPanel && noteDate && line.box ? legacyNoteTodoId(noteDate,i) : undefined;
         if(legacyId && noteDate)return <LegacyTodoLine key={i} id={legacyId} line={line} noteDate={noteDate} index={i}
           onToggle={()=>patch(i,{done:!line.done})}
@@ -167,6 +207,27 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
           <button type="button" onClick={()=>setMenu(null)}>Schließen</button>
         </div>}
       </div>;
+  };
+  const renderLine=(line:Line,index:number)=>{
+    if(line.mood)return null;
+    const editableHeading=!(titled && index===0) && !line.taskId && !line.picture && !noteAttachment(line.text);
+    return <div className="notebook-text-row" key={index} onContextMenuCapture={event=>{
+      if(!editableHeading || headingIndex===index || (event.target as Element).closest("button,label,select,[type=checkbox]"))return;
+      const target=event.target;
+      const hasSelection=target instanceof HTMLTextAreaElement
+        ? target.selectionStart!==target.selectionEnd : !window.getSelection()?.isCollapsed;
+      if(hasSelection)return;
+      event.preventDefault();event.stopPropagation();setHeadingIndex(index);
+    }}>
+      {headingIndex===index ? <input className="notebook-row-heading" aria-label="Zeilenüberschrift"
+        defaultValue={line.heading||""} autoFocus maxLength={120} placeholder="Zeilenüberschrift"
+        onBlur={event=>{patch(index,{heading:event.currentTarget.value.trim()||undefined});setHeadingIndex(null);}}
+        onKeyDown={event=>{
+          if(event.key==="Escape"){event.stopPropagation();setHeadingIndex(null);}
+          if(event.key==="Enter" && !event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.blur();}
+        }}/> : line.heading && <button className="notebook-row-heading" type="button" onClick={()=>setHeadingIndex(index)}>{line.heading}</button>}
+      {renderLineBody(line,index)}
+    </div>;
   };
   return <div className={`planner-notepad ${compact?"compact-notepad":""}`} onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); void upload(Array.from(e.dataTransfer.files)); } }}>
     <div className="notepad-content">
@@ -215,6 +276,12 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
         const last=Array.from(event.currentTarget.querySelectorAll<HTMLElement>(".rich-note-field,textarea,input.notebook-title")).at(-1);
         last?.focus();
       }}>{lines.map(renderLine)}</div>}
+      {lines.map(({mood})=>mood && <div className="notebook-mood-entry" key={mood.date}>
+        <span aria-hidden="true" style={{backgroundColor:moodColors[mood.score]}}/>
+        <time dateTime={mood.date}>{mood.date.split("-").reverse().join(".")}</time>
+        <strong>{moodLabels[mood.score]}</strong>
+        {mood.reason && <span>{mood.reason}</span>}
+      </div>)}
 
     </div>
     </div>

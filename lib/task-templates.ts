@@ -10,6 +10,7 @@ export type TaskTemplate = {
 export function templateSettings(todo: Todo): Partial<Todo> {
   return {
     description: todo.description,
+    descriptionRuns:todo.descriptionRuns,
     notes: todo.notes,
     priority: todo.priority,
     reminder: todo.reminder,

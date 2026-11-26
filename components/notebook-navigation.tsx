@@ -21,6 +21,8 @@ export default function NotebookNavigation({
   onSelectNote,
   onMoveNotes,
   values,
+  titles,
+  onRename,
   calendarKeys,
   pinned,
   tabs,
@@ -38,6 +40,8 @@ export default function NotebookNavigation({
   onSelectNote: (key: string) => void;
   onMoveNotes: (keys: string[], before: string) => void;
   values: Record<string, string>;
+  titles: Record<string,{title?:string}>;
+  onRename: (key:string,title:string) => void;
   calendarKeys: string[];
   pinned: string;
   tabs: string[];
@@ -48,6 +52,8 @@ export default function NotebookNavigation({
   onSettings: (key: string) => void;
   onFolder: (name: string) => Promise<void>;
 }) {
+  const [renaming,setRenaming] = useState<string|null>(null);
+  const titleFor = (key:string) => titles[key]?.title || notebookTitle(key, values[key] || "");
   const [query, setQuery] = useState("");
   const [folderDraft, setFolderDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -108,7 +114,7 @@ export default function NotebookNavigation({
     ]),
   ].map((key) => ({
     key,
-    title: notebookTitle(key, values[key] || ""),
+    title: titleFor(key),
     folder: notebookFolder(key),
     content: readNoteLines(values[key] || "")
       .concat(Object.entries(values).filter(([entry]) => notebookColumnParent(entry) === key).flatMap(([, content]) => readNoteLines(content)))
@@ -318,9 +324,21 @@ export default function NotebookNavigation({
               onSettings(key);
             }}
           >
-            <button
+            {renaming===key ? <input autoFocus className="notebook-tab-name" aria-label="Tab umbenennen"
+              defaultValue={titleFor(key)} maxLength={120}
+              onFocus={event=>event.currentTarget.select()}
+              onBlur={event=>{
+                const name=event.currentTarget.value.trim();
+                if(name && name!==titleFor(key))onRename(key,name);
+                setRenaming(null);
+              }}
+              onKeyDown={event=>{
+                if(event.key==="Escape"){event.stopPropagation();setRenaming(null);}
+                if(event.key==="Enter" && !event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.blur();}
+              }}/> : <button
               type="button"
               aria-current={!map && active === key ? "page" : undefined}
+              onDoubleClick={()=>setRenaming(key)}
               onClick={() => {
                 if (selectionMode && notebookFolder(key)) {
                   onSelectNote(key);
@@ -330,12 +348,12 @@ export default function NotebookNavigation({
                 onOpen(key);
               }}
             >
-              {notebookTitle(key, values[key] || "")}
-            </button>
+              {titleFor(key)}
+            </button>}
             {key !== pinned && (
               <button
                 type="button"
-                aria-label={`${notebookTitle(key, values[key] || "")} schließen`}
+                aria-label={`${titleFor(key)} schließen`}
                 onClick={() => onClose(key)}
               >
                 <X size={13} />

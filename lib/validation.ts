@@ -1,3 +1,4 @@
+import { validNoteRuns } from "./note-format.ts";
 import { TASK_COLOR_VALUES } from "./task-colors.ts";
 import type { Todo } from "./types";
 import { isDateKey } from "./dates.ts";
@@ -91,6 +92,7 @@ export function validTodo(value: unknown): Todo {
       throw new Error("Wegzeit muss zwischen 0 und 1440 Minuten liegen.");
   return {
     ...t,
+    descriptionRuns:validNoteRuns(t.descriptionRuns,t.description),
     seriesId: t.seriesId || "",
     reminder: Boolean(t.reminder),
     color: t.color || "green",

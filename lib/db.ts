@@ -1,3 +1,4 @@
+import { validNoteRuns } from "./note-format.ts";
 import { DatabaseSync } from "node:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
@@ -104,6 +105,8 @@ for (const [name, definition] of Object.entries({
   if (!calendarColumns.has(name))
     db.exec(`ALTER TABLE CalendarConnection ADD COLUMN ${name} ${definition}`);
 }
+if (!(db.prepare("PRAGMA table_info(Todo)").all() as {name:string}[]).some(column=>column.name==="descriptionRuns"))
+  db.exec("ALTER TABLE Todo ADD COLUMN descriptionRuns TEXT NOT NULL DEFAULT '[]'");
 if (
   !(db.prepare("PRAGMA table_info(Todo)").all() as { name: string }[]).some(
     (c) => c.name === "color",
@@ -162,31 +165,36 @@ export function getTodos(): Todo[] {
       .prepare(
         "SELECT * FROM Todo WHERE userId = ? ORDER BY position, createdAt",
       )
-      .all(USER) as unknown as Todo[]
-  ).map((t) => ({
-    ...t,
-    done: Boolean(t.done),
-    reminder: Boolean(t.reminder),
-    tags: (
-      db
-        .prepare(
-          "SELECT name FROM Tag JOIN TodoTag ON Tag.id = TodoTag.tagId WHERE todoId = ? ORDER BY name",
-        )
-        .all(t.id) as { name: string }[]
-    ).map((x) => x.name),
-    subtasks: (
-      db
-        .prepare(
-          "SELECT id,title,done FROM Subtask WHERE todoId = ? ORDER BY position",
-        )
-        .all(t.id) as unknown as Todo["subtasks"]
-    ).map((s) => ({ ...s, done: Boolean(s.done) })),
-  }));
+      .all(USER) as unknown as (Omit<Todo,"descriptionRuns"> & {descriptionRuns:string})[]
+  ).map(({descriptionRuns: encoded, ...t}) => {
+    let descriptionRuns: Todo["descriptionRuns"];
+    try { descriptionRuns=validNoteRuns(JSON.parse(encoded),t.description); } catch {}
+    return {
+      ...t,
+      ...(descriptionRuns ? {descriptionRuns} : {}),
+      done: Boolean(t.done),
+      reminder: Boolean(t.reminder),
+      tags: (
+        db
+          .prepare(
+            "SELECT name FROM Tag JOIN TodoTag ON Tag.id = TodoTag.tagId WHERE todoId = ? ORDER BY name",
+          )
+          .all(t.id) as { name: string }[]
+      ).map((x) => x.name),
+      subtasks: (
+        db
+          .prepare(
+            "SELECT id,title,done FROM Subtask WHERE todoId = ? ORDER BY position",
+          )
+          .all(t.id) as unknown as Todo["subtasks"]
+      ).map((s) => ({ ...s, done: Boolean(s.done) })),
+    };
+  });
 }
 export function putTodo(t: Todo) {
   db.prepare(
-    `INSERT INTO Todo (id,userId,title,description,notes,done,priority,plannedDate,time,deadline,duration,position,createdAt,color,reminder,seriesId,location,travelBefore,travelAfter,travelMode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET title=excluded.title,description=excluded.description,notes=excluded.notes,done=excluded.done,priority=excluded.priority,plannedDate=excluded.plannedDate,time=excluded.time,deadline=excluded.deadline,duration=excluded.duration,position=excluded.position,color=excluded.color,reminder=excluded.reminder,seriesId=excluded.seriesId,location=excluded.location,travelBefore=excluded.travelBefore,travelAfter=excluded.travelAfter,travelMode=excluded.travelMode`,
+    `INSERT INTO Todo (id,userId,title,description,notes,done,priority,plannedDate,time,deadline,duration,position,createdAt,color,reminder,seriesId,location,travelBefore,travelAfter,travelMode,descriptionRuns) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET title=excluded.title,description=excluded.description,notes=excluded.notes,done=excluded.done,priority=excluded.priority,plannedDate=excluded.plannedDate,time=excluded.time,deadline=excluded.deadline,duration=excluded.duration,position=excluded.position,color=excluded.color,reminder=excluded.reminder,seriesId=excluded.seriesId,location=excluded.location,travelBefore=excluded.travelBefore,travelAfter=excluded.travelAfter,travelMode=excluded.travelMode,descriptionRuns=excluded.descriptionRuns`,
   ).run(
     t.id,
     USER,
@@ -208,6 +216,7 @@ export function putTodo(t: Todo) {
     t.travelBefore || 0,
     t.travelAfter || 0,
     t.travelMode || "",
+    JSON.stringify(validNoteRuns(t.descriptionRuns,t.description) || []),
   );
   db.prepare("DELETE FROM Subtask WHERE todoId = ?").run(t.id);
   t.subtasks.forEach((s, i) =>

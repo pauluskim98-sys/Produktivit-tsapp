@@ -1,3 +1,4 @@
+import type { NoteRun } from "./note-format";
 import type { TaskColor } from "./task-colors";
 export type Priority = "none" | "low" | "medium" | "high";
 export interface Subtask {
@@ -10,6 +11,7 @@ export interface Todo {
   id: string;
   title: string;
   description: string;
+  descriptionRuns?: NoteRun[];
   notes: string;
   done: boolean;
   priority: Priority;

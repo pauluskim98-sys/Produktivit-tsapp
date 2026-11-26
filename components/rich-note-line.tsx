@@ -1,9 +1,11 @@
 "use client";
+import { createPortal } from "react-dom";
 import ColorSwatches from "@/components/color-swatches";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyEvent } from "react";
 import { noteFonts, noteFontCss, type NoteFont, type NotePreferences } from "@/lib/note-todos";
 
-export type NoteRun={text:string;font?:NoteFont;size?:number;color?:string;bold?:boolean;italic?:boolean;underline?:boolean};
+import type { NoteRun } from "@/lib/note-format";
+export type { NoteRun } from "@/lib/note-format";
 type Style=Omit<NoteRun,"text">;
 function readRuns(root:HTMLElement) {
   const runs:NoteRun[]=[];
@@ -48,16 +50,37 @@ function renderRuns(root:HTMLElement,runs:NoteRun[]) {
   }
   root.replaceChildren(fragment);
 }
-export default function RichNoteLine({text,runs,label,preferences,onChange,onBlur,onFiles,autoFocus=false,compact=false}:{
+export default function RichNoteLine({text,runs,label,preferences,onChange,onBlur,onFiles,autoFocus=false,compact=false,placeholder="Notiz schreiben …",onCaret,onKeyDown,maxLength}:{
   text:string;runs?:NoteRun[];label:string;preferences:NotePreferences;
   onChange:(text:string,runs:NoteRun[])=>void;onBlur:()=>unknown;onFiles:(files:File[])=>void;
-  autoFocus?:boolean;compact?:boolean;
+  autoFocus?:boolean;compact?:boolean;placeholder?:string;maxLength?:number;
+  onCaret?:(position:number)=>void;
+  onKeyDown?:(event:ReactKeyEvent<HTMLDivElement>,start:number,end:number)=>void;
 }){
   const field=useRef<HTMLDivElement>(null);
   const menu=useRef<HTMLDivElement>(null);
   const selection=useRef<Range|null>(null);
   const last=useRef("");
   const [open,setOpen]=useState(false);
+  const [position,setPosition]=useState({x:0,y:0,above:true});
+  useEffect(()=>{
+    const capture=()=>{
+      const current=window.getSelection();
+      if(!field.current || !current?.rangeCount || current.isCollapsed) {
+        if(document.activeElement===field.current)setOpen(false);
+        return;
+      }
+      const range=current.getRangeAt(0);
+      if(!field.current.contains(range.commonAncestorContainer))return;
+      selection.current=range.cloneRange();
+      const rect=range.getBoundingClientRect();
+      const above=rect.top>=70;
+      setPosition({x:Math.max(8,Math.min(rect.left,innerWidth-420)),y:above?rect.top-6:rect.bottom+6,above});
+      setOpen(true);
+    };
+    document.addEventListener("selectionchange",capture);
+    return ()=>document.removeEventListener("selectionchange",capture);
+  },[]);
   useEffect(()=>{if(autoFocus)field.current?.focus({preventScroll:true});},[autoFocus]);
   useLayoutEffect(()=>{
     const current=runs || (text?[{text}]:[]);
@@ -71,9 +94,30 @@ export default function RichNoteLine({text,runs,label,preferences,onChange,onBlu
     document.addEventListener("pointerdown",outside,true);document.addEventListener("keydown",escape,true);
     return ()=>{document.removeEventListener("pointerdown",outside,true);document.removeEventListener("keydown",escape,true);};
   },[open]);
+  function offsets(){
+    const active=window.getSelection(), editor=field.current;
+    if(!active?.rangeCount || !editor)return [0,0] as const;
+    const current=active.getRangeAt(0);
+    if(!editor.contains(current.commonAncestorContainer))return [0,0] as const;
+    const prefix=document.createRange();
+    prefix.selectNodeContents(editor);
+    prefix.setEnd(current.startContainer,current.startOffset);
+    const length=(range:Range)=>{
+      const fragment=document.createElement("div");
+      fragment.append(range.cloneContents());
+      return readRuns(fragment).reduce((count,run)=>count+run.text.length,0);
+    };
+    const start=length(prefix);
+    prefix.setEnd(current.endContainer,current.endOffset);
+    return [start,length(prefix)] as const;
+  }
   const sync=()=>{
     if(!field.current)return;
     const next=readRuns(field.current);
+    if(maxLength && next.reduce((count,run)=>count+run.text.length,0)>maxLength){
+      renderRuns(field.current,runs || [{text}]);return;
+    }
+    onCaret?.(offsets()[0]);
     last.current=JSON.stringify(next);
     onChange(next.map((run)=>run.text).join(""),next);
   };
@@ -83,12 +127,19 @@ export default function RichNoteLine({text,runs,label,preferences,onChange,onBlu
     editor.focus();current.removeAllRanges();current.addRange(range);
     document.execCommand(command,false,value);
     if(size)editor.querySelectorAll<HTMLElement>('font[size="7"]').forEach((item)=>{item.removeAttribute("size");item.style.fontSize=`${size}px`;});
-    sync();setOpen(false);
+    sync();
+  }
+  function stepSize(delta:number){
+    const node=selection.current?.startContainer;
+    const style=node?.parentElement && getComputedStyle(node.parentElement);
+    const size=Number.parseFloat(style?.fontSize || "") || preferences.size;
+    apply("fontSize","7",Math.min(48,Math.max(8,size+delta)));
   }
   return <div className="rich-note-line">
     <div ref={field} className="rich-note-field" role="textbox" aria-label={label} aria-multiline="true" contentEditable suppressContentEditableWarning
-      data-placeholder="Notiz schreiben …" style={{fontFamily:noteFontCss[preferences.font],fontSize:compact?Math.max(11,preferences.size-3):preferences.size}}
-      onInput={sync} onBlur={onBlur}
+      data-placeholder={placeholder} style={{fontFamily:noteFontCss[preferences.font],fontSize:compact?Math.max(11,preferences.size-3):preferences.size}}
+      onInput={sync} onBlur={onBlur} onMouseUp={()=>onCaret?.(offsets()[0])} onKeyUp={()=>onCaret?.(offsets()[0])}
+      onKeyDown={event=>onKeyDown?.(event,...offsets())}
       onContextMenu={(event)=>{
         const current=window.getSelection();
         if(!current || current.isCollapsed || !current.rangeCount || !field.current?.contains(current.getRangeAt(0).commonAncestorContainer))return;
@@ -100,15 +151,17 @@ export default function RichNoteLine({text,runs,label,preferences,onChange,onBlu
         document.execCommand("insertText",false,event.clipboardData.getData("text/plain"));
       }}
     />
-    {open && <div ref={menu} className="note-format selection-toolbar" aria-label="Markierten Text formatieren">
+    {open && createPortal(<div ref={menu} className="note-format note-selection-toolbar selection-toolbar" aria-label="Markierten Text formatieren"
+      style={{left:position.x,top:position.y,transform:position.above?"translateY(-100%)":undefined}}>
       <label>Schrift <select defaultValue="" onChange={(event)=>apply("fontName",noteFontCss[event.target.value as NoteFont])}>
         <option disabled value="">Auswählen</option>{Object.entries(noteFonts).map(([key,name])=><option key={key} value={key} style={{fontFamily:noteFontCss[key as NoteFont]}}>{name}</option>)}
       </select></label>
-      <label>Größe <select defaultValue="" onChange={(event)=>apply("fontSize","7",Number(event.target.value))}>
-        <option disabled value="">Auswählen</option>{[12,14,16,18,20,24,30].map((size)=><option key={size}>{size}</option>)}
-      </select></label>
-      {([["bold","Fett"],["italic","Kursiv"],["underline","Unterstrichen"]] as const).map(([key,label])=><button type="button" key={key} onMouseDown={(event)=>event.preventDefault()} onClick={()=>apply(key)}>{label}</button>)}
+      <button type="button" className="note-size-down" aria-label="Schrift verkleinern" onMouseDown={event=>event.preventDefault()} onClick={()=>stepSize(-2)}>A</button>
+      <button type="button" className="note-size-up" aria-label="Schrift vergrößern" onMouseDown={event=>event.preventDefault()} onClick={()=>stepSize(2)}>A</button>
+      {([["bold","Fett","B"],["italic","Kursiv","I"],["underline","Unterstrichen","U"]] as const).map(([key,label,letter])=>
+        <button type="button" key={key} className={`note-style-${key}`} aria-label={label} title={label}
+          onMouseDown={(event)=>event.preventDefault()} onClick={()=>apply(key)}>{letter}</button>)}
       <label>Farbe <ColorSwatches name="rich-note-line-0" onChange={(event)=>apply("foreColor",event.target.value)} /></label>
-    </div>}
+    </div>,document.body)}
   </div>;
 }

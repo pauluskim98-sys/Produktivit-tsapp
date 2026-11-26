@@ -1,20 +1,25 @@
 "use client";
 import { useRef, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
+import RichNoteLine from "./rich-note-line";
+import { defaultNotePreferences } from "@/lib/note-todos";
+import { sliceNoteRuns, type NoteRun } from "@/lib/note-format";
 import type { Todo } from "@/lib/types";
 
 export default function TaskDescription({
   value,
   subtasks,
+  runs,
   imported,
   onChange,
 }: {
   value: string;
+  runs?: NoteRun[];
   subtasks: Todo["subtasks"];
   imported?: boolean;
-  onChange: (patch: Partial<Pick<Todo, "description" | "subtasks">>) => void;
+  onChange: (patch: Partial<Pick<Todo, "description" | "descriptionRuns" | "subtasks">>) => void;
 }) {
-  const input = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<HTMLDivElement>(null);
   const [offerTask, setOfferTask] = useState(false);
   const [plainText, setPlainText] = useState(false);
   const [caret, setCaret] = useState(0);
@@ -30,6 +35,7 @@ export default function TaskDescription({
     ).replace(/\n$/, "");
     onChange({
       description,
+      descriptionRuns:runs && [...sliceNoteRuns(runs,0,start),...sliceNoteRuns(runs,next<0?end:end+1,value.length)],
       subtasks: [
         ...subtasks,
         { id: crypto.randomUUID(), title: line, done: false },
@@ -38,7 +44,7 @@ export default function TaskDescription({
     setOfferTask(false);
     setPlainText(false);
     setCaret(description.length);
-    input.current?.focus();
+    input.current?.querySelector<HTMLElement>(".rich-note-field")?.focus();
   };
   return (
     <div className="task-description-box">
@@ -90,26 +96,20 @@ export default function TaskDescription({
             <Plus size={16} />
           </button>
         )}
-        <textarea
-          ref={input}
-          className="description-input"
-          aria-label="Beschreibung / Unteraufgabe"
+        <div ref={input} className="description-input" data-imported={imported}>
+        <RichNoteLine text={value} runs={runs} label="Beschreibung / Unteraufgabe"
           placeholder="Ergänze eine Beschreibung / Unteraufgabe …"
-          data-imported={imported}
-          value={value}
-          maxLength={10000}
-          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-          onChange={(e) => {
-            setCaret(e.currentTarget.selectionStart);
-            setOfferTask(true);
-            if (e.target.value.endsWith("\n") && !value.endsWith("\n"))
-              setPlainText(false);
-            onChange({ description: e.target.value });
+          preferences={defaultNotePreferences} maxLength={10000} onCaret={setCaret}
+          onBlur={()=>{}} onFiles={()=>{}}
+          onChange={(text,descriptionRuns)=>{
+            if(text!==value)setOfferTask(true);
+            if(text.endsWith("\n") && !value.endsWith("\n"))setPlainText(false);
+            onChange({description:text,descriptionRuns});
           }}
-          onKeyDown={(e) => {
+          onKeyDown={(e,start,end) => {
             if (e.nativeEvent.isComposing || e.metaKey || e.ctrlKey || e.altKey)
               return;
-            if (canAdd && ["Backspace", "Delete"].includes(e.key)) {
+            if (canAdd && start===end && ["Backspace", "Delete"].includes(e.key)) {
               e.preventDefault();
               e.stopPropagation();
               setPlainText(true);
@@ -120,6 +120,7 @@ export default function TaskDescription({
             }
           }}
         />
+        </div>
       </div>
     </div>
   );
