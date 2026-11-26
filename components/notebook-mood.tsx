@@ -26,15 +26,10 @@ export default function NotebookMoodPicker({ day, value, onSave }: {
       event.preventDefault();
       save();
     }}>
-      <input autoFocus value={reason} maxLength={350} placeholder="Warum?"
+      <textarea autoFocus rows={3} value={reason} maxLength={350} placeholder="Warum?"
         aria-label="Begründung" onChange={event=>setReason(event.target.value)}
         onKeyDown={event=>{
           if(event.key==="Escape"){event.stopPropagation();setScore(null);}
-          if(event.key==="Enter"){
-            event.preventDefault();
-            event.stopPropagation();
-            if(!event.nativeEvent.isComposing)save();
-          }
         }}/>
       <button type="submit" aria-label="Stimmung speichern">✓</button>
     </form>}

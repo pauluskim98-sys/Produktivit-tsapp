@@ -1,4 +1,4 @@
-export type NotebookFeatures = { todo?: boolean; weekdays?: boolean; mood?: boolean };
+export type NotebookFeatures = { todo?: boolean; weekdays?: boolean; mood?: boolean; lessons?: boolean };
 export type NotebookColumn = {
   id: string;
   width?: number;
@@ -6,6 +6,7 @@ export type NotebookColumn = {
   features?: NotebookFeatures;
   color?: string;
   design?: NotebookLayout["design"];
+  planning?: boolean;
 };
 export type NotebookLayout = {
   title?: string;
@@ -24,6 +25,7 @@ export function notebookFeatures(layout: NotebookLayout, column?: NotebookColumn
     todo: column?.features?.todo ?? layout.features?.todo ?? (layout.kind === "todo"),
     weekdays,
     mood: weekdays && (column?.features?.mood ?? layout.features?.mood ?? false),
+    lessons: weekdays && (column?.features?.lessons ?? layout.features?.lessons ?? false),
   };
 }
 
@@ -43,6 +45,22 @@ export function applyNotebookTemplate(current: NotebookLayout, template: Noteboo
 export const moodColors = ["#479763", "#dfb32e", "#de822d", "#cd5554"];
 export const moodLabels = ["Gut", "Okay", "Schwierig", "Schlecht"];
 export type NotebookMood = { date: string; score: number; reason: string };
+export type NotebookLesson = { date: string; text: string };
+
+// Each dated weekly layout owns independent note keys, even before it is edited.
+export function weeklyNotebookLayout(key: string, saved?: NotebookLayout): NotebookLayout {
+  if (!/^week:\d{4}-\d{2}-\d{2}$/.test(key)) return saved ?? defaultNotebookLayout;
+  const weekId = key.slice(5).replaceAll("-", "");
+  const id = (index:number) => `00000000-0000-4000-8000-${weekId}${String(index).padStart(4,"0")}`;
+  const layout = saved ?? defaultNotebookLayout;
+  const dayColumns = layout.columns.filter(column=>!column.planning);
+  const planning = layout.columns.find(column=>column.planning) ?? {id:id(0),planning:true};
+  return {
+    ...layout, view:"week",
+    features:{...layout.features,weekdays:true,mood:layout.features?.mood ?? true},
+    columns:[planning,...dayColumns,...Array.from({length:Math.max(0,7-dayColumns.length)},(_,i)=>({id:id(dayColumns.length+i+1)}))],
+  };
+}
 
 export function notebookColumnKey(note: string, id: string) {
   return id === "main" ? note : `note-column:${id}:${note}`;

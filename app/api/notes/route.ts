@@ -9,7 +9,7 @@ async function handlePOST(request: Request) {
     const { date, content } = await request.json();
     const parent = typeof date === "string" ? notebookColumnParent(date) : undefined;
     if (
-      (typeof date !== "string" || (date !== "inbox" && date !== "storage" && !periodRange(date) && !notebookFolder(date) && !isNotebookFolder(date) && !(parent && (periodRange(parent) || notebookFolder(parent))))) ||
+      (typeof date !== "string" || (date !== "inbox" && date !== "storage" && date !== "journal-bookmarks" && !(/^journal:\d{4}-\d{2}-\d{2}$/.test(date) && periodRange(date.slice(8))) && !periodRange(date) && !notebookFolder(date) && !isNotebookFolder(date) && !(parent && (periodRange(parent) || notebookFolder(parent))))) ||
       typeof content !== "string" ||
       content.length > 10000
     )

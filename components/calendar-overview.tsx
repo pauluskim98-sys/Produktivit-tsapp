@@ -10,10 +10,12 @@ import { periodRange } from "@/lib/calendar-interactions";
 import PeriodTask from "./period-task";
 import { TASK_COLOR_HEX } from "@/lib/task-colors";
 import { calendarTitle } from "@/lib/calendar-title";
+import { moodColors, moodLabels, type NotebookMood } from "@/lib/notebook-layout";
 import { taskDay } from "@/lib/planner-day";
 const dow = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 type Props = {
   period: string;
+  moods?:Record<string,NotebookMood>;
   todos: Todo[];
   events: CalendarEvent[];
   connections: { id: string; color: string }[];
@@ -119,6 +121,8 @@ function DateCell({
   compact,
   ...props
 }: Props & { day: string; compact: boolean }) {
+  const mood=props.moods?.[day];
+  const moodTitle=mood ? [moodLabels[mood.score],mood.reason].filter(Boolean).join(" · ") : undefined;
   const scope = useId();
   const { setNodeRef, isOver } = useDroppable({
     id: `period-day:${scope}:${day}`,
@@ -183,6 +187,9 @@ function DateCell({
     <div
       ref={setNodeRef}
       data-calendar-date={day}
+      data-mood={mood?.score}
+      title={moodTitle}
+      style={mood?{"--mood-color":moodColors[mood.score]} as React.CSSProperties:undefined}
       data-task-flag={own.some((task)=>task.priority==="high")?"red":own.some((task)=>task.priority==="medium")?"yellow":undefined}
       className={`mini-date ${isOver ? "mini-date-over" : ""} ${day === dateKey(new Date()) ? "is-today" : ""}`}
       onClick={(e) => {
@@ -201,7 +208,7 @@ function DateCell({
       <button
         className="calendar-date-button"
         onClick={() => props.onPick(day)}
-        aria-label={`${day}${all.length ? `: ${all.map((e) => e.title).join(" · ")}` : ""}`}
+        aria-label={`${day}${moodTitle?`: ${moodTitle}`:""}${all.length ? `: ${all.map((e) => e.title).join(" · ")}` : ""}`}
         onFocus={(e) => {
           if (compact && all.length) {
             const r = e.currentTarget.getBoundingClientRect();

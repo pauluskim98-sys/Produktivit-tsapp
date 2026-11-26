@@ -2,9 +2,9 @@
 import { useAutosaveText } from "./use-autosave-text";
 import PlannerNotepad from "./planner-notepad";
 import { useEffect } from "react";
-import type { NotebookMood } from "@/lib/notebook-layout";
+import type { NotebookLesson, NotebookMood } from "@/lib/notebook-layout";
 import type { Todo } from "@/lib/types";
-import { noteWithTasks, withNotebookMood, withoutLegacyNoteTodos } from "./planner-notepad";
+import { appendNotebookRow, noteWithTasks, withNotebookHeading, withNotebookLesson, withNotebookMood, withoutLegacyNoteTodos } from "./planner-notepad";
 import type { NotePreferences } from "@/lib/note-todos";
 export default function InboxNotes({
   value,
@@ -19,6 +19,8 @@ export default function InboxNotes({
   registerLegacyDelete,
   todoMode,
   rows,
+  columnHeader,
+  onFocusColumn,
   preferences,
   titled,
   focusTitle,
@@ -34,6 +36,8 @@ export default function InboxNotes({
   registerLegacyDelete?: (remove:((ids:string[])=>Promise<{before:string;after:string}>)|null)=>void;
   todoMode?:boolean;
   rows?:number;
+  onFocusColumn?:()=>void;
+  columnHeader?:{legacyTitle?:string};
   preferences:NotePreferences;
   titled?:boolean;
   focusTitle?:boolean;
@@ -67,20 +71,24 @@ export default function InboxNotes({
     return () => document.removeEventListener("lifemap-save-notebook", save);
   }, [flush]);
   useEffect(()=>{
-    const mood=(event:Event)=>{
-      const {key,value}=(event as CustomEvent<{key:string;value:NotebookMood}>).detail;
-      if(key!==noteDate)return;
-      const updated=withNotebookMood(text,value,titled);
+    const change=(event:Event)=>{
+      type Change = {keys:string[]} & ({kind:"mood";value:NotebookMood} | {kind:"lesson";value:NotebookLesson} | {kind:"row"|"heading";value:string});
+      const detail=(event as CustomEvent<Change>).detail;
+      if(!detail.keys.includes(noteDate))return;
+      const updated=detail.kind==="mood" ? withNotebookMood(text,detail.value,detail.value.date) :
+        detail.kind==="lesson" ? withNotebookLesson(text,detail.value) :
+        detail.kind==="heading" ? withNotebookHeading(text,detail.value,columnHeader?.legacyTitle) :
+        appendNotebookRow(text,detail.value,columnHeader?.legacyTitle,rows);
       if(updated.length>10000){window.dispatchEvent(new CustomEvent("raum-history-error",{detail:"Die Notiz ist voll."}));return;}
       setText(updated);
       void flush();
     };
-    window.addEventListener("lifemap-notebook-mood",mood);
-    return ()=>window.removeEventListener("lifemap-notebook-mood",mood);
-  },[noteDate,text,setText,flush,titled]);
+    window.addEventListener("lifemap-notebook-change",change);
+    return ()=>window.removeEventListener("lifemap-notebook-change",change);
+  },[noteDate,text,setText,flush,columnHeader,rows]);
   return (
-    <section className="inbox-notes">
-      <PlannerNotepad label={label} value={text} onChange={setText} onBlur={flush} onStep={onStep} noteDate={noteDate} actions={actions} tasks={tasks} onTaskOpen={onTaskOpen} todoMode={todoMode} rows={rows} preferences={preferences} titled={titled} focusTitle={focusTitle}/>
+    <section className="inbox-notes" onFocusCapture={onFocusColumn}>
+      <PlannerNotepad label={label} value={text} onChange={setText} onBlur={flush} onStep={onStep} noteDate={noteDate} actions={actions} tasks={tasks} onTaskOpen={onTaskOpen} todoMode={todoMode} rows={rows} columnHeader={columnHeader} sharedUpload preferences={preferences} titled={titled} focusTitle={focusTitle}/>
       {error && <small role="status">{error}</small>}
     </section>
   );

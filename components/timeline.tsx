@@ -14,6 +14,7 @@ import FitTitle from "./fit-title";
 import { notePeriod } from "@/lib/note-todos";
 import { NoteTodoCheck } from "./note-todo-board";
 import { Check, GripVertical } from "lucide-react";
+import { moodColors, type NotebookMood } from "@/lib/notebook-layout";
 import type { Todo, CalendarEvent } from "@/lib/types";
 import { zoneOccurs, type CalendarZone } from "@/lib/calendar-zones";
 import { taskFlag } from "@/lib/task-colors";
@@ -59,6 +60,7 @@ export interface TimeChange {
 }
 interface Props {
   days: Date[];
+  moods?:Record<string,NotebookMood>;
   mobileDay: string;
   todos: Todo[];
   events: CalendarEvent[];
@@ -920,6 +922,8 @@ export default function Timeline(props: Props) {
           return (
             <section
               key={day}
+              data-mood={props.moods?.[day]?.score}
+              style={props.moods?.[day]?{"--mood-color":moodColors[props.moods[day].score]} as React.CSSProperties:undefined}
               className={`timeline-day-head ${day === props.mobileDay ? "mobile-active" : ""} ${day === dateKey(new Date()) ? "is-today" : ""}`}
             >
               <button
@@ -966,6 +970,8 @@ export default function Timeline(props: Props) {
           const day = dateKey(date);
           return (
             <div
+              data-mood={props.moods?.[day]?.score}
+              style={props.moods?.[day]?{"--mood-color":moodColors[props.moods[day].score]} as React.CSSProperties:undefined}
               className={`timeline-day ${day === props.mobileDay ? "mobile-active" : ""} ${day === dateKey(new Date()) ? "is-today" : ""}`}
               key={day}
             >

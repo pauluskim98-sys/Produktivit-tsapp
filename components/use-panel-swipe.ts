@@ -67,7 +67,7 @@ export function usePanelSwipe(options: Options) {
         !(node instanceof Element) ||
         !node.closest(".app-shell") ||
         node.closest(".weather-hours") ||
-        (!current.current.stepNotes && node.closest(".calendar-bottom-notes")) ||
+        (node.closest(".calendar-bottom-notes") && (!current.current.stepNotes || !node.closest(".notebook-column-scroll"))) ||
         event.ctrlKey ||
         event.buttons ||
         current.current.blocked ||
@@ -77,7 +77,7 @@ export function usePanelSwipe(options: Options) {
         return;
       event.preventDefault();
       const now = performance.now();
-      const overNotes=!!current.current.stepNotes && !!node.closest(".calendar-bottom-notes .note-checklist");
+      const overNotes=!!current.current.stepNotes && !!node.closest(".calendar-bottom-notes .notebook-column-scroll");
       if (
         !lastWheel ||
         inPanel !== isPanel(node) ||
@@ -118,11 +118,11 @@ export function usePanelSwipe(options: Options) {
       if (event.touches.length !== 1 || current.current.blocked) return;
       const node = event.target;
       const overNotes=node instanceof Element && !!current.current.stepNotes &&
-        !!node.closest(".calendar-bottom-notes .note-checklist");
+        !!node.closest(".calendar-bottom-notes .notebook-column-scroll");
       if (
         !(node instanceof Element) ||
         !node.closest(".app-shell") ||
-        (!current.current.stepNotes && node.closest(".calendar-bottom-notes")) ||
+        (node.closest(".calendar-bottom-notes") && (!current.current.stepNotes || !node.closest(".notebook-column-scroll"))) ||
         (!overNotes && node.closest(
           "input,textarea,select,[contenteditable],.timed-task,.task-card,.overview-task,.weather-hours",
         ))

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Plus, Settings2, Trash2 } from "lucide-react";
+import { BookOpen, Plus, Settings2, Trash2 } from "lucide-react";
 import {
   notebookFeatures, type NotebookColumn, type NotebookLayout,
 } from "@/lib/notebook-layout";
@@ -9,22 +9,28 @@ import {
 const weekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
 const minimumWidth = 48;
 
-export default function NotebookColumns({ layout, onChange, onRemove, onSettings, renderMood, hideMainPlaceholder, highlight, render, footer }: {
+export default function NotebookColumns({ layout, onChange, onRemove, onSettings, renderMood, renderLesson, heading, onHeading, onAddRow, onJournal, highlight, render, footer }: {
   layout: NotebookLayout;
   onChange: (layout: NotebookLayout) => void;
   onRemove: (column: NotebookColumn, remaining: NotebookColumn[]) => Promise<void>;
   onSettings: (column: NotebookColumn) => void;
   renderMood?: (column:NotebookColumn,index:number)=>ReactNode;
-  hideMainPlaceholder?: boolean;
+  renderLesson?: (column:NotebookColumn,index:number)=>ReactNode;
+  heading: (column:NotebookColumn)=>string;
+  onHeading: (column:NotebookColumn,title:string)=>void;
+  onAddRow: (column:NotebookColumn)=>void;
+  onJournal?: (index:number)=>void;
   highlight?: number;
   footer: ReactNode;
   render: (column: NotebookColumn, index: number) => ReactNode;
 }) {
   const grid = useRef<HTMLDivElement>(null);
   const drag = useRef<AbortController | null>(null);
+  const [columnMenu,setColumnMenu]=useState<string|null>(null);
   const [preview, setPreview] = useState<NotebookColumn[] | null>(null);
   const [alignedWidths, setAlignedWidths] = useState<number[] | null>(null);
-  const alignWeek = notebookFeatures(layout).weekdays && layout.columns.length === 7 &&
+  const planning = layout.columns[0]?.planning;
+  const alignWeek = notebookFeatures(layout).weekdays && layout.columns.length === (planning ? 8 : 7) &&
     layout.columns.every(column => column.width === undefined);
   useEffect(() => {
     const list = grid.current;
@@ -38,8 +44,10 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
         .map(day => day.getBoundingClientRect()).filter(rect => rect.width > 0);
       if (days.length !== 7) { setAlignedWidths(null); return; }
       const start = list!.getBoundingClientRect().left + (list!.parentElement?.scrollLeft || 0);
-      const widths = days.map((day,index) => day.right - (index === 0 ? start : days[index - 1].right));
-      setAlignedWidths(previous => widths.every(width => width >= 48)
+      const widths = planning
+        ? [days[0].left-start,...days.map((day,index)=>day.right-(index===0?day.left:days[index-1].right))]
+        : days.map((day,index) => day.right - (index === 0 ? start : days[index - 1].right));
+      setAlignedWidths(previous => widths.every((width,index) => width >= (planning && index===0 ? 12 : 48))
         ? previous?.every((width,index) => Math.abs(width - widths[index]) < 0.5) ? previous : widths
         : null);
     }
@@ -57,7 +65,7 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
     if (main) mutations.observe(main, {childList:true,subtree:true});
     watch();
     return () => {observer.disconnect(); mutations.disconnect();};
-  }, [alignWeek]);
+  }, [alignWeek,planning]);
   const columns = preview || layout.columns;
   useEffect(() => () => drag.current?.abort(), []);
 
@@ -116,52 +124,62 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
             const width = column.width ?? (preview ? undefined : alignedWidths?.[index]);
             return width ? `${width}px` : "minmax(0, 1fr)";
           }).join(" ") }}>
-          {columns.map((column, index) => (
+          {columns.map((column, index) => {
+            const dayIndex=planning ? index-1 : index;
+            const title=heading(column);
+            return (
             <section key={column.id} className="notebook-column" data-design={column.design}
-              data-highlighted={highlight===index || undefined}
+              data-highlighted={highlight===dayIndex || undefined} data-week-planning={column.planning || undefined}
               onContextMenu={event=>{
                 if((event.target as Element).closest("input,textarea,[contenteditable],button,.notebook-picture"))return;
-                event.preventDefault();
-                event.stopPropagation();
-                event.currentTarget.querySelector<HTMLInputElement>(".notebook-column-title")?.focus();
+                event.preventDefault();event.stopPropagation();
+                setColumnMenu(column.id);
               }}
               style={{backgroundColor:column.color || undefined}}>
               <div className="notebook-column-head">
-                {notebookFeatures(layout,column).weekdays && <div className="notebook-weekday"><span>{weekdays[index % 7]}</span>{renderMood?.(column,index)}</div>}
-                <button className="notebook-add-column" type="button" aria-label={`Spalte vor Spalte ${index + 1} hinzufügen`}
+                {!column.planning && notebookFeatures(layout,column).weekdays && dayIndex>=0 && dayIndex<7 && <div className="notebook-weekday"><span>{weekdays[dayIndex]}</span>{renderMood?.(column,dayIndex)}</div>}
+                <button className="notebook-add-column" type="button" aria-label={`Spalte vor Spalte ${index + 1} hinzufügen`} title="Spalte hinzufügen"
                   onClick={() => {
                     const next = [...layout.columns];
-                    next.splice(index,0,{id:crypto.randomUUID()});
+                    next.splice(planning ? next.length : index,0,{id:crypto.randomUUID()});
                     onChange({...layout,columns:next});
                   }}><Plus size={14}/></button>
                 <input
-                  key={column.title || ""}
+                  key={title}
                   className="notebook-column-title"
                   aria-label={`Überschrift für Spalte ${index + 1}`}
-                  placeholder={hideMainPlaceholder && column.id==="main" ? "" : "Überschrift"}
-                  defaultValue={column.title || ""}
+                  defaultValue={title}
                   maxLength={120}
                   onBlur={(event) => {
                     const title = event.currentTarget.value.trim();
-                    if (title === (column.title || "")) return;
-                    onChange({
-                      ...layout,
-                      columns: layout.columns.map(item => item.id === column.id ? { ...item, title } : item),
-                    });
+                    if (title !== heading(column))onHeading(column,title);
                   }}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
                     event.preventDefault();
                     event.stopPropagation();
                     event.currentTarget.blur();
+                    event.currentTarget.closest(".notebook-column")?.querySelector<HTMLElement>(".rich-note-field")?.focus();
+
                   }}
                 />
                 <button className="notebook-column-action" type="button" aria-label={`Einstellungen für Spalte ${index + 1}`}
                   onClick={()=>onSettings(column)}><Settings2 size={13}/></button>
-                {columns.length > 1 && <button className="notebook-column-action" type="button" aria-label={`Spalte ${index + 1} löschen`}
+                {columns.length > (planning ? 8 : 1) && (!planning || dayIndex>=7) && <button className="notebook-column-action" type="button" aria-label={`Spalte ${index + 1} löschen`}
                   onClick={()=>void onRemove(column,layout.columns.filter(item=>item.id!==column.id))}><Trash2 size={13}/></button>}
               </div>
+              {columnMenu===column.id && <div className="notebook-column-context selection-toolbar" role="menu" onPointerLeave={()=>setColumnMenu(null)}>
+                <button type="button" onClick={event=>{event.currentTarget.closest(".notebook-column")?.querySelector<HTMLInputElement>(".notebook-column-title")?.focus();setColumnMenu(null);}}>Überschrift bearbeiten</button>
+                {columns.length>(planning?8:1) && (!planning || dayIndex>=7) && <button type="button"
+                  onClick={()=>{setColumnMenu(null);void onRemove(column,layout.columns.filter(item=>item.id!==column.id));}}>Spalte löschen</button>}
+              </div>}
               {render(column, index)}
+              {!column.planning && dayIndex<7 && renderLesson?.(column,dayIndex)}
+              <div className="notebook-column-footer">
+                <button type="button" title="Zeile hinzufügen" aria-label={`Zeile in Spalte ${index+1} hinzufügen`} onClick={()=>onAddRow(column)}><Plus size={13}/></button>
+                {!column.planning && dayIndex<7 && onJournal && <button type="button" title="Tagebuch öffnen" aria-label={`Tagebuch für ${weekdays[dayIndex]} öffnen`}
+                  onClick={()=>onJournal(dayIndex)}><BookOpen size={13}/></button>}
+              </div>
               {index < columns.length - 1 && <div className="notebook-column-divider" tabIndex={0}
                   role="separator" aria-label={`Breite zwischen Spalte ${index + 1} und ${index + 2}`} aria-orientation="vertical"
                   onPointerDown={event => beginResize(event, index)}
@@ -174,7 +192,7 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
                     onChange({ ...layout, columns: resize(pair, event.key === "ArrowLeft" ? -12 : 12) });
                   }}/>}
             </section>
-          ))}
+          );})}
         </div>
       </div>
       <div className="note-actions notebook-column-actions">{footer}</div>

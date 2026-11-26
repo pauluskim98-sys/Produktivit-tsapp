@@ -8101,3 +8101,72 @@ button[hidden] {
 .notebook-tab-settings {max-height:85dvh; overflow:auto;}
 .task-description-box .rich-note-field {min-height:104px; white-space:pre-wrap;}
 .note-line > .rich-note-line {min-width:0;}
+
+.notebook-workspace.notebook-columns-workspace {
+  grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"tabs" "editor";
+}
+.notebook-column-head .notebook-column-title {font-size:14px; font-weight:750;}
+.notebook-column[data-week-planning="true"] .notebook-column-head {min-height:46px;}
+.notebook-column-context {position:absolute; top:26px; left:3px; z-index:10; display:grid; min-width:max-content; padding:4px; background:var(--surface); border:1px solid var(--line); border-radius:6px;}
+.notebook-column-footer {display:flex; justify-content:space-between; gap:4px; padding:2px 6px;}
+.notebook-column-footer button,.notebook-week-navigation button,.notebook-mood-entry button {
+  display:inline-grid; place-items:center; border:0; border-radius:5px; background:transparent; cursor:pointer; color:inherit; padding:4px;
+}
+.notebook-column-footer button:hover,.notebook-week-navigation button:hover,.notebook-mood-entry button:hover {background:var(--green-soft);}
+.notebook-week-navigation {display:flex; gap:2px;}
+.notebook-lesson-input {margin:3px 5px; min-width:0; resize:vertical; border:1px solid var(--line); border-radius:5px; padding:4px; font:inherit; font-size:11px; background:var(--surface); color:var(--text);}
+.notebook-text-row {position:relative;}
+.notebook-row-divider {position:absolute; bottom:-3px; left:0; right:0; height:7px; z-index:2; cursor:ns-resize; touch-action:none;}
+.notebook-row-divider:is(:hover,:focus-visible) {background:var(--green-soft);}
+.notebook-column-head .notebook-mood-dots button[aria-pressed="true"] {opacity:0;}
+.notebook-column-head:is(:hover,:focus-within) .notebook-mood-dots button[aria-pressed="true"],
+.notebook-mood-picker[data-editing="true"] .notebook-mood-dots button[aria-pressed="true"] {opacity:1;}
+.notebook-mood-form textarea {min-width:0; width:100%; resize:vertical;}
+.notebook-mood-form button {align-self:start;}
+.notebook-mood-reason,.calendar-week-mood span {white-space:pre-wrap;}
+.day-note-empty {min-height:16px;}
+.day-note .day-note-preview {flex:1; min-height:20px; border:1px solid color-mix(in srgb,var(--line) 65%,transparent);}
+.day-note-week {flex:none;}
+.task-template-options[data-favorites="true"] {max-height:132px; grid-auto-rows:29px; overflow:auto;}
+.task-template-options[data-favorites="true"] > button > span {min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.timeline-day[data-mood],.timeline-day-head[data-mood],.mini-date[data-mood] {
+  background-color:color-mix(in srgb,var(--mood-color) 20%,var(--surface));
+}
+.calendar-week-mood {display:flex; flex-wrap:wrap; gap:4px; padding:3px 5px; font-size:11px; border-left:2px solid var(--mood-color);}
+.notebook-add-row-dialog {display:grid; gap:9px; width:min(420px,92vw);}
+.notebook-row-scope {display:grid; gap:5px;}
+.notebook-row-scope button[aria-pressed="true"] {background:var(--green-soft);}
+.notebook-journal {width:min(990px,95vw); max-height:88dvh; color:var(--text);}
+.journal-header {display:flex; align-items:center; gap:10px; margin-bottom:8px;}
+.journal-header h2 {margin:0; flex:none;}
+.journal-header button,.journal-date button,.journal-stickers button {cursor:pointer;}
+.journal-search {display:flex; align-items:center; gap:5px; margin-left:auto; padding:3px 7px; border:1px solid var(--line); border-radius:7px;}
+.journal-search input {border:0; min-width:0; background:transparent; color:inherit;}
+.journal-body {display:grid; grid-template-columns:minmax(0,1fr) minmax(110px,170px); gap:10px; max-height:75dvh; overflow:auto;}
+.journal-page {min-width:0; padding:8px; border:1px solid var(--line); border-radius:7px;}
+.journal-page .planner-notepad {min-height:220px;}
+.journal-date {display:flex; align-items:center; gap:3px; flex-wrap:wrap; position:relative; margin-bottom:5px;}
+.journal-date > button,.journal-date-grid button {border:0; background:transparent; color:inherit; border-radius:4px; padding:3px;}
+.journal-date button:is(:hover,[aria-current]) {background:var(--green-soft);}
+.journal-date-grid {position:absolute; top:100%; left:0; width:min(440px,100%); z-index:4; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:3px;
+  padding:6px; background:var(--surface); border:1px solid var(--line); border-radius:7px; max-height:56dvh; overflow:auto;}
+.journal-date-grid[data-period="year"] {grid-template-columns:repeat(3,minmax(0,1fr));}
+.journal-mini-month {display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); font-size:10px;}
+.journal-mini-month strong {grid-column:1/-1;}
+.journal-stickers {display:flex; flex-direction:column; gap:5px; align-items:stretch;}
+.journal-stickers button,.journal-source,.journal-results button {border:1px solid var(--line); border-radius:6px; padding:6px; background:var(--surface); color:inherit;}
+.journal-stickers > button:nth-child(1) {background:color-mix(in srgb,#de822d 15%,var(--surface));}
+.journal-stickers > button:nth-child(2) {background:color-mix(in srgb,#6d5ac8 14%,var(--surface));}
+.journal-stickers form {display:flex; gap:3px;}
+.journal-stickers form input {min-width:0; width:100%;}
+.journal-sticker {display:grid; gap:3px;}
+.journal-results {display:grid; gap:5px;}
+.journal-results button {display:grid; gap:2px; text-align:left; cursor:pointer;}
+.journal-results button span,.journal-day-mood,.journal-source {white-space:pre-wrap; overflow-wrap:anywhere;}
+.journal-source {display:block; text-align:left; margin:5px 0; cursor:pointer;}
+.lifemap-notes-frame .modal-backdrop:has(.notebook-journal,.notebook-add-row-dialog),
+.lifemap-notes-frame :is(.notebook-journal,.notebook-add-row-dialog),
+.lifemap-notes-frame :is(.notebook-journal,.notebook-add-row-dialog) * {visibility:visible;}
+.lifemap-notes-frame .modal-backdrop:has(.notebook-journal,.notebook-add-row-dialog) {z-index:1010;}
+.notebook-row-context {position:absolute; top:100%; left:0; z-index:5; display:grid; width:max-content; max-width:100%; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:4px;}

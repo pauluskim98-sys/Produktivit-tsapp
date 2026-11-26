@@ -50,10 +50,11 @@ function renderRuns(root:HTMLElement,runs:NoteRun[]) {
   }
   root.replaceChildren(fragment);
 }
-export default function RichNoteLine({text,runs,label,preferences,onChange,onBlur,onFiles,autoFocus=false,compact=false,placeholder="Notiz schreiben …",onCaret,onKeyDown,maxLength}:{
+export default function RichNoteLine({text,runs,label,preferences,onChange,onBlur,onFiles,autoFocus=false,compact=false,placeholder="Notiz schreiben …",onCaret,onKeyDown,maxLength,onMakeTodos}:{
   text:string;runs?:NoteRun[];label:string;preferences:NotePreferences;
   onChange:(text:string,runs:NoteRun[])=>void;onBlur:()=>unknown;onFiles:(files:File[])=>void;
   autoFocus?:boolean;compact?:boolean;placeholder?:string;maxLength?:number;
+  onMakeTodos?:(start:number,end:number)=>void;
   onCaret?:(position:number)=>void;
   onKeyDown?:(event:ReactKeyEvent<HTMLDivElement>,start:number,end:number)=>void;
 }){
@@ -161,6 +162,13 @@ export default function RichNoteLine({text,runs,label,preferences,onChange,onBlu
       {([["bold","Fett","B"],["italic","Kursiv","I"],["underline","Unterstrichen","U"]] as const).map(([key,label,letter])=>
         <button type="button" key={key} className={`note-style-${key}`} aria-label={label} title={label}
           onMouseDown={(event)=>event.preventDefault()} onClick={()=>apply(key)}>{letter}</button>)}
+      {onMakeTodos && <button type="button" aria-label="Auswahl zu To-dos machen" title="Auswahl zu To-dos machen"
+        onMouseDown={event=>event.preventDefault()} onClick={()=>{
+          const range=selection.current, current=window.getSelection();
+          if(!range || !current)return;
+          field.current?.focus();current.removeAllRanges();current.addRange(range);
+          onMakeTodos(...offsets());current.removeAllRanges();setOpen(false);
+        }}>☑</button>}
       <label>Farbe <ColorSwatches name="rich-note-line-0" onChange={(event)=>apply("foreColor",event.target.value)} /></label>
     </div>,document.body)}
   </div>;

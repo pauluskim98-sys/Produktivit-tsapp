@@ -25,6 +25,7 @@ export default function NotebookPicture({picture,onChange,onRemove}: {
   const figure = useRef<HTMLDivElement>(null);
   const drag = useRef<AbortController | null>(null);
   const [preview,setPreview] = useState<NotePicture>();
+  const [menu,setMenu] = useState(false);
   const display = preview || picture;
   useEffect(() => () => drag.current?.abort(),[]);
 
@@ -69,7 +70,12 @@ export default function NotebookPicture({picture,onChange,onRemove}: {
     window.addEventListener("blur", stop, options);
   }
 
-  return <div ref={frame} className="notebook-picture">
+  return <div ref={frame} className="notebook-picture" onContextMenu={event=>{
+    event.preventDefault();event.stopPropagation();setMenu(true);
+  }}>
+    {menu && <div className="notebook-row-context selection-toolbar" role="menu" onPointerLeave={()=>setMenu(false)}>
+      <button type="button" role="menuitem" onClick={()=>{setMenu(false);onRemove();}}>Bild entfernen</button>
+    </div>}
     <div className="notebook-picture-space" style={{paddingBottom:Math.max(0,display.y||0)}}>
       <div ref={figure} className="notebook-picture-frame" style={{
         width:display.width || 360,

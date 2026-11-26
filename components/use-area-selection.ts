@@ -66,7 +66,7 @@ export function useAreaSelection(
       onPointerDownCapture: (e: PointerEvent<HTMLDivElement>) => {
         suppressClick.current=false;
         const target = e.target as HTMLElement;
-        if(target.closest(".calendar-quick-filters,.note-splitter,.notebook-column-divider,.notebook-picture,.selection-toolbar"))return;
+        if(target.closest(".calendar-quick-filters,.note-splitter,.notebook-column-divider,.notebook-row-divider,.notebook-picture,.selection-toolbar"))return;
         const noteTask=target.closest<HTMLElement>(".note-todo-row[data-task-id]");
         const notePanel=target.closest<HTMLElement>(".calendar-bottom-notes");
         if (notePanel?.classList.contains("notes-below") && !noteTask &&
