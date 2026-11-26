@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { BookOpen, Plus, Settings2, Trash2 } from "lucide-react";
+import { Plus, Settings2, Trash2 } from "lucide-react";
 import {
   notebookFeatures, type NotebookColumn, type NotebookLayout,
 } from "@/lib/notebook-layout";
@@ -137,7 +137,7 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
               }}
               style={{backgroundColor:column.color || undefined}}>
               <div className="notebook-column-head">
-                {!column.planning && notebookFeatures(layout,column).weekdays && dayIndex>=0 && dayIndex<7 && <div className="notebook-weekday"><span>{weekdays[dayIndex]}</span>{renderMood?.(column,dayIndex)}</div>}
+                {!column.planning && notebookFeatures(layout,column).weekdays && dayIndex>=0 && dayIndex<7 && <div className="notebook-weekday">{onJournal ? <button type="button" className="notebook-day-name" aria-label={`Tagebuch für ${weekdays[dayIndex]} öffnen`} onClick={()=>onJournal(dayIndex)}>{weekdays[dayIndex]}</button> : <span>{weekdays[dayIndex]}</span>}{renderMood?.(column,dayIndex)}</div>}
                 <button className="notebook-add-column" type="button" aria-label={`Spalte vor Spalte ${index + 1} hinzufügen`} title="Spalte hinzufügen"
                   onClick={() => {
                     const next = [...layout.columns];
@@ -177,8 +177,6 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
               {!column.planning && dayIndex<7 && renderLesson?.(column,dayIndex)}
               <div className="notebook-column-footer">
                 <button type="button" title="Zeile hinzufügen" aria-label={`Zeile in Spalte ${index+1} hinzufügen`} onClick={()=>onAddRow(column)}><Plus size={13}/></button>
-                {!column.planning && dayIndex<7 && onJournal && <button type="button" title="Tagebuch öffnen" aria-label={`Tagebuch für ${weekdays[dayIndex]} öffnen`}
-                  onClick={()=>onJournal(dayIndex)}><BookOpen size={13}/></button>}
               </div>
               {index < columns.length - 1 && <div className="notebook-column-divider" tabIndex={0}
                   role="separator" aria-label={`Breite zwischen Spalte ${index + 1} und ${index + 2}`} aria-orientation="vertical"

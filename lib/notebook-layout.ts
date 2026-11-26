@@ -48,17 +48,22 @@ export type NotebookMood = { date: string; score: number; reason: string };
 export type NotebookLesson = { date: string; text: string };
 
 // Each dated weekly layout owns independent note keys, even before it is edited.
-export function weeklyNotebookLayout(key: string, saved?: NotebookLayout): NotebookLayout {
+export function weeklyNotebookLayout(key: string, saved?: NotebookLayout, shared?: NotebookLayout): NotebookLayout {
   if (!/^week:\d{4}-\d{2}-\d{2}$/.test(key)) return saved ?? defaultNotebookLayout;
   const weekId = key.slice(5).replaceAll("-", "");
   const id = (index:number) => `00000000-0000-4000-8000-${weekId}${String(index).padStart(4,"0")}`;
   const layout = saved ?? defaultNotebookLayout;
   const dayColumns = layout.columns.filter(column=>!column.planning);
   const planning = layout.columns.find(column=>column.planning) ?? {id:id(0),planning:true};
+  const columns=[planning,...dayColumns,...Array.from({length:Math.max(0,7-dayColumns.length)},(_,i)=>({id:id(dayColumns.length+i+1)}))];
+  const appearance=shared ?? layout;
   return {
     ...layout, view:"week",
-    features:{...layout.features,weekdays:true,mood:layout.features?.mood ?? true},
-    columns:[planning,...dayColumns,...Array.from({length:Math.max(0,7-dayColumns.length)},(_,i)=>({id:id(dayColumns.length+i+1)}))],
+    rows:appearance.rows,
+    color:appearance.color,
+    design:appearance.design,
+    features:{...appearance.features,weekdays:true,mood:appearance.features?.mood ?? true},
+    columns:shared ? shared.columns.map((column,index)=>({...column,id:columns[index]?.id ?? id(index)})) : columns,
   };
 }
 

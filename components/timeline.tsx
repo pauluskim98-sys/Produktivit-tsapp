@@ -85,6 +85,7 @@ interface Props {
   ) => void;
   onSelectSlot: (day: string, time: string) => void;
   onDayOpen: (day: string) => void;
+  onJournalDay?: (day:string)=>void;
   targetSlot: { day: string; time: string } | null;
   onEvent: (event: CalendarEvent) => void;
   calendarFilters?: React.ReactNode;
@@ -926,16 +927,13 @@ export default function Timeline(props: Props) {
               style={props.moods?.[day]?{"--mood-color":moodColors[props.moods[day].score]} as React.CSSProperties:undefined}
               className={`timeline-day-head ${day === props.mobileDay ? "mobile-active" : ""} ${day === dateKey(new Date()) ? "is-today" : ""}`}
             >
-              <button
-                type="button"
-                className="timeline-date"
-                onClick={() => props.onDayOpen(day)}
-                aria-label={`${weekday}, ${day} öffnen`}
-              >
-                <span>{weekday}</span>
+              <div className="timeline-date">
+                <button type="button" className="timeline-journal-day" aria-label={`Tagebuch: ${weekday}, ${day}`}
+                  onClick={()=>props.onJournalDay?.(day)}>{weekday}</button>
                 {day === dateKey(new Date()) && <em>Heute</em>}
-                <b>{date.getDate()}</b>
-              </button>
+                <button type="button" className="timeline-plan-day" aria-label={`${weekday}, ${day} planen`}
+                  onClick={()=>props.onDayOpen(day)}><b>{date.getDate()}</b></button>
+              </div>
               <div className="unscheduled-tasks">
                 {props.renderUnscheduled(day)}
               </div>

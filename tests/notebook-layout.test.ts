@@ -56,3 +56,18 @@ test("automatic weeks preserve existing Monday data and keep each week's new col
   assert.equal(notebookFeatures(first).mood, true);
   assert.deepEqual(weeklyNotebookLayout("week:2026-11-23", first).columns, first.columns);
 });
+
+test("a shared weekly layout applies colors, sizes, and added columns without reusing another week's keys", () => {
+  const first = weeklyNotebookLayout("week:2026-11-23");
+  const second = weeklyNotebookLayout("week:2026-11-30");
+  const shared = {
+    ...first, color:"#c9e1bb",
+    columns:addNotebookColumns(first.columns,9).map((column,index)=>index===2 ? {...column,width:180} : column),
+  };
+  const result = weeklyNotebookLayout("week:2026-11-30",second,shared);
+  assert.equal(result.color,shared.color);
+  assert.equal(result.columns[2].id,second.columns[2].id);
+  assert.equal(result.columns[2].width,180);
+  assert.notEqual(result.columns[8].id,shared.columns[8].id);
+  assert.equal(weeklyNotebookLayout("week:2026-11-30",second,shared).columns[8].id,result.columns[8].id);
+});

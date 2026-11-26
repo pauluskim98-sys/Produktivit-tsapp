@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BookOpen, ChevronLeft, ChevronRight, Plus, Search, X } from "lucide-react";
 import { addDays, dateKey, parseDate } from "@/lib/dates";
 import { periodRange } from "@/lib/calendar-interactions";
@@ -8,9 +8,13 @@ import { moodColors, moodLabels, type NotebookLesson, type NotebookMood } from "
 import type { NotePreferences } from "@/lib/note-todos";
 import PlannerNotepad, { readNoteLines, serializeNoteLines } from "./planner-notepad";
 import { useAutosaveText } from "./use-autosave-text";
+import ColorSwatches from "./color-swatches";
 import { sliceNoteRuns } from "@/lib/note-format";
 
-type Bookmark = { id:string; date:string; title:string };
+type Bookmark = { id:string; date:string; title:string; color?:string };
+const stickerColors=["#f5da85","#f4b7ad","#c9e1bb","#b7d9f5","#d9c4ec"];
+const blankSurface=(target:Element)=>target.matches(".notebook-journal,.journal-header,.journal-body,.journal-page,.journal-stickers,.journal-results");
+
 const dateLabel = (date:string) => parseDate(date).toLocaleDateString("de-DE");
 const journalKey=(date:string)=>`journal:${date}`;
 
@@ -28,28 +32,47 @@ function JournalEditor({value,date,preferences,save}: {
     ]);
   },[value]);
   const {text,setText,flush,error}=useAutosaveText(headedValue,save,`lifemap-journal-draft:${date}`);
-  return <>
+  return <div className="journal-writing" onClick={event=>{
+    const target=event.target as Element;
+    if(target.closest("input,textarea,button,a,[contenteditable],[role=menu]"))return;
+    const title=event.currentTarget.querySelector<HTMLInputElement>(".notebook-title");
+    if(title && !title.value.trim()){title.focus();return;}
+    const field=Array.from(event.currentTarget.querySelectorAll<HTMLElement>(".rich-note-field")).at(-1);
+    if(!field)return;
+    field.focus();
+    const caret=document.createRange();
+    caret.selectNodeContents(field);
+    caret.collapse(false);
+    const selection=window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(caret);
+  }}>
     <PlannerNotepad value={text} onChange={setText} onBlur={flush} preferences={preferences}
       label={`Tagebuch am ${dateLabel(date)}`} compact titled/>
     {error && <p role="alert">{error}</p>}
-  </>;
+  </div>;
 }
 
-export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,preferences,onDate,onCalendarDay,onClose,onSave,onOpenNote}:{
+export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,preferences,onDate,onCalendarPeriod,onClose,onSave,onOpenNote}:{
   date:string;notes:Record<string,string>;moods:Record<string,NotebookMood>;lessons:NotebookLesson[];
   weekdayNote?:{key:string;content:string};
   preferences:NotePreferences;onDate:(date:string)=>void;onClose:()=>void;
-  onCalendarDay:(date:string)=>void;
+  onCalendarPeriod:(date:string,view:"week"|"month"|"year")=>void;
   onSave:(key:string,value:string)=>Promise<void>;onOpenNote:(key:string)=>void;
 }) {
   const [query,setQuery]=useState("");
   const [section,setSection]=useState<"page"|"moods"|"lessons">("page");
   const [preview,setPreview]=useState<"week"|"month"|"year"|null>(null);
   const [bookmark,setBookmark]=useState<string|null>(null);
+  const [bookmarkColor,setBookmarkColor]=useState(stickerColors[0]);
   const [menu,setMenu]=useState<string|null>(null);
   const [error,setError]=useState("");
   const [rename,setRename]=useState<string|null>(null);
   const [docked,setDocked]=useState(false);
+  const [position,setPosition]=useState<{x:number;y:number}|null>(null);
+  const drag=useRef<AbortController|null>(null);
+  const stickerForm=useRef<HTMLFormElement>(null);
+  const skipBlankClick=useRef(false);
   const journal=useRef<HTMLElement>(null);
   const clickTimer=useRef<number|undefined>(undefined);
   useEffect(()=>{
@@ -60,8 +83,47 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
     return ()=>{
       document.removeEventListener("pointerdown",calendarPointer,true);
       window.clearTimeout(clickTimer.current);
+      drag.current?.abort();
     };
   },[]);
+  useEffect(()=>{
+    if(bookmark===null)return;
+    const dismiss=(event:PointerEvent)=>{
+      const target=event.target;
+      if(!(target instanceof Element) || stickerForm.current?.contains(target) || target.closest(".color-popup"))return;
+      skipBlankClick.current=Boolean(journal.current?.contains(target) && blankSurface(target));
+      setBookmark(null);
+    };
+    document.addEventListener("pointerdown",dismiss,true);
+    return ()=>document.removeEventListener("pointerdown",dismiss,true);
+  },[bookmark===null]);
+  function beginDrag(event:ReactPointerEvent<HTMLElement>){
+    if(event.button!==0 || (event.target as Element).closest("button,input,label") || !journal.current)return;
+    const rect=journal.current.getBoundingClientRect();
+    const offsetX=event.clientX-rect.left, offsetY=event.clientY-rect.top, pointer=event.pointerId;
+    const startX=event.clientX,startY=event.clientY;
+    drag.current?.abort();
+    const controller=new AbortController();
+    drag.current=controller;
+    const options={signal:controller.signal,capture:true};
+    let moved=false;
+    const finish=()=>{
+      controller.abort();
+      if(moved)window.setTimeout(()=>{skipBlankClick.current=false;},0);
+    };
+    window.addEventListener("pointermove",move=>{
+      if(move.pointerId!==pointer || Math.hypot(move.clientX-startX,move.clientY-startY)<4)return;
+      moved=true;
+      skipBlankClick.current=true;
+      setPosition({
+        x:Math.round(Math.min(innerWidth-140,Math.max(0,move.clientX-offsetX))),
+        y:Math.round(Math.min(Math.max(0,innerHeight-180),Math.max(0,move.clientY-offsetY))),
+      });
+    },options);
+    window.addEventListener("pointerup",finish,options);
+    window.addEventListener("pointercancel",finish,options);
+    window.addEventListener("blur",finish,options);
+  }
   const bookmarks=useMemo(()=>{
     try {
       const list=JSON.parse(notes["journal-bookmarks"]||"[]");
@@ -80,37 +142,32 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
   const selected=parseDate(date);
   const weekText=weekdayNote && readNoteLines(weekdayNote.content).map(line=>line.text).filter(Boolean).join("\n");
   const choose=(next:string)=>{onDate(next);setSection("page");setPreview(null);setQuery("");};
-  function openDay(next:string) {
-    if(next===date && section==="page" && !search){
-      setPreview(null);
-      setDocked(true);
-      onCalendarDay(next);
-    } else choose(next);
-  }
   function singleClick(event:MouseEvent<HTMLButtonElement>, action:()=>void) {
     window.clearTimeout(clickTimer.current);
     if(event.detail===0)action();
     if(event.detail===1)clickTimer.current=window.setTimeout(action,250);
   }
-  function renameDay() {
-    window.clearTimeout(clickTimer.current);
-    setPreview(null);
-    requestAnimationFrame(()=>{
-      const title=journal.current?.querySelector<HTMLInputElement>(".notebook-title");
-      title?.focus();
-      title?.select();
-    });
-  }
+  const enterCalendar=(view:"week"|"month"|"year")=>{
+    setPreview(null);setDocked(true);onCalendarPeriod(date,view);
+  };
   const saveBookmarks=(next:Bookmark[])=>void onSave("journal-bookmarks",JSON.stringify(next)).catch(err=>setError(err.message));
   const shown=preview ? periodRange(`${preview}:${date}`) : null;
-  return <div className="journal-layer" data-docked={docked}>
-    <section ref={journal} className="modal notebook-journal" role="region" aria-label="Tagebuch" data-escape-layer
+  return <div className="journal-layer" data-docked={docked} data-placed={!!position}>
+    <section ref={journal} className="modal notebook-journal"
+      style={position ? {left:position.x,top:position.y,maxHeight:`calc(100dvh - ${position.y+8}px)`} : undefined}
+      role="region" aria-label="Tagebuch" data-escape-layer
       onPointerEnter={()=>setDocked(false)}
       onPointerLeave={event=>{
         if(event.relatedTarget instanceof Element && event.relatedTarget.closest(".calendar-workspace"))setDocked(true);
       }}
-      onClick={()=>setMenu(null)} onKeyDown={event=>{if(event.key==="Escape"){event.stopPropagation();if(preview)setPreview(null);else if(menu)setMenu(null);else onClose();}}}>
-      <header className="journal-header">
+      onClick={event=>{
+        setMenu(null);
+        const skip=skipBlankClick.current;skipBlankClick.current=false;
+        if(skip || !blankSurface(event.target as Element))return;
+        if(bookmark!==null){setBookmark(null);return;}
+        onClose();
+      }} onKeyDown={event=>{if(event.key==="Escape"){event.stopPropagation();if(bookmark!==null)setBookmark(null);else if(preview)setPreview(null);else if(menu)setMenu(null);else onClose();}}}>
+      <header className="journal-header" onPointerDown={beginDrag} title="Tagebuch verschieben">
         <BookOpen size={20}/><h2>Tagebuch</h2>
         <label className="journal-search"><Search size={15}/><input placeholder="Tagebuch durchsuchen" aria-label="Tagebuch durchsuchen" value={query} onChange={event=>setQuery(event.target.value)}/></label>
         <button type="button" data-close aria-label="Tagebuch schließen" onClick={onClose}><X size={18}/></button>
@@ -119,7 +176,7 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
         <main className="journal-page">
           {search ? <div className="journal-results">
             {entries.map(entry=><button type="button" key={entry.key} onClick={()=>{
-              if(entry.key.startsWith("journal:") && entry.date)openDay(entry.date);
+              if(entry.key.startsWith("journal:") && entry.date)choose(entry.date);
               else onOpenNote(entry.key);
             }}><strong>{entry.date?dateLabel(entry.date):"Notiz"}</strong><span>{entry.text.slice(0,180)}</span></button>)}
             {!entries.length && <p>Keine passenden Einträge.</p>}
@@ -137,16 +194,15 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
               <button type="button" aria-label="Vorheriger Tag" onClick={()=>choose(dateKey(addDays(selected,-1)))}><ChevronLeft size={16}/></button>
               {(["week","month","year"] as const).map((period,index)=>
                 <button key={period} type="button"
-                  aria-label={index===0 ? `Kalender für ${dateLabel(date)} öffnen` : undefined}
+                  aria-label={`${period==="week"?"Wochen":period==="month"?"Monats":"Jahres"}kalender öffnen`}
                   onMouseEnter={()=>setPreview(period)} onFocus={()=>setPreview(period)}
-                  onClick={index===0 ? event=>singleClick(event,()=>openDay(date)) : ()=>setPreview(period)}
-                  onDoubleClick={index===0 ? renameDay : undefined}>{index===0?selected.getDate()+".":index===1?selected.toLocaleDateString("de-DE",{month:"long"}):selected.getFullYear()}</button>)}
+                  onClick={()=>enterCalendar(period)}>{index===0?selected.getDate()+".":index===1?selected.toLocaleDateString("de-DE",{month:"long"}):selected.getFullYear()}</button>)}
               <button type="button" aria-label="Nächster Tag" onClick={()=>choose(dateKey(addDays(selected,1)))}><ChevronRight size={16}/></button>
               {shown && <div className="journal-date-grid" data-period={preview}>
                 {preview==="year" ? Array.from({length:12},(_,i)=>new Date(selected.getFullYear(),i,1)).map(month=>
                   <div key={dateKey(month)} className="journal-mini-month"><strong>{month.toLocaleDateString("de-DE",{month:"short"})}</strong>
-                    {periodRange(`month:${dateKey(month)}`)?.days.map(day=><button key={day} type="button" title={dateLabel(day)} onClick={event=>singleClick(event,()=>openDay(day))} onDoubleClick={()=>{choose(day);renameDay();}}>{Number(day.slice(-2))}</button>)}
-                  </div>) : shown.days.map(day=><button key={day} type="button" aria-current={day===date?"date":undefined} onClick={event=>singleClick(event,()=>openDay(day))} onDoubleClick={()=>{choose(day);renameDay();}}>
+                    {periodRange(`month:${dateKey(month)}`)?.days.map(day=><button key={day} type="button" title={dateLabel(day)} onClick={()=>choose(day)}>{Number(day.slice(-2))}</button>)}
+                  </div>) : shown.days.map(day=><button key={day} type="button" aria-current={day===date?"date":undefined} onClick={()=>choose(day)}>
                     {preview==="week"?parseDate(day).toLocaleDateString("de-DE",{weekday:"short"})+" ":""}{Number(day.slice(-2))}
                   </button>)}
               </div>}
@@ -174,14 +230,20 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
                 if(event.key==="Enter" && !event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.blur();}
                 if(event.key==="Escape"){event.stopPropagation();setRename(null);}
               }}/> :
-              <button type="button" onClick={event=>singleClick(event,()=>openDay(item.date))}
+              <button type="button" style={item.color && /^#[0-9a-f]{6}$/i.test(item.color)?{backgroundColor:item.color,color:"#26342b"}:undefined}
+                onClick={event=>singleClick(event,()=>choose(item.date))}
                 onDoubleClick={()=>{window.clearTimeout(clickTimer.current);setRename(item.id);}}
                 onContextMenu={event=>{event.preventDefault();setMenu(item.id);}}>{item.title||dateLabel(item.date)}</button>}
             {menu===item.id && <button type="button" role="menuitem" onClick={()=>saveBookmarks(bookmarks.filter(other=>other.id!==item.id))}>Sticker löschen</button>}
           </div>)}
-          {bookmark===null?<button type="button" aria-label="Markiersticker hinzufügen" onClick={()=>setBookmark("")}><Plus size={16}/></button>:
-            <form onSubmit={event=>{event.preventDefault();saveBookmarks([...bookmarks,{id:crypto.randomUUID(),date,title:bookmark.trim()}]);setBookmark(null);}}>
+          {bookmark===null?<button type="button" aria-label="Markiersticker hinzufügen" onClick={()=>{setBookmark("");setBookmarkColor(stickerColors[0]);}}><Plus size={16}/></button>:
+            <form ref={stickerForm} className="journal-sticker-form" onSubmit={event=>{
+              event.preventDefault();
+              saveBookmarks([...bookmarks,{id:crypto.randomUUID(),date,title:bookmark.trim(),color:bookmarkColor}]);
+              setBookmark(null);
+            }}>
               <input autoFocus aria-label="Stickertitel" placeholder={dateLabel(date)} value={bookmark} maxLength={80} onChange={event=>setBookmark(event.target.value)}/>
+              <ColorSwatches name="journal-sticker" value={bookmarkColor} presets={stickerColors} onChange={event=>setBookmarkColor(event.target.value)}/>
               <button type="submit" aria-label="Sticker speichern">✓</button>
             </form>}
         </aside>
