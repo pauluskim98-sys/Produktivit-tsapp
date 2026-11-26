@@ -8266,3 +8266,30 @@ body:has(.task-detail-backdrop:not(.is-closing)) .journal-layer .notebook-journa
   border-radius:3px 8px 8px 3px; border-left:3px solid color-mix(in srgb,currentColor 22%,transparent);
   box-shadow:0 1px 3px #231b1812; text-align:left;
 }
+
+.journal-layer .notebook-journal {
+  width:min(1120px,calc(100vw - 88px)); height:min(762px,calc(100dvh - 72px));
+}
+.journal-layer[data-docked="true"] .notebook-journal {width:min(560px,max(320px,44vw),calc(100vw - 32px));}
+.journal-header {user-select:none;}
+.journal-header h2 {font-family:inherit; font-size:21px; font-weight:720; letter-spacing:-.035em;}
+.journal-writing .note-checklist {
+  border:1px solid color-mix(in srgb,var(--line) 78%,#c79965);
+  border-radius:9px; padding:16px 19px;
+  background:
+    repeating-linear-gradient(transparent 0 30px,color-mix(in srgb,var(--line) 50%,transparent) 30px 31px),
+    color-mix(in srgb,var(--surface) 98%,#f6d4a4);
+  background-position:0 12px,0 0;
+}
+.journal-writing .notebook-title {font:inherit; font-size:22px; font-weight:740; letter-spacing:-.025em;}
+.journal-writing .rich-note-field {line-height:1.65;}
+.notebook-journal-slot {grid-area:editor; align-self:stretch; min-width:0; min-height:0; overflow:auto;}
+.journal-inline {min-height:0; min-width:0;}
+.journal-inline .notebook-journal {width:100%; max-height:none; padding:10px; border-radius:8px; box-shadow:none;}
+.journal-inline .journal-body {max-height:none;}
+.journal-inline .journal-header {cursor:default; touch-action:auto;}
+.journal-inline .journal-header h2 {font-size:17px;}
+.journal-inline .journal-writing,.journal-inline .journal-writing .note-checklist {min-height:145px;}
+.notebook-tab-settings .notebook-journal-kind {display:flex; justify-content:flex-start; gap:8px;}
+.notebook-workspace:has(.notebook-map-frame) > .notebook-journal-slot {visibility:hidden;}
+@media(max-width:620px){.journal-layer .notebook-journal{width:calc(100vw - 36px);height:calc(100dvh - 34px);}}

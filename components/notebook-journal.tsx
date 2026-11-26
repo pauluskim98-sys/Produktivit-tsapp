@@ -47,13 +47,14 @@ function JournalEditor({value,date,preferences,save}: {
     selection?.removeAllRanges();
     selection?.addRange(caret);
   }}>
-    <PlannerNotepad value={text} onChange={setText} onBlur={flush} preferences={preferences}
+    <PlannerNotepad value={text} onChange={setText} onBlur={flush} preferences={{...preferences,size:preferences.size+3}}
       label={`Tagebuch am ${dateLabel(date)}`} compact titled/>
     {error && <p role="alert">{error}</p>}
   </div>;
 }
 
-export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,preferences,onDate,onCalendarPeriod,onClose,onSave,onOpenNote}:{
+export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,preferences,onDate,onCalendarPeriod,onClose,onSave,onOpenNote,embedded=false}:{
+  embedded?:boolean;
   date:string;notes:Record<string,string>;moods:Record<string,NotebookMood>;lessons:NotebookLesson[];
   weekdayNote?:{key:string;content:string};
   preferences:NotePreferences;onDate:(date:string)=>void;onClose:()=>void;
@@ -69,15 +70,17 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
   const [error,setError]=useState("");
   const [rename,setRename]=useState<string|null>(null);
   const [docked,setDocked]=useState(false);
-  const [position,setPosition]=useState<{x:number;y:number}|null>(null);
+  const [position,setPosition]=useState<{x:number;y:number;width:number;height:number}|null>(null);
   const drag=useRef<AbortController|null>(null);
+  const dragging=useRef(false);
   const stickerForm=useRef<HTMLFormElement>(null);
   const skipBlankClick=useRef(false);
   const journal=useRef<HTMLElement>(null);
   const clickTimer=useRef<number|undefined>(undefined);
   useEffect(()=>{
+    if(embedded)return;
     const calendarPointer=(event:PointerEvent)=>{
-      if(event.target instanceof Element && event.target.closest(".calendar-workspace"))setDocked(true);
+      if(!dragging.current && event.target instanceof Element && event.target.closest(".calendar-workspace"))setDocked(true);
     };
     document.addEventListener("pointerdown",calendarPointer,true);
     return ()=>{
@@ -85,7 +88,7 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
       window.clearTimeout(clickTimer.current);
       drag.current?.abort();
     };
-  },[]);
+  },[embedded]);
   useEffect(()=>{
     if(bookmark===null)return;
     const dismiss=(event:PointerEvent)=>{
@@ -98,17 +101,20 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
     return ()=>document.removeEventListener("pointerdown",dismiss,true);
   },[bookmark===null]);
   function beginDrag(event:ReactPointerEvent<HTMLElement>){
-    if(event.button!==0 || (event.target as Element).closest("button,input,label") || !journal.current)return;
+    if(embedded || event.button!==0 || (event.target as Element).closest("button,input,label") || !journal.current)return;
+    event.preventDefault();
     const rect=journal.current.getBoundingClientRect();
     const offsetX=event.clientX-rect.left, offsetY=event.clientY-rect.top, pointer=event.pointerId;
     const startX=event.clientX,startY=event.clientY;
     drag.current?.abort();
     const controller=new AbortController();
     drag.current=controller;
+    dragging.current=true;
     const options={signal:controller.signal,capture:true};
     let moved=false;
     const finish=()=>{
       controller.abort();
+      dragging.current=false;
       if(moved)window.setTimeout(()=>{skipBlankClick.current=false;},0);
     };
     window.addEventListener("pointermove",move=>{
@@ -116,8 +122,9 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
       moved=true;
       skipBlankClick.current=true;
       setPosition({
-        x:Math.round(Math.min(innerWidth-140,Math.max(0,move.clientX-offsetX))),
-        y:Math.round(Math.min(Math.max(0,innerHeight-180),Math.max(0,move.clientY-offsetY))),
+        x:Math.round(Math.min(Math.max(0,innerWidth-rect.width),Math.max(0,move.clientX-offsetX))),
+        y:Math.round(Math.min(Math.max(0,innerHeight-rect.height),Math.max(0,move.clientY-offsetY))),
+        width:rect.width,height:rect.height,
       });
     },options);
     window.addEventListener("pointerup",finish,options);
@@ -152,25 +159,25 @@ export default function NotebookJournal({date,notes,moods,lessons,weekdayNote,pr
   };
   const saveBookmarks=(next:Bookmark[])=>void onSave("journal-bookmarks",JSON.stringify(next)).catch(err=>setError(err.message));
   const shown=preview ? periodRange(`${preview}:${date}`) : null;
-  return <div className="journal-layer" data-docked={docked} data-placed={!!position}>
+  return <div className={embedded?"journal-inline":"journal-layer"} data-docked={docked} data-placed={!!position}>
     <section ref={journal} className="modal notebook-journal"
-      style={position ? {left:position.x,top:position.y,maxHeight:`calc(100dvh - ${position.y+8}px)`} : undefined}
+      style={position && !embedded ? {left:position.x,top:position.y,width:position.width,height:position.height,maxWidth:"calc(100vw - 8px)",maxHeight:"calc(100dvh - 8px)"} : undefined}
       role="region" aria-label="Tagebuch" data-escape-layer
-      onPointerEnter={()=>setDocked(false)}
+      onPointerEnter={()=>{if(!embedded && !position && !dragging.current)setDocked(false);}}
       onPointerLeave={event=>{
-        if(event.relatedTarget instanceof Element && event.relatedTarget.closest(".calendar-workspace"))setDocked(true);
+        if(!embedded && !position && !dragging.current && event.relatedTarget instanceof Element && event.relatedTarget.closest(".calendar-workspace"))setDocked(true);
       }}
       onClick={event=>{
         setMenu(null);
         const skip=skipBlankClick.current;skipBlankClick.current=false;
         if(skip || !blankSurface(event.target as Element))return;
         if(bookmark!==null){setBookmark(null);return;}
-        onClose();
-      }} onKeyDown={event=>{if(event.key==="Escape"){event.stopPropagation();if(bookmark!==null)setBookmark(null);else if(preview)setPreview(null);else if(menu)setMenu(null);else onClose();}}}>
-      <header className="journal-header" onPointerDown={beginDrag} title="Tagebuch verschieben">
+        if(!embedded)onClose();
+      }} onKeyDown={event=>{if(event.key==="Escape"){event.stopPropagation();if(bookmark!==null)setBookmark(null);else if(preview)setPreview(null);else if(menu)setMenu(null);else if(!embedded)onClose();}}}>
+      <header className="journal-header" onPointerDown={beginDrag} title={embedded?undefined:"Tagebuch verschieben"}>
         <BookOpen size={20}/><h2>Tagebuch</h2>
         <label className="journal-search"><Search size={15}/><input placeholder="Tagebuch durchsuchen" aria-label="Tagebuch durchsuchen" value={query} onChange={event=>setQuery(event.target.value)}/></label>
-        <button type="button" data-close aria-label="Tagebuch schließen" onClick={onClose}><X size={18}/></button>
+        {!embedded && <button type="button" data-close aria-label="Tagebuch schließen" onClick={onClose}><X size={18}/></button>}
       </header>
       <div className="journal-body">
         <main className="journal-page">

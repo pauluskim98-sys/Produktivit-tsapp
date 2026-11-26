@@ -1,8 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addNotebookColumns, applyNotebookTemplate, defaultNotebookLayout, notebookColumnKey, notebookFeatures, weeklyNotebookLayout } from "../lib/notebook-layout.ts";
+import { addNotebookColumns, applyNotebookTemplate, defaultJournalTab, defaultNotebookLayout, defaultTodoTab, initialNotebookSession, notebookColumnKey, notebookFeatures, weeklyNotebookLayout } from "../lib/notebook-layout.ts";
 import { notebookColumnParent } from "../lib/notebook.ts";
 import { parkedNoteTag } from "../lib/planner-day.ts";
+
+test("fresh notebooks start with diary, calendar week, then a checklist", () => {
+  const session=initialNotebookSession("week:2026-11-23");
+  assert.deepEqual(session.tabs,[defaultJournalTab,"week:2026-11-23",defaultTodoTab]);
+  assert.equal(session.active,defaultJournalTab);
+  assert.equal(session.layouts[defaultJournalTab].kind,"journal");
+  assert.equal(notebookFeatures(session.layouts[defaultTodoTab]).todo,true);
+});
 
 test("legacy notebook modes, combined features and column overrides resolve independently", () => {
   const weekly = { ...defaultNotebookLayout, kind:"weekly" as const };

@@ -11,7 +11,7 @@ export type NotebookColumn = {
 export type NotebookLayout = {
   title?: string;
   rows?: number;
-  kind: "note" | "todo" | "weekly";
+  kind: "note" | "todo" | "weekly" | "journal";
   features?: NotebookFeatures;
   view: "" | "week" | "month" | "year";
   color: string;
@@ -32,6 +32,21 @@ export function notebookFeatures(layout: NotebookLayout, column?: NotebookColumn
 export const defaultNotebookLayout: NotebookLayout = {
   kind: "note", view: "", color: "", design: "plain", columns: [{ id: "main" }],
 };
+
+export const defaultJournalTab = "note:root:00000000-0000-4000-8000-000000000010";
+export const defaultTodoTab = "note:root:00000000-0000-4000-8000-000000000011";
+
+export function initialNotebookSession(week:string) {
+  return {
+    orderedTabs:true,
+    tabs:[defaultJournalTab,week,defaultTodoTab],
+    active:defaultJournalTab,
+    layouts:{
+      [defaultJournalTab]:{...defaultNotebookLayout,title:"Tagebuch",kind:"journal" as const},
+      [defaultTodoTab]:{...defaultNotebookLayout,title:"To-do-Liste",kind:"todo" as const},
+    },
+  };
+}
 
 export type NotebookTemplate = { id: string; name: string; layout: NotebookLayout };
 
@@ -79,11 +94,12 @@ export function readNotebookSession() {
   try {
     const value = JSON.parse(localStorage.getItem("lifemap-notebook-session") || "{}");
     return {
+      orderedTabs: value.orderedTabs === true,
       tabs: Array.isArray(value.tabs) ? value.tabs.filter((key: unknown): key is string => typeof key === "string") as string[] : [],
       active: typeof value.active === "string" ? value.active as string : null,
       layouts: (value.layouts || {}) as Record<string, NotebookLayout>,
     };
   } catch {
-    return { tabs: [] as string[], active: null, layouts: {} as Record<string, NotebookLayout> };
+    return { orderedTabs:false, tabs: [] as string[], active: null, layouts: {} as Record<string, NotebookLayout> };
   }
 }

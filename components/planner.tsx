@@ -33,7 +33,7 @@ import NotebookMoodPicker from "./notebook-mood";
 import NotebookJournal from "./notebook-journal";
 import NotebookAddRow from "./notebook-add-row";
 import ColorSwatches from "./color-swatches";
-import { addNotebookColumns, applyNotebookTemplate, defaultNotebookLayout, notebookColumnKey, notebookFeatures, readNotebookSession, weeklyNotebookLayout, moodColors, moodLabels, type NotebookLesson, type NotebookMood, type NotebookColumn, type NotebookLayout, type NotebookTemplate } from "@/lib/notebook-layout";
+import { addNotebookColumns, applyNotebookTemplate, defaultNotebookLayout, initialNotebookSession, notebookColumnKey, notebookFeatures, readNotebookSession, weeklyNotebookLayout, moodColors, moodLabels, type NotebookLesson, type NotebookMood, type NotebookColumn, type NotebookLayout, type NotebookTemplate } from "@/lib/notebook-layout";
 import NoteSettings from "./note-settings";
 import { defaultNotePreferences, noteFonts, notePeriods, notePeriod, waitingNoteTodo, putInNoteTodo, type NotePeriod, type NotePreferences } from "@/lib/note-todos";
 import PlannerNotepad, { notebookColumnHeading, noteWithTasks, readNoteLines } from "./planner-notepad";
@@ -546,6 +546,7 @@ export default function Planner() {
   const [activeNote,setActiveNote]=useState<string|null>(null);
   const [freshNote,setFreshNote]=useState<string|null>(null);
   const [journalDate,setJournalDate]=useState<string|null>(null);
+  const [notebookJournalDate,setNotebookJournalDate]=useState<string|null>(null);
   useEffect(()=>{
     const url=new URL(location.href);
     if(url.searchParams.get("journal")!=="1")return;
@@ -583,24 +584,25 @@ export default function Planner() {
     return {notebookMoods,notebookLessons};
   },[state.dayNotes]);
   useEffect(() => {
-    const session = readNotebookSession();
-    setNoteTabs(session.tabs);
+    const storedHome=localStorage.getItem("lifemap-notebook-home");
+    const home=storedHome && periodRange(storedHome) ? storedHome : calendarNoteKeys[1];
+    const fresh=!storedHome && !localStorage.getItem("lifemap-notebook-session");
+    const session=fresh ? initialNotebookSession(home) : readNotebookSession();
+    setNoteTabs(session.orderedTabs && session.tabs.includes(home) ? session.tabs : [home,...session.tabs.filter(key=>key!==home)]);
     setActiveNote(session.active);
     setNotebookLayouts(session.layouts);
+    setNotebookHome(home);
     try {
       const stored=JSON.parse(localStorage.getItem("lifemap-weekly-notebook-layout") || "null");
       if(stored && Array.isArray(stored.columns) && stored.columns.length>=8 && stored.columns[0]?.planning)setSharedWeeklyLayout(stored);
     } catch {}
     try {setNotebookTemplates(JSON.parse(localStorage.getItem("lifemap-notebook-templates") || "[]"));} catch {}
-    const home = localStorage.getItem("lifemap-notebook-home");
-    if (home && periodRange(home)) setNotebookHome(home);
-    else localStorage.setItem("lifemap-notebook-home", calendarNoteKeys[1]);
     setNotebookReady(true);
   }, []);
   useEffect(() => {
     if(notebookReady)localStorage.setItem("lifemap-notebook-home",notebookHome);
     if (notebookReady) localStorage.setItem("lifemap-notebook-session", JSON.stringify({
-      tabs: noteTabs, active: activeNote, layouts: notebookLayouts,
+      orderedTabs:true, tabs: noteTabs, active: activeNote, layouts: notebookLayouts,
     }));
   }, [notebookReady, noteTabs, activeNote, notebookLayouts, notebookHome]);
   useEffect(()=>{
@@ -613,7 +615,7 @@ export default function Planner() {
   },[notebookReady,sharedWeeklyLayout]);
   const availableTabs = noteTabs;
   const plannerNoteKey = activeNote && availableTabs.includes(activeNote) ? activeNote : notebookHome;
-  const visibleNoteTabs = [...new Set([notebookHome, ...availableTabs])];
+  const visibleNoteTabs = [...new Set([...availableTabs,notebookHome])];
   const currentNotebookLayout = weeklyNotebookLayout(plannerNoteKey,notebookLayouts[plannerNoteKey],sharedWeeklyLayout);
   const automaticWeek = plannerNoteKey.startsWith("week:");
   const notebookWeekDay=(index:number)=>dateKey(addDays(parseDate(automaticWeek ? plannerNoteKey.slice(5) :
@@ -652,10 +654,32 @@ export default function Planner() {
     const key=`week:${periodRange(`week:${day}`)!.start}`;
     setNotebookHome(key);
     openNote(key);
-    if(key!==notebookHome)setNoteTabs(current=>current.filter(item=>item!==notebookHome));
+    if(key!==notebookHome)setNoteTabs(current=>{
+      const next=current.filter(item=>item!==key);
+      const index=next.indexOf(notebookHome);
+      if(index<0)return [...next,key];
+      next[index]=key;
+      return next;
+    });
     setHighlightedNotebookDay(highlight?day:null);
     setNotesPosition("open");
   };
+  function renderJournal(date:string,embedded=false){
+    const weekKey=`week:${periodRange(`week:${date}`)!.start}`;
+    const layout=weeklyNotebookLayout(weekKey,notebookLayouts[weekKey],sharedWeeklyLayout);
+    const column=layout.columns[(parseDate(date).getDay()+6)%7+1];
+    const noteKey=column && notebookColumnKey(weekKey,column.id);
+    return <NotebookJournal date={date} embedded={embedded} notes={state.dayNotes}
+      moods={notebookMoods} lessons={notebookLessons} preferences={notePreferences}
+      weekdayNote={noteKey ? {key:noteKey,content:state.dayNotes[noteKey]||""} : undefined}
+      onDate={embedded?setNotebookJournalDate:setJournalDate}
+      onCalendarPeriod={(day,view)=>{
+        setAnchor(day);setMobileDay(day);setDatePreview(null);setOverview(view==="week"?null:view);
+      }} onClose={()=>setJournalDate(null)}
+      onSave={saveJournalNote} onOpenNote={key=>{
+        setJournalDate(null);openNote(notebookColumnParent(key) ?? key);setNotesPosition("open");
+      }}/>;
+  }
   const closeNote=(key:string)=>{
     if(key===plannerNoteKey)setActiveNote(null);
     setNoteTabs((current)=>current.filter((item)=>item!==key));
@@ -874,7 +898,7 @@ export default function Planner() {
     const main=panel?.closest("main");
     if(!panel || !main || visibleNotesPosition!=="below")return;
     const calendar=main.querySelector<HTMLElement>(".timeline-scroll,.calendar-overview-large");
-    const editor=panel.querySelector<HTMLElement>(".notebook-column-editor");
+    const editor=panel.querySelector<HTMLElement>(".notebook-column-editor,.notebook-journal-slot");
     if(!calendar || !editor)return;
     const fit=()=>{
       const viewportTop=main.getBoundingClientRect().top+main.clientTop;
@@ -888,7 +912,7 @@ export default function Planner() {
       if(item)observer.observe(item);
     }
     return ()=>observer.disconnect();
-  },[overview,visibleNotesPosition,loading]);
+  },[overview,visibleNotesPosition,loading,currentNotebookLayout.kind]);
   useEffect(()=>{
     const workspace=workspaceRef.current, panel=notesPanelRef.current;
     if(!workspace || !panel || visibleNotesPosition==="below")return;
@@ -2282,8 +2306,10 @@ export default function Planner() {
         else {
           const task=state.todos.find((todo)=>todo.id===node.dataset.calendarTask);
           if(task){
-            const write=noteStore.current;
-            void storeInNote([task],plannerNoteKey,write?()=>write([task]):undefined)
+            const noteKey=currentNotebookLayout.kind==="journal" ? notebookHome : plannerNoteKey;
+            if(noteKey!==plannerNoteKey)openNote(noteKey);
+            const write=noteKey===plannerNoteKey ? noteStore.current : null;
+            void storeInNote([task],noteKey,write?()=>write([task]):undefined)
               .then(()=>setNotesPosition("open")).catch(handleError);
           }
         }
@@ -2758,7 +2784,10 @@ export default function Planner() {
                   setNotesPosition("open");
                 })().catch(handleError);}}
               />
-              <NotebookColumns key={plannerNoteKey} layout={currentNotebookLayout}
+              {currentNotebookLayout.kind==="journal" ?
+                <div className="notebook-journal-slot note-text-column">
+                  {!journalDate && renderJournal(notebookJournalDate ?? anchor,true)}
+                </div> : <NotebookColumns key={plannerNoteKey} layout={currentNotebookLayout}
                 onChange={next=>changeNotebookLayout(plannerNoteKey,next)}
                 onSettings={setColumnSettings}
                 heading={column=>notebookColumnHeading(state.dayNotes[notebookColumnKey(plannerNoteKey,column.id)] || "",column.title)}
@@ -2866,7 +2895,7 @@ export default function Planner() {
                 </button>
               </form>
                 </>}
-              />
+              />}
               </div>
               {autoPlanError && <p role="alert">{autoPlanError}</p>}
             </section>
@@ -3159,20 +3188,7 @@ export default function Planner() {
           }}
         />
       )}
-      {journalDate && <NotebookJournal date={journalDate} notes={state.dayNotes} moods={notebookMoods} lessons={notebookLessons}
-        weekdayNote={(()=>{
-          const key=`week:${periodRange(`week:${journalDate}`)!.start}`;
-          const layout=weeklyNotebookLayout(key,notebookLayouts[key],sharedWeeklyLayout);
-          const column=layout.columns[(parseDate(journalDate).getDay()+6)%7+1];
-          const noteKey=column && notebookColumnKey(key,column.id);
-          return noteKey ? {key:noteKey,content:state.dayNotes[noteKey]||""} : undefined;
-        })()}
-        preferences={notePreferences} onDate={setJournalDate} onCalendarPeriod={(day,view)=>{
-          setAnchor(day);setMobileDay(day);setDatePreview(null);setOverview(view==="week"?null:view);
-        }} onClose={()=>setJournalDate(null)}
-        onSave={saveJournalNote} onOpenNote={key=>{
-          setJournalDate(null);openNote(notebookColumnParent(key) ?? key);setNotesPosition("open");
-        }}/>}
+      {journalDate && renderJournal(journalDate)}
       {notebookRowColumn && <NotebookAddRow onClose={()=>setNotebookRowColumn(null)} onSave={(name,all)=>{
         const columns=all?currentNotebookLayout.columns:currentNotebookLayout.columns.filter(column=>column.id===notebookRowColumn);
         emitNotebookChange(columns.map(column=>notebookColumnKey(plannerNoteKey,column.id)),"row",name);
@@ -3387,6 +3403,12 @@ function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral,templa
         onSave(resolvedLayout());
       }}>
       <h2>{weeklySettings?"Layout für alle Wochentabs":title}</h2>
+      {!column && !weeklySettings && <label className="notebook-journal-kind">
+        <input type="checkbox" checked={draft.kind==="journal"} onChange={event=>setDraft({
+          ...draft,kind:event.target.checked?"journal":value.kind==="journal"?"note":value.kind,
+        })}/> Tagebuch
+      </label>}
+      {draft.kind!=="journal" && <>
       <fieldset className="notebook-feature-options">
         <legend>Funktionen</legend>
         {templates.map(template=><span className="notebook-template-option" key={template.id}>
@@ -3429,6 +3451,7 @@ function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral,templa
         <ColorSwatches name="notebook-background" presets={notebookSwatches} value={draft.color||"#ffffff"}
           onChange={event=>setDraft({...draft,color:event.target.value})}/>
       </div>
+      </>}
       {onSaveTemplate && (templateName===null ?
         <button type="button" className="secondary-button" onClick={()=>setTemplateName("")}>Als Vorlage speichern</button> :
         <div className="notebook-save-template">
