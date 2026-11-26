@@ -7977,6 +7977,7 @@ button[hidden] {
 }
 .notebook-column-scroll {overflow:auto; flex:1; min-height:0;}
 .notebook-column-grid {display:grid; min-height:100%;}
+.notebook-empty-columns {display:grid; place-items:center; min-height:5rem;}
 .notebook-column {position:relative; min-width:0; display:flex; flex-direction:column;}
 .notebook-column + .notebook-column {border-left:1px solid var(--line);}
 .notebook-column-head {

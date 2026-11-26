@@ -7,6 +7,8 @@ export type NotebookColumn = {
   color?: string;
   design?: NotebookLayout["design"];
   planning?: boolean;
+  weeklySlot?: number;
+  weekday?: number;
 };
 export type NotebookLayout = {
   title?: string;
@@ -17,6 +19,8 @@ export type NotebookLayout = {
   color: string;
   design: "plain" | "lined" | "grid";
   columns: NotebookColumn[];
+  weeklyColumnIds?: Record<number, string>;
+  nextWeeklySlot?: number;
 };
 
 export function notebookFeatures(layout: NotebookLayout, column?: NotebookColumn) {
@@ -53,6 +57,7 @@ export type NotebookTemplate = { id: string; name: string; layout: NotebookLayou
 export function applyNotebookTemplate(current: NotebookLayout, template: NotebookLayout): NotebookLayout {
   const columns = template.columns.map((column, index) => ({
     ...column, id: current.columns[index]?.id ?? crypto.randomUUID(),
+    weeklySlot: current.columns[index]?.weeklySlot,
   }));
   return {...template, title:current.title, columns:[...columns, ...current.columns.slice(columns.length)]};
 }
@@ -62,24 +67,53 @@ export const moodLabels = ["Gut", "Okay", "Schwierig", "Schlecht"];
 export type NotebookMood = { date: string; score: number; reason: string };
 export type NotebookLesson = { date: string; text: string };
 
-// Each dated weekly layout owns independent note keys, even before it is edited.
+// Shared slots identify the layout; each week keeps its own note IDs.
 export function weeklyNotebookLayout(key: string, saved?: NotebookLayout, shared?: NotebookLayout): NotebookLayout {
   if (!/^week:\d{4}-\d{2}-\d{2}$/.test(key)) return saved ?? defaultNotebookLayout;
   const weekId = key.slice(5).replaceAll("-", "");
-  const id = (index:number) => `00000000-0000-4000-8000-${weekId}${String(index).padStart(4,"0")}`;
+  const id = (slot: number) => slot === 1 ? "main" : `00000000-0000-4000-8000-${weekId}${String(slot).padStart(4, "0")}`;
   const layout = saved ?? defaultNotebookLayout;
-  const dayColumns = layout.columns.filter(column=>!column.planning);
-  const planning = layout.columns.find(column=>column.planning) ?? {id:id(0),planning:true};
-  const columns=[planning,...dayColumns,...Array.from({length:Math.max(0,7-dayColumns.length)},(_,i)=>({id:id(dayColumns.length+i+1)}))];
-  const appearance=shared ?? layout;
+  const withSlots = (columns: NotebookColumn[]) => columns.map((column, index) => ({
+    ...column,
+    weeklySlot: column.weeklySlot ?? index,
+    weekday: column.weeklySlot === undefined && index > 0 && index < 8 ? index - 1 : column.weekday,
+  }));
+  const legacyColumns = layout.columns.filter(column => !column.planning);
+  const legacyDefaults = withSlots([
+    layout.columns.find(column => column.planning) ?? {id:id(0),planning:true},
+    ...legacyColumns,
+    ...Array.from({length:Math.max(0,7-legacyColumns.length)},(_,index)=>({id:id(legacyColumns.length+index+1)})),
+  ]);
+  const localColumns = layout.nextWeeklySlot === undefined ? legacyDefaults : layout.columns;
+  const appearance = shared ?? layout;
+  const columnIds = {...layout.weeklyColumnIds};
+  for (const column of localColumns) {
+    if (column.weeklySlot !== undefined) columnIds[column.weeklySlot] = column.id;
+  }
+  const columns = shared ? withSlots(shared.columns).map(column => ({
+    ...column, id:columnIds[column.weeklySlot] ?? id(column.weeklySlot),
+  })) : localColumns;
   return {
     ...layout, view:"week",
     rows:appearance.rows,
     color:appearance.color,
     design:appearance.design,
-    features:{...appearance.features,weekdays:true,mood:appearance.features?.mood ?? true},
-    columns:shared ? shared.columns.map((column,index)=>({...column,id:columns[index]?.id ?? id(index)})) : columns,
+    features:{...appearance.features,weekdays:appearance.features?.weekdays ?? true,mood:appearance.features?.mood ?? true},
+    columns,
+    weeklyColumnIds:columnIds,
+    nextWeeklySlot:Math.max(8,appearance.nextWeeklySlot ?? 0,...columns.map(column => (column.weeklySlot ?? 0)+1)),
   };
+}
+
+export function updateWeeklyNotebookLayout(previous: NotebookLayout, next: NotebookLayout): NotebookLayout {
+  let nextSlot = previous.nextWeeklySlot ?? 8;
+  const weeklyColumnIds = {...previous.weeklyColumnIds};
+  const columns = next.columns.map(column => {
+    const slot = column.weeklySlot ?? nextSlot++;
+    weeklyColumnIds[slot] = column.id;
+    return {...column, weeklySlot:slot};
+  });
+  return {...next, columns, weeklyColumnIds, nextWeeklySlot:nextSlot};
 }
 
 export function notebookColumnKey(note: string, id: string) {

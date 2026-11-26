@@ -33,7 +33,7 @@ import NotebookMoodPicker from "./notebook-mood";
 import NotebookJournal from "./notebook-journal";
 import NotebookAddRow from "./notebook-add-row";
 import ColorSwatches from "./color-swatches";
-import { addNotebookColumns, applyNotebookTemplate, defaultNotebookLayout, initialNotebookSession, notebookColumnKey, notebookFeatures, readNotebookSession, weeklyNotebookLayout, moodColors, moodLabels, type NotebookLesson, type NotebookMood, type NotebookColumn, type NotebookLayout, type NotebookTemplate } from "@/lib/notebook-layout";
+import { addNotebookColumns, applyNotebookTemplate, defaultNotebookLayout, initialNotebookSession, notebookColumnKey, notebookFeatures, readNotebookSession, updateWeeklyNotebookLayout, weeklyNotebookLayout, moodColors, moodLabels, type NotebookLesson, type NotebookMood, type NotebookColumn, type NotebookLayout, type NotebookTemplate } from "@/lib/notebook-layout";
 import NoteSettings from "./note-settings";
 import { defaultNotePreferences, noteFonts, notePeriods, notePeriod, waitingNoteTodo, putInNoteTodo, type NotePeriod, type NotePreferences } from "@/lib/note-todos";
 import PlannerNotepad, { notebookColumnHeading, noteWithTasks, readNoteLines } from "./planner-notepad";
@@ -595,7 +595,7 @@ export default function Planner() {
     setNotebookHome(home);
     try {
       const stored=JSON.parse(localStorage.getItem("lifemap-weekly-notebook-layout") || "null");
-      if(stored && Array.isArray(stored.columns) && stored.columns.length>=8 && stored.columns[0]?.planning)setSharedWeeklyLayout(stored);
+      if(stored && Array.isArray(stored.columns))setSharedWeeklyLayout(stored);
     } catch {}
     try {setNotebookTemplates(JSON.parse(localStorage.getItem("lifemap-notebook-templates") || "[]"));} catch {}
     setNotebookReady(true);
@@ -640,8 +640,8 @@ export default function Planner() {
       });
       if(persistShared)setSharedWeeklyLayout(defaults);
     };
-    const updated=persistShared ? weeklyNotebookLayout(key,next) : next;
-    const nextShared={...updated,title:undefined};
+    const updated=persistShared ? updateWeeklyNotebookLayout(weeklyNotebookLayout(key,previous,previousShared),next) : next;
+    const nextShared={...updated,title:undefined,weeklyColumnIds:undefined};
     void apply(updated,nextShared);
     record({undo:()=>apply(previous,previousShared), redo:()=>apply(updated,nextShared)});
   }
@@ -668,7 +668,7 @@ export default function Planner() {
   function renderJournal(date:string,embedded=false){
     const weekKey=`week:${periodRange(`week:${date}`)!.start}`;
     const layout=weeklyNotebookLayout(weekKey,notebookLayouts[weekKey],sharedWeeklyLayout);
-    const column=layout.columns[(parseDate(date).getDay()+6)%7+1];
+    const column=layout.columns.find(column=>column.weekday===(parseDate(date).getDay()+6)%7);
     const noteKey=column && notebookColumnKey(weekKey,column.id);
     return <NotebookJournal date={date} embedded={embedded} notes={state.dayNotes}
       moods={notebookMoods} lessons={notebookLessons} preferences={notePreferences}
@@ -2862,12 +2862,13 @@ export default function Planner() {
                 }}
                 footer={<>
               <label className="note-upload notebook-shared-upload"><Paperclip size={14}/> Datei anhängen
-                <input type="file" multiple aria-label="Datei an Notepad anhängen" onChange={event=>{
+                <input type="file" multiple disabled={!currentNotebookLayout.columns.length} aria-label="Datei an Notepad anhängen" onChange={event=>{
                   const files=Array.from(event.target.files || []);
                   if(!files.length)return;
                   const targetDay=highlightedNotebookDay || noteToday;
                   const dayIndex=(parseDate(targetDay).getDay()+6)%7;
-                  const id=automaticWeek ? currentNotebookLayout.columns[dayIndex+1]?.id : lastNotebookColumn.current[plannerNoteKey];
+                  const dayColumn=automaticWeek && currentNotebookLayout.columns.find(column=>column.weekday===dayIndex && notebookFeatures(currentNotebookLayout,column).weekdays);
+                  const id=dayColumn ? dayColumn.id : lastNotebookColumn.current[plannerNoteKey];
                   const column=currentNotebookLayout.columns.find(item=>item.id===id) ?? currentNotebookLayout.columns[0];
                   if(column)window.dispatchEvent(new CustomEvent("lifemap-notebook-upload",{detail:{key:notebookColumnKey(plannerNoteKey,column.id),files}}));
                   event.target.value="";
@@ -3215,6 +3216,7 @@ export default function Planner() {
         column={columnSettings}
         value={currentNotebookLayout}
         onSave={layout=>{changeNotebookLayout(plannerNoteKey,layout);setColumnSettings(null);}}
+        weeklySettings={automaticWeek}
         onClose={()=>setColumnSettings(null)}
       />}
       {notebookSettings && <NotebookTabSettings key={notebookSettings}
@@ -3401,9 +3403,11 @@ function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral,templa
     color:column?.color ?? value.color, design:column?.design ?? value.design,
   }));
   const [count,setCount]=useState(String(value.columns.length));
+  const [weekday,setWeekday]=useState(column?.weekday);
+  const minimumColumns=weeklySettings ? 0 : draft.features.weekdays ? 7 : 1;
   useDialog(true,"notebook-tab-settings");
   function resolvedLayout():NotebookLayout {
-    const total=Math.max(draft.features.weekdays?(draft.columns[0]?.planning?8:7):1,Math.min(Math.max(50,value.columns.length),Math.floor(Number(count)||1)));
+    const total=Math.max(minimumColumns,Math.min(Math.max(50,value.columns.length),count==="" ? draft.columns.length : Math.floor(Number(count))));
     return {...draft,columns:addNotebookColumns(draft.columns.slice(0,total),total)};
   }
   return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
@@ -3413,12 +3417,12 @@ function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral,templa
         event.preventDefault();
         if(column){
           onSave({...value,columns:value.columns.map(item=>item.id===column.id
-            ? {...item,features:draft.features,color:draft.color,design:draft.design} : item)});
+            ? {...item,features:draft.features,color:draft.color,design:draft.design,weekday} : item)});
           return;
         }
         onSave(resolvedLayout());
       }}>
-      <h2>{weeklySettings?"Layout für alle Wochentabs":title}</h2>
+      <h2>{weeklySettings && !column?"Layout für alle Wochentabs":title}</h2>
       {!column && !weeklySettings && <label className="notebook-journal-kind">
         <input type="checkbox" checked={draft.kind==="journal"} onChange={event=>setDraft({
           ...draft,kind:event.target.checked?"journal":value.kind==="journal"?"note":value.kind,
@@ -3439,12 +3443,19 @@ function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral,templa
         </span>)}
         <label><input type="checkbox" checked={draft.features.todo}
           onChange={event=>setDraft({...draft,features:{...draft.features,todo:event.target.checked}})}/> To-do-Kästchen</label>
-        <label><input type="checkbox" checked={draft.features.weekdays} disabled={weeklySettings}
+        <label><input type="checkbox" checked={draft.features.weekdays}
           onChange={event=>{
             const weekdays=event.target.checked;
             setDraft({...draft,features:{...draft.features,weekdays,mood:weekdays && draft.features.mood,lessons:weekdays && draft.features.lessons},view:weekdays && !draft.view?"week":draft.view});
-            if(!column && weekdays && Number(count)<7)setCount("7");
+            if(!column && !weeklySettings && weekdays && Number(count)<7)setCount("7");
           }}/> Wochentage</label>
+        {draft.features.weekdays && weeklySettings && column && <label>Wochentag
+          <select value={weekday ?? ""} onChange={event=>setWeekday(event.target.value==="" ? undefined : Number(event.target.value))}>
+            <option value="">Kein Wochentag</option>
+            {["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"].map((day,index)=>
+              <option key={day} value={index} disabled={value.columns.some(item=>item.id!==column.id && item.weekday===index)}>{day}</option>)}
+          </select>
+        </label>}
         {draft.features.weekdays && <>
           <label><input type="checkbox" checked={draft.features.mood}
             onChange={event=>setDraft({...draft,features:{...draft.features,mood:event.target.checked}})}/> Moodtracker</label>
@@ -3456,7 +3467,7 @@ function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral,templa
       {!weeklySettings && <label>Automatisch öffnen<select value={draft.view} onChange={event=>setDraft({...draft,view:event.target.value as NotebookLayout["view"]})}>
         <option value="">Manuell öffnen</option><option value="week">Wochentab</option><option value="month">Monatstab</option><option value="year">Jahrestab</option>
       </select></label>}
-      <label>Spalten<input type="number" value={count} min={draft.features.weekdays?(draft.columns[0]?.planning?8:7):1} max={Math.max(50,value.columns.length)} onChange={event=>setCount(event.target.value)}/></label>
+      <label>Spalten<input type="number" value={count} min={minimumColumns} max={Math.max(50,value.columns.length)} onChange={event=>setCount(event.target.value)}/></label>
       <label>Zusätzliche Zeilen<input type="number" min={0} max={30} value={draft.rows}
         onChange={event=>setDraft({...draft,rows:Math.min(30,Math.max(0,Number(event.target.value)||0))})}/></label>
       </>}

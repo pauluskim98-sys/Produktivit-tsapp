@@ -30,8 +30,11 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
   const [preview, setPreview] = useState<NotebookColumn[] | null>(null);
   const [alignedWidths, setAlignedWidths] = useState<number[] | null>(null);
   const planning = layout.columns[0]?.planning;
+  const dayIndexFor = (column: NotebookColumn, index: number) =>
+    column.weeklySlot !== undefined ? column.weekday : index - (planning ? 1 : 0);
   const alignWeek = notebookFeatures(layout).weekdays && layout.columns.length === (planning ? 8 : 7) &&
-    layout.columns.every(column => column.width === undefined);
+    layout.columns.every((column,index) => column.width === undefined &&
+      (planning && index === 0 || dayIndexFor(column,index) === index - (planning ? 1 : 0) && notebookFeatures(layout,column).weekdays));
   useEffect(() => {
     const list = grid.current;
     if (!alignWeek || !list) { setAlignedWidths(null); return; }
@@ -116,6 +119,12 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
     window.addEventListener("blur", finish, options);
   }
 
+  function insertColumn(index: number) {
+    const next = [...layout.columns];
+    next.splice(index,0,{id:crypto.randomUUID()});
+    onChange({...layout,columns:next});
+  }
+
   return (
     <div className="notebook-column-editor note-text-column" data-design={layout.design} style={{ backgroundColor: layout.color || undefined }}>
       <div className="notebook-column-scroll">
@@ -124,12 +133,16 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
             const width = column.width ?? (preview ? undefined : alignedWidths?.[index]);
             return width ? `${width}px` : "minmax(0, 1fr)";
           }).join(" ") }}>
+          {!columns.length && <div className="notebook-empty-columns">
+            <button className="secondary-button" type="button" onClick={()=>insertColumn(0)}><Plus size={14}/> Spalte hinzufügen</button>
+          </div>}
           {columns.map((column, index) => {
-            const dayIndex=planning ? index-1 : index;
+            const dayIndex=dayIndexFor(column,index);
+            const hasWeekday=dayIndex!==undefined && dayIndex>=0 && dayIndex<7 && notebookFeatures(layout,column).weekdays;
             const title=heading(column);
             return (
             <section key={column.id} className="notebook-column" data-design={column.design}
-              data-highlighted={highlight===dayIndex || undefined} data-week-planning={column.planning || undefined}
+              data-highlighted={hasWeekday && highlight===dayIndex || undefined} data-week-planning={column.planning || undefined}
               onContextMenu={event=>{
                 if((event.target as Element).closest("input,textarea,[contenteditable],button,.notebook-picture"))return;
                 event.preventDefault();event.stopPropagation();
@@ -137,13 +150,9 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
               }}
               style={{backgroundColor:column.color || undefined}}>
               <div className="notebook-column-head">
-                {!column.planning && notebookFeatures(layout,column).weekdays && dayIndex>=0 && dayIndex<7 && <div className="notebook-weekday">{onJournal ? <button type="button" className="notebook-day-name" aria-label={`Tagebuch für ${weekdays[dayIndex]} öffnen`} onClick={()=>onJournal(dayIndex)}>{weekdays[dayIndex]}</button> : <span>{weekdays[dayIndex]}</span>}{renderMood?.(column,dayIndex)}</div>}
+                {hasWeekday && <div className="notebook-weekday">{onJournal ? <button type="button" className="notebook-day-name" aria-label={`Tagebuch für ${weekdays[dayIndex]} öffnen`} onClick={()=>onJournal(dayIndex)}>{weekdays[dayIndex]}</button> : <span>{weekdays[dayIndex]}</span>}{renderMood?.(column,dayIndex)}</div>}
                 <button className="notebook-add-column" type="button" aria-label={`Spalte vor Spalte ${index + 1} hinzufügen`} title="Spalte hinzufügen"
-                  onClick={() => {
-                    const next = [...layout.columns];
-                    next.splice(planning ? next.length : index,0,{id:crypto.randomUUID()});
-                    onChange({...layout,columns:next});
-                  }}><Plus size={14}/></button>
+                  onClick={() => insertColumn(index)}><Plus size={14}/></button>
                 <input
                   key={title}
                   className="notebook-column-title"
@@ -165,16 +174,16 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
                 />
                 <button className="notebook-column-action" type="button" aria-label={`Einstellungen für Spalte ${index + 1}`}
                   onClick={()=>onSettings(column)}><Settings2 size={13}/></button>
-                {columns.length > (planning ? 8 : 1) && (!planning || dayIndex>=7) && <button className="notebook-column-action" type="button" aria-label={`Spalte ${index + 1} löschen`}
+                {(layout.nextWeeklySlot !== undefined || columns.length > 1) && <button className="notebook-column-action" type="button" aria-label={`Spalte ${index + 1} löschen`}
                   onClick={()=>void onRemove(column,layout.columns.filter(item=>item.id!==column.id))}><Trash2 size={13}/></button>}
               </div>
               {columnMenu===column.id && <div className="notebook-column-context selection-toolbar" role="menu" onPointerLeave={()=>setColumnMenu(null)}>
                 <button type="button" onClick={event=>{event.currentTarget.closest(".notebook-column")?.querySelector<HTMLInputElement>(".notebook-column-title")?.focus();setColumnMenu(null);}}>Überschrift bearbeiten</button>
-                {columns.length>(planning?8:1) && (!planning || dayIndex>=7) && <button type="button"
+                {(layout.nextWeeklySlot !== undefined || columns.length > 1) && <button type="button"
                   onClick={()=>{setColumnMenu(null);void onRemove(column,layout.columns.filter(item=>item.id!==column.id));}}>Spalte löschen</button>}
               </div>}
               {render(column, index)}
-              {!column.planning && dayIndex<7 && renderLesson?.(column,dayIndex)}
+              {hasWeekday && renderLesson?.(column,dayIndex)}
               <div className="notebook-column-footer">
                 <button type="button" title="Zeile hinzufügen" aria-label={`Zeile in Spalte ${index+1} hinzufügen`} onClick={()=>onAddRow(column)}><Plus size={13}/></button>
               </div>
