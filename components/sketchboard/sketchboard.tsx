@@ -78,6 +78,10 @@ import {
   ImagePlus,
   FolderPlus,
   FileText,
+  Archive,
+  MessageSquare,
+  Settings2,
+  Trash2,
   Video,
   PanelsTopLeft,
   Smile,
@@ -90,6 +94,7 @@ import {
   validateBoard,
   emptyLineLabel,
   type LineLabel,
+  type ArchivedBoard,
   newShape,
   palette,
   duplicateSelection,
@@ -109,7 +114,7 @@ import {
 } from "@/lib/sketchboard";
 import { smoothStroke } from "./smooth-stroke";
 import { BoardEdge, boardEdgePath } from "./board-edge";
-import { useBoardStorage } from "./use-board-storage";
+import { activeBoardTab, useBoardStorage } from "./use-board-storage";
 import { notebookTitle } from "@/components/notebook-navigation";
 import { readNoteLines } from "@/components/planner-notepad";
 import { notebookFolder } from "@/lib/notebook";
@@ -1382,6 +1387,7 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
           : undefined);
   return (
     <div
+      data-has-comments={!!data.comments?.length || undefined}
       style={{ rotate: data.rotation ? data.rotation + "deg" : undefined }}
       className={`lm-shape lm-${data.kind}${selected ? " lm-selected" : ""}`}
       data-paper={data.paper ?? "plain"}
@@ -1398,8 +1404,9 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
       >
         <Waypoints size={15} />
       </button>
+      {Boolean(data.comments?.length) && <span className="lm-comment-dot" aria-hidden="true"><MessageSquare size={12}/></span>}
       <NodeResizer
-        isVisible={selected && !editing}
+        isVisible={selected && !["connection-anchor","jump-anchor"].includes(data.kind)}
         minWidth={60}
         minHeight={50}
         maxWidth={10000}
@@ -2030,6 +2037,12 @@ function BoardEditor() {
     [colors, setColors] = useState(false),
     [fill, setFill] = useState(palette[0]);
   const [draggingObject,setDraggingObject] = useState(false);
+  const [nodeMenu,setNodeMenu]=useState<{id:string;x:number;y:number}|null>(null);
+  const [commentsFor,setCommentsFor]=useState<string|null>(null);
+  const [commentDraft,setCommentDraft]=useState("");
+  const [editingComment,setEditingComment]=useState<string|null>(null);
+  const [focusComment,setFocusComment]=useState(false);
+  const commentNode=board.nodes.find(node=>node.id===commentsFor);
   const [optionsDismissed,setOptionsDismissed] = useState(false);
   const [creationColors,setCreationColors] = useState<Partial<Record<Tool,string>>>({});
   const [draft, setDraft] = useState<{
@@ -2057,9 +2070,11 @@ function BoardEditor() {
     host.current?.focus({ preventScroll: true });
   }, []);
   const mainViewport = useRef<Board["viewport"] | null>(null);
+  const [currentTab] = useState(activeBoardTab);
   const storage = useBoardStorage(
     mainViewport.current ? { ...board, viewport: mainViewport.current } : board,
     setBoard,
+    currentTab,
   );
   const [importAt, setImportAt] = useState<{ x: number; y: number } | null>(
     null,
@@ -2133,7 +2148,6 @@ function BoardEditor() {
         : { ...current, [id]: { x, y } },
     );
   }, []);
-  const currentTab = new URLSearchParams(location.search).get("tab") || "main";
   const [settingsTab, setSettingsTab] = useState<string | null>(null);
   const [tabOverrides, setTabOverrides] = useState<
     Record<string, Partial<typeof defaults>>
@@ -2279,15 +2293,73 @@ function BoardEditor() {
       );
     setRenaming(null);
   };
-  const closeTab = async (id: string) => {
-    if (id === currentTab && !(await storage.finish())) return;
-    const remaining = tabs.filter((t) => t.id !== id);
-    if (!remaining.length)
-      remaining.push({ id: crypto.randomUUID(), title: "LifeMap" });
-    saveTabs(remaining);
-    if (id === currentTab)
-      location.assign("/lifemap/board?tab=" + remaining[0].id);
+  const [closingTabs,setClosingTabs]=useState<string[]|null>(null);
+  const [archiveOpen,setArchiveOpen]=useState(false);
+  const [archive,setArchive]=useState<ArchivedBoard[]>([]);
+  const [tabBusy,setTabBusy]=useState(false);
+  const [tabError,setTabError]=useState("");
+  const archiveTabs=async(action:"archive"|"discard"|"reopen",items:{id:string;title:string}[])=>{
+    const response=await fetch("/api/sketchboard",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action,tabs:items}),
+    });
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error || "Die LifeMap konnte nicht gespeichert werden.");
   };
+  const reloadArchive=async()=>{
+    const response=await fetch("/api/sketchboard?archive=1",{cache:"no-store"});
+    if(!response.ok)throw new Error("Gespeicherte LifeMaps konnten nicht geladen werden.");
+    setArchive((await response.json()).tabs);
+  };
+  const closeTab = async (ids:string[],keep:boolean) => {
+    if(tabBusy)return;
+    const items=tabs.filter(tab=>ids.includes(tab.id));
+    if(!items.length)return;
+    setTabBusy(true);setTabError("");
+    try{
+      if(keep && ids.includes(currentTab) && !(await storage.finish()))
+        throw new Error("Die offene LifeMap konnte noch nicht gespeichert werden.");
+      await archiveTabs(keep?"archive":"discard",items);
+      if(!keep){
+        if(ids.includes(currentTab))storage.discardDraft();
+        for(const id of ids){
+          localStorage.removeItem("lifemap-unsaved:"+id);
+          sessionStorage.removeItem("lifemap-unsaved:"+id);
+        }
+        try {
+          const maps=JSON.parse(localStorage.getItem("notebook-lifemaps") || "[]") as {id:string}[];
+          localStorage.setItem("notebook-lifemaps",JSON.stringify(maps.filter(map=>!ids.includes(map.id))));
+        } catch {}
+      }
+      const remaining=tabs.filter(tab=>!ids.includes(tab.id));
+      if(!remaining.length)remaining.push({id:crypto.randomUUID(),title:"LifeMap"});
+      saveTabs(remaining);
+      setClosingTabs(null);setSelectedTabs([]);
+      if(ids.includes(currentTab)){
+        localStorage.setItem("lifemap-active-tab",remaining[0].id);
+        location.assign("/lifemap/board?tab="+encodeURIComponent(remaining[0].id));
+      }
+    }catch(error){setTabError((error as Error).message);}
+    finally{setTabBusy(false);}
+  };
+  const restoreTab=async(item:ArchivedBoard)=>{
+    if(tabBusy)return;
+    setTabBusy(true);setTabError("");
+    try{
+      if(!(await storage.finish()))throw new Error("Die offene LifeMap konnte noch nicht gespeichert werden.");
+      await archiveTabs("reopen",[item]);
+      saveTabs([...tabs.filter(tab=>tab.id!==item.id),{id:item.id,title:item.title}]);
+      localStorage.setItem("lifemap-active-tab",item.id);
+      location.assign("/lifemap/board?tab="+encodeURIComponent(item.id));
+    }catch(error){setTabError((error as Error).message);}
+    finally{setTabBusy(false);}
+  };
+  useEffect(()=>{
+    if(!new URLSearchParams(location.search).has("notebookEmbed")){
+      localStorage.setItem("lifemap-active-tab",currentTab);
+      void reloadArchive().catch(()=>{});
+    }
+  },[currentTab]);
   const [paintMode, setPaintMode] = useState("fill");
   const [paintOpacity, setPaintOpacity] = useState(1);
   const [paintWidth, setPaintWidth] = useState(2);
@@ -2307,9 +2379,8 @@ function BoardEditor() {
         ]),
       );
     }
-    location.assign(
-      id === "main" ? "/lifemap/board" : "/lifemap/board?tab=" + id,
-    );
+    localStorage.setItem("lifemap-active-tab",id);
+    location.assign("/lifemap/board?tab="+encodeURIComponent(id));
   };
   type JumpLocation = Pick<BoardJump, "node" | "group" | "point">;
   type JumpDraft = {
@@ -3466,6 +3537,41 @@ function BoardEditor() {
     setColors(false);
     connectTo(id);
   };
+  const selectNode = (id:string) => {
+    setEditing("");
+    setBoard(current=>({
+      ...current,
+      nodes:current.nodes.map(node=>({...node,selected:node.id===id})),
+      edges:current.edges.map(edge=>({...edge,selected:false})),
+    }));
+  };
+  const openNodeMenu = (event:React.MouseEvent, id:string) => {
+    const node=board.nodes.find(node=>node.id===id);
+    if(!node || ["connection-anchor","jump-anchor"].includes(node.data.kind))return;
+    event.preventDefault();event.stopPropagation();
+    fitContextStart.current=null;
+    selectNode(id);
+    setNodeMenu({id,x:event.clientX,y:event.clientY});
+  };
+  const openComments = (id:string, focus=false) => {
+    setCommentsFor(id);
+    setCommentDraft("");
+    setEditingComment(null);
+    setFocusComment(focus);
+    setNodeMenu(null);
+  };
+  const saveComment = () => {
+    if(!commentNode || !commentDraft.trim())return;
+    const comments=commentNode.data.comments ?? [];
+    if(!editingComment && comments.length>=50)return;
+    checkpoint();
+    patch(commentNode.id,{
+      comments:editingComment
+        ? comments.map(item=>item.id===editingComment?{...item,text:commentDraft.trim()}:item)
+        : [...comments,{id:crypto.randomUUID(),text:commentDraft.trim(),createdAt:new Date().toISOString()}],
+    });
+    setCommentDraft("");setEditingComment(null);
+  };
   const begin = (id: string) => {
     if (editing === id) return;
     setBoard((b) => ({
@@ -3490,6 +3596,12 @@ function BoardEditor() {
   }, [dark]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
+      if (e.key==="Escape" && (closingTabs || archiveOpen || nodeMenu || commentsFor)) {
+        e.preventDefault();e.stopPropagation();
+        if(!tabBusy){setClosingTabs(null);setArchiveOpen(false);setNodeMenu(null);setCommentsFor(null);}
+        return;
+      }
+      if(closingTabs || archiveOpen)return;
       if (
         preview &&
         ["Enter", "Delete", "Backspace", "Escape"].includes(e.key) &&
@@ -3618,16 +3730,8 @@ function BoardEditor() {
         remove();
         setSelectedJumps([]);
         if (tool === "select" && selectedTabs.length) {
-          void (async () => {
-            if (!(await storage.finish())) return;
-            const next = tabs.filter((t) => !selectedTabs.includes(t.id));
-            if (!next.length)
-              next.push({ id: crypto.randomUUID(), title: "LifeMap" });
-            saveTabs(next);
-            setSelectedTabs([]);
-            if (selectedTabs.includes(currentTab))
-              location.assign("/lifemap/board?tab=" + next[0].id);
-          })();
+          setTabError("");
+          setClosingTabs(selectedTabs);
         }
       }
       if (k === " ") {
@@ -4386,6 +4490,12 @@ function BoardEditor() {
       }}
       onContextMenuCapture={(event) => {
         const hit = event.target as Element;
+        if(hit.closest(".lm-draw-layer")){
+          const node=document.elementsFromPoint(event.clientX,event.clientY)
+            .map(element=>element.closest(".react-flow__node-shape")).find(Boolean);
+          const id=node?.getAttribute("data-id");
+          if(id){openNodeMenu(event,id);return;}
+        }
         if (
           !host.current?.contains(hit) ||
           hit.closest(
@@ -4419,6 +4529,8 @@ function BoardEditor() {
           setForm(null);
         }
         if (!hit.closest(".lm-tab-menu")) setTabMenu(null);
+        if (!hit.closest(".lm-node-menu")) setNodeMenu(null);
+        if (!hit.closest(".lm-node-comments,.lm-node-menu")) setCommentsFor(null);
         if (!hit.closest(".lm-pin-form")) setPinForm(null);
         if (!hit.closest(".lm-remove-tool")) setRemoveTool(null);
         if (!hit.closest(".lm-symbol-action,.lm-symbol-picker"))
@@ -4476,6 +4588,32 @@ function BoardEditor() {
           e.target.value = "";
         }}
       />
+      {(closingTabs || archiveOpen) && <div className="lm-library-backdrop" onMouseDown={event=>{
+        if(event.target===event.currentTarget && !tabBusy){setClosingTabs(null);setArchiveOpen(false);}
+      }} onKeyDown={event=>{
+        if(event.key==="Escape" && !tabBusy){event.stopPropagation();setClosingTabs(null);setArchiveOpen(false);}
+      }}>
+        <section className="lm-library-panel" role="dialog" aria-modal="true" aria-label={closingTabs?"LifeMap schließen":"Gespeicherte LifeMaps"}>
+          <h2>{closingTabs ? "LifeMap schließen" : "Gespeicherte LifeMaps"}</h2>
+          {tabError && <p role="alert">{tabError}</p>}
+          {closingTabs ? <>
+            <p>{tabs.filter(tab=>closingTabs.includes(tab.id)).map(tab=>tab.title).join(" · ")}</p>
+            <div className="lm-library-actions">
+              <button type="button" disabled={tabBusy} onClick={()=>setClosingTabs(null)}>Abbrechen</button>
+              <button type="button" disabled={tabBusy} className="lm-discard-tab" onClick={()=>void closeTab(closingTabs,false)}>Löschen</button>
+              <button type="button" autoFocus disabled={tabBusy} className="lm-archive-tab" onClick={()=>void closeTab(closingTabs,true)}>Speichern und schließen</button>
+            </div>
+          </> : <>
+            <div className="lm-library-list">
+              {archive.length===0 && <p>Hier ist noch keine LifeMap abgelegt.</p>}
+              {archive.map(item=><button key={item.id} type="button" disabled={tabBusy} onClick={()=>void restoreTab(item)}>
+                <Archive size={16}/><span>{item.title}</span><small>{new Date(item.archivedAt).toLocaleDateString("de-DE")}</small>
+              </button>)}
+            </div>
+            <button type="button" disabled={tabBusy} onClick={()=>setArchiveOpen(false)}>Schließen</button>
+          </>}
+        </section>
+      </div>}
       {!embedded && (
         <header className="lm-header">
           <a href="/lifemap">
@@ -4519,6 +4657,10 @@ function BoardEditor() {
             onClick={exportBoard}
           >
             <Download size={18} />
+          </button>
+          <button type="button" aria-label="Gespeicherte LifeMaps" title="Gespeicherte LifeMaps"
+            onClick={()=>{setTabError("");setArchiveOpen(true);void reloadArchive().catch(error=>setTabError(error.message));}}>
+            <Archive size={19}/>
           </button>
           <nav className="lm-board-tabs" aria-label="LifeMap-Tabs">
             {tabs.map(({ id, title }) => (
@@ -4678,11 +4820,12 @@ function BoardEditor() {
                     </button>
                     <button
                       onClick={() => {
-                        void closeTab(id);
+                        setClosingTabs([id]);
+                        setTabError("");
                         setTabMenu(null);
                       }}
                     >
-                      Löschen
+                      Schließen …
                     </button>
                   </div>
                 )}
@@ -5356,7 +5499,7 @@ function BoardEditor() {
               }}
               onNodeDragStart={(_, node) => {
                 setDraggingObject(true);
-                setBorderPicker(null);
+                setBorderPicker(null);setNodeMenu(null);setCommentsFor(null);
                 checkpoint();
                 if (node.data.group)
                   groupDrag.current = {
@@ -5394,20 +5537,10 @@ function BoardEditor() {
               }}
               onSelectionDragStart={() => {setDraggingObject(true);setBorderPicker(null);checkpoint();}}
               onSelectionDragStop={()=>setDraggingObject(false)}
-              onNodeContextMenu={(event, node) => {
-                if (!node.data.representGroup) return;
-                event.preventDefault();
-                setEditing("");
-                setBoard((b) => ({
-                  ...b,
-                  nodes: b.nodes.map((n) => ({
-                    ...n,
-                    selected: n.id === node.id,
-                  })),
-                  edges: b.edges.map((edge) => ({ ...edge, selected: false })),
-                }));
-              }}
+              onNodeContextMenu={(event,node)=>openNodeMenu(event,node.id)}
               onNodeClick={(event, node) => {
+                if((tool==="hand" || tool==="write") && node.data.comments?.length && !representation && !event.ctrlKey)
+                  openComments(node.id);
                 if (tool === "select" && !groupPicking) {
                   setBoard((b) => ({
                     ...b,
@@ -6027,7 +6160,7 @@ function BoardEditor() {
             aria-label="LifeMap importieren"
           >
             <strong>LifeMap importieren</strong>
-            {tabs
+            {[...tabs,...archive.filter(item=>!tabs.some(tab=>tab.id===item.id))]
               .filter((t) => t.id !== currentTab)
               .map((t) => (
                 <button
@@ -6848,6 +6981,40 @@ function BoardEditor() {
             </div>
           );
         })()}
+      {nodeMenu && <div className="lm-node-menu" role="menu" aria-label="Objektoptionen"
+        style={{left:Math.max(5,Math.min(nodeMenu.x,innerWidth-210)),top:Math.max(5,Math.min(nodeMenu.y,innerHeight-115))}}>
+        <button type="button" role="menuitem" onClick={()=>openComments(nodeMenu.id,true)}><MessageSquare size={15}/> Kommentar hinzufügen</button>
+        <button type="button" role="menuitem" onClick={()=>{selectNode(nodeMenu.id);setNodeMenu(null);}}><Settings2 size={15}/> Formatieren</button>
+        <button type="button" role="menuitem" onClick={()=>{remove();setNodeMenu(null);}}><Trash2 size={15}/> Löschen</button>
+      </div>}
+      {commentNode && !representation && (()=>{
+        const origin=flow.flowToScreenPosition(commentNode.position);
+        return <section className="lm-node-comments" aria-label="Objektkommentare"
+          style={{left:Math.max(6,Math.min(origin.x+(commentNode.width??0)*board.viewport.zoom+12,innerWidth-300)),
+            top:Math.max(58,Math.min(origin.y+30,innerHeight-230))}}>
+          <header><MessageSquare size={16}/><strong>Kommentare</strong></header>
+          <div className="lm-comment-list">
+            {(commentNode.data.comments??[]).map(item=><div className="lm-comment" key={item.id}>
+              <p>{item.text}</p>
+              <div>
+                <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleDateString("de-DE")}</time>
+                <button type="button" onClick={()=>{setEditingComment(item.id);setCommentDraft(item.text);}}>Bearbeiten</button>
+                <button type="button" aria-label="Kommentar löschen" onClick={()=>{
+                  checkpoint();patch(commentNode.id,{comments:commentNode.data.comments?.filter(comment=>comment.id!==item.id)});
+                  if(editingComment===item.id){setEditingComment(null);setCommentDraft("");}
+                }}><Trash2 size={13}/></button>
+              </div>
+            </div>)}
+          </div>
+          <form onSubmit={event=>{event.preventDefault();saveComment();}}>
+            <textarea autoFocus={focusComment} rows={2} maxLength={2000} aria-label="Kommentar schreiben"
+              placeholder="Kommentar schreiben …" value={commentDraft} onChange={event=>setCommentDraft(event.target.value)}/>
+            <button type="submit" disabled={!commentDraft.trim() || (!editingComment&&(commentNode.data.comments?.length??0)>=50)}>
+              {editingComment?"Speichern":"Hinzufügen"}
+            </button>
+          </form>
+        </section>;
+      })()}
       {linkHover && (
         <button
           type="button"

@@ -223,3 +223,15 @@ test("wheel notches zoom while precision trackpad scrolling pans", () => {
   assert.equal(zoomFromBoardWheel({...wheel,deltaX:20}),false);
   assert.equal(zoomFromBoardWheel({...wheel,ctrlKey:true,deltaY:5}),true);
 });
+
+test("object comments survive board validation without changing element text", () => {
+  const board=emptyBoard();
+  const node=newShape("rectangle",0,0,"#ffffff");
+  const comment={id:crypto.randomUUID(),text:"  Eine zweite Idee  ",createdAt:"2026-11-27T20:00:00.000Z"};
+  node.data.text="Element";
+  node.data.comments=[comment,{...comment,id:crypto.randomUUID(),text:" "}];
+  board.nodes=[node];
+  const valid=validateBoard(board);
+  assert.equal(valid.nodes[0].data.text,"Element");
+  assert.deepEqual(valid.nodes[0].data.comments,[{...comment,text:"Eine zweite Idee"}]);
+});

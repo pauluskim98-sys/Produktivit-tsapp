@@ -34,7 +34,11 @@ export type BoardJump = {
   sourceOffset?: { x: number; y: number };
   point?: { x: number; y: number };
 };
+export type BoardComment = { id: string; text: string; createdAt: string };
+export type ArchivedBoard = { id: string; title: string; archivedAt: string };
+
 export type ShapeData = {
+  comments?: BoardComment[];
   representGroup?: string;
   jumps?: BoardJump[];
   group?: string;
@@ -301,6 +305,15 @@ export function validateBoard(input: unknown): Board {
           ? { paper: d.paper }
           : {}),
         text: d.text,
+        ...(Array.isArray(d.comments) ? {
+          comments:d.comments.slice(0,50).flatMap(comment=>{
+            if (!comment || typeof comment.id!=="string" || !id(comment.id) ||
+              typeof comment.text!=="string" || !comment.text.trim() || comment.text.length>2000 ||
+              typeof comment.createdAt!=="string" || !Number.isFinite(Date.parse(comment.createdAt))) return [];
+            const {id:commentId,text,createdAt}=comment;
+            return [{id:commentId,text:text.trim(),createdAt}];
+          }),
+        } : {}),
         fill: d.fill,
         stroke: d.stroke,
         strokeWidth: d.strokeWidth,

@@ -41,11 +41,19 @@ function mergeBoard(base: Board, local: Board, remote: Board): Board {
   });
 }
 
-export function useBoardStorage(board: Board, restore: (board: Board) => void) {
-  const tab =
-    new URLSearchParams(
-      typeof location === "undefined" ? "" : location.search,
-    ).get("tab") || "main";
+export function activeBoardTab(): string {
+  const explicit = new URLSearchParams(typeof location==="undefined"?"":location.search).get("tab");
+  if(explicit)return explicit;
+  try {
+    const previous=localStorage.getItem("lifemap-active-tab");
+    const tabs=JSON.parse(localStorage.getItem("lifemap-tabs") || "[]") as {id:string}[];
+    if(previous && tabs.some(tab=>tab.id===previous))return previous;
+    if(tabs.length)return tabs[0].id;
+  } catch {}
+  return "main";
+}
+
+export function useBoardStorage(board: Board, restore: (board: Board) => void, tab: string) {
   const endpoint = "/api/sketchboard?tab=" + encodeURIComponent(tab);
   const draftKey = "lifemap-unsaved:" + tab;
   const [ready, setReady] = useState(false);
@@ -56,11 +64,12 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
     pending = useRef(""),
     busy = useRef(false),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const discarded=useRef(false);
   const restoreRef = useRef(restore);
   restoreRef.current = restore;
   const flush = useRef(async () => {});
   flush.current = async () => {
-    if (busy.current || !pending.current || pending.current === saved.current)
+    if (discarded.current || busy.current || !pending.current || pending.current === saved.current)
       return;
     const content = pending.current;
     busy.current = true;
@@ -77,6 +86,10 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
       });
       const result = await response.json();
       if (!response.ok) {
+        if (response.status === 410) {
+          discardDraft();
+          throw new Error(result.error || "Diese LifeMap wurde gelöscht.");
+        }
         if (response.status === 409) {
           const latest = await fetch(endpoint, { cache: "no-store" });
           if (!latest.ok) throw new Error("Speichern fehlgeschlagen.");
@@ -104,6 +117,8 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
       if (pending.current === content)
         try {
           sessionStorage.removeItem(draftKey);
+          const stored=JSON.parse(localStorage.getItem(draftKey) || "null");
+          if(stored && JSON.stringify(stored.board)===content)localStorage.removeItem(draftKey);
         } catch {}
       setError("");
       setStatus("Gespeichert");
@@ -113,7 +128,7 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
     } finally {
       busy.current = false;
     }
-    if (pending.current !== saved.current)
+    if (!discarded.current && pending.current !== saved.current)
       timer.current = setTimeout(() => void flush.current(), 2000);
   };
   useEffect(() => {
@@ -131,7 +146,7 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
         pending.current = saved.current;
         let recovered = valid;
         try {
-          const draft = JSON.parse(sessionStorage.getItem(draftKey) || "null");
+          const draft = JSON.parse(sessionStorage.getItem(draftKey) || localStorage.getItem(draftKey) || "null");
           if (draft)
             recovered = mergeBoard(
               validateBoard(draft.base),
@@ -151,7 +166,7 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
     };
   }, []);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || discarded.current) return;
     let content: string;
     try {
       content = JSON.stringify(validateBoard(board));
@@ -175,15 +190,14 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
   }, [board, ready]);
   useEffect(() => {
     const unload = () => {
-      if (pending.current !== saved.current) {
+      if (!discarded.current && pending.current !== saved.current) {
         try {
-          sessionStorage.setItem(
-            draftKey,
-            JSON.stringify({
-              base: JSON.parse(saved.current),
-              board: JSON.parse(pending.current),
-            }),
-          );
+          const draft=JSON.stringify({
+            base:JSON.parse(saved.current),
+            board:JSON.parse(pending.current),
+          });
+          sessionStorage.setItem(draftKey,draft);
+          localStorage.setItem(draftKey,draft);
         } catch {}
         void flush.current();
       }
@@ -198,8 +212,15 @@ export function useBoardStorage(board: Board, restore: (board: Board) => void) {
       document.removeEventListener("visibilitychange", visibility);
     };
   }, []);
+  function discardDraft() {
+    discarded.current=true;
+    if(timer.current)clearTimeout(timer.current);
+    pending.current=saved.current;
+    try { sessionStorage.removeItem(draftKey);localStorage.removeItem(draftKey); } catch {}
+  }
   return {
     ready,
+    discardDraft,
     status,
     error,
     retry: () => void flush.current(),

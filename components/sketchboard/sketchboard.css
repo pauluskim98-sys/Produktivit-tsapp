@@ -2241,3 +2241,36 @@
 .lm-app .lm-live-note { font-size:calc(.85em * var(--lm-fit,1)); }
 .lm-live-note textarea { overflow-wrap:break-word; }
 .lm-app.lm-dragging-object .lm-format { visibility:hidden; pointer-events:none; }
+.lm-app .lm-canvas .react-flow__resize-control.handle {
+  width:8px; height:8px; border:1px solid var(--lm-accent); background:var(--lm-panel); z-index:7;
+}
+.lm-comment-dot {
+  position:absolute; right:5px; top:5px; z-index:3; display:grid; place-items:center; width:20px; height:20px;
+  border-radius:50%; background:var(--lm-accent-soft); color:var(--lm-accent); pointer-events:none;
+}
+.lm-node-menu,.lm-node-comments,.lm-library-panel {
+  color:var(--lm-ink); background:var(--lm-panel); border:1px solid var(--lm-line);
+  border-radius:10px; box-shadow:0 9px 28px #18204228; padding:6px;
+}
+.lm-node-menu,.lm-node-comments {position:fixed; z-index:80;}
+.lm-node-menu {width:205px; display:grid; gap:2px;}
+.lm-node-menu button {justify-content:flex-start; width:100%; font:inherit; font-size:13px; padding:6px 8px; text-align:left;}
+.lm-node-comments {width:min(285px,calc(100vw - 16px)); padding:10px;}
+.lm-node-comments header {display:flex; align-items:center; gap:7px;}
+.lm-comment-list {max-height:180px; overflow:auto; scrollbar-width:thin;}
+.lm-comment {padding:6px 0; border-bottom:1px solid var(--lm-line); font-size:13px;}
+.lm-comment p {margin:0; white-space:pre-wrap; overflow-wrap:anywhere;}
+.lm-comment > div {display:flex; align-items:center; gap:5px; font-size:11px; color:var(--lm-muted);}
+.lm-comment time {margin-right:auto;}
+.lm-node-comments form {display:grid; justify-items:end; gap:6px; margin-top:8px;}
+.lm-node-comments textarea {width:100%; resize:vertical; background:var(--lm-bg); color:inherit; border:1px solid var(--lm-line); border-radius:6px; padding:6px; font:inherit;}
+.lm-library-backdrop {position:fixed; inset:0; z-index:100; display:grid; place-items:center; background:#18204238;}
+.lm-library-panel {width:min(410px,calc(100vw - 24px)); padding:15px;}
+.lm-library-panel h2 {font-size:18px; margin:0 0 8px;}
+.lm-library-panel p {margin:6px 0; font-size:13px; overflow-wrap:anywhere;}
+.lm-library-panel .lm-library-actions {display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; margin-top:12px;}
+.lm-library-panel .lm-archive-tab {background:var(--lm-accent); color:white;}
+.lm-library-panel .lm-discard-tab {color:#c35662;}
+.lm-library-list {display:grid; gap:4px; max-height:42vh; overflow:auto; margin-bottom:8px;}
+.lm-library-list > button {display:grid; grid-template-columns:18px minmax(0,1fr) auto; text-align:left; width:100%; padding:7px;}
+.lm-library-list small {color:var(--lm-muted);}

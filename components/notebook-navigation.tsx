@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Plus, X } from "lucide-react";
 import { readNoteLines } from "./planner-notepad";
 import { notebookFolder } from "@/lib/notebook";
@@ -23,6 +23,8 @@ export default function NotebookNavigation({
   pinned,
   tabs,
   active,
+  map,
+  setMap,
   onOpen,
   onClose,
   onCreate,
@@ -38,6 +40,8 @@ export default function NotebookNavigation({
   pinned: string;
   tabs: string[];
   active: string;
+  map: string | null;
+  setMap: Dispatch<SetStateAction<string | null>>;
   onOpen: (key: string) => void;
   onClose: (key: string) => void;
   onCreate: (folder?: string) => void;
@@ -48,7 +52,6 @@ export default function NotebookNavigation({
   const [maps, setMaps] = useState<
     { id: string; title: string; color: string }[]
   >([]);
-  const [map, setMap] = useState<string | null>(null);
   const [sizeTab, setSizeTab] = useState<string | null>(null);
   const [size, setSize] = useState(320);
   const resizeStart = useRef<{ y: number; height: number; key: string } | null>(
@@ -57,13 +60,16 @@ export default function NotebookNavigation({
   useEffect(() => {
     const reload = () => {
       try {
-        setMaps(JSON.parse(localStorage.getItem("notebook-lifemaps") || "[]"));
+        const next=JSON.parse(localStorage.getItem("notebook-lifemaps") || "[]") as typeof maps;
+        setMaps(next);
+        setMap(current=>current && next.some(item=>item.id===current)?current:null);
       } catch {}
     };
     reload();
-    window.addEventListener("storage", reload);
-    return () => window.removeEventListener("storage", reload);
-  }, []);
+    const onStorage=(event:StorageEvent)=>{if(event.key==="notebook-lifemaps")reload();};
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [setMap]);
   const typeOf = (key: string) => (key.startsWith("map:") ? "map" : "note");
   const applyHeight = (key: string) => {
     const panel = document.querySelector<HTMLElement>(".calendar-bottom-notes");
@@ -213,10 +219,7 @@ export default function NotebookNavigation({
               onClick={() => setMap(item.id)}
               onDoubleClick={() =>
                 window.top?.location.assign(
-                  "/lifemap/board" +
-                    (item.id === "main"
-                      ? ""
-                      : "?tab=" + encodeURIComponent(item.id)),
+                  "/lifemap/board?tab=" + encodeURIComponent(item.id),
                 )
               }
             >

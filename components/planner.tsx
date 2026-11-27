@@ -537,6 +537,7 @@ export default function Planner() {
   const calendarNoteKeys = [anchor, `week:${periodRange(`week:${anchor}`)!.start}`, `month:${periodRange(`month:${anchor}`)!.start}`];
   const [notebookHome, setNotebookHome] = useState(calendarNoteKeys[1]);
   const [notebookReady, setNotebookReady] = useState(false);
+  const [notebookMap,setNotebookMap]=useState<string|null>(null);
   const [notebookLayouts,setNotebookLayouts] = useState<Record<string,NotebookLayout>>({});
   const [sharedWeeklyLayout,setSharedWeeklyLayout]=useState<NotebookLayout>();
   const [notebookTemplates,setNotebookTemplates] = useState<NotebookTemplate[]>([]);
@@ -603,6 +604,11 @@ export default function Planner() {
     setNotebookLayouts(session.layouts);
     setNotebookHome(home);
     try {
+      const map=localStorage.getItem("notebook-active-map");
+      const maps=JSON.parse(localStorage.getItem("notebook-lifemaps") || "[]") as {id:string}[];
+      setNotebookMap(map && maps.some(item=>item.id===map)?map:null);
+    } catch {}
+    try {
       const stored=JSON.parse(localStorage.getItem("lifemap-weekly-notebook-layout") || "null");
       if(stored && Array.isArray(stored.columns))setSharedWeeklyLayout(stored);
     } catch {}
@@ -623,6 +629,11 @@ export default function Planner() {
     if(sharedWeeklyLayout)localStorage.setItem("lifemap-weekly-notebook-layout",JSON.stringify(sharedWeeklyLayout));
     else localStorage.removeItem("lifemap-weekly-notebook-layout");
   },[notebookReady,sharedWeeklyLayout]);
+  useEffect(()=>{
+    if(!notebookReady)return;
+    if(notebookMap)localStorage.setItem("notebook-active-map",notebookMap);
+    else localStorage.removeItem("notebook-active-map");
+  },[notebookReady,notebookMap]);
   const availableTabs = noteTabs;
   const plannerNoteKey = activeNote && availableTabs.includes(activeNote) ? activeNote : notebookHome;
   const visibleNoteTabs = [...new Set([...availableTabs,notebookHome])];
@@ -655,6 +666,7 @@ export default function Planner() {
     record({undo:()=>apply(previous,previousShared), redo:()=>apply(updated,nextShared)});
   }
   const openNote=(key:string)=>{
+    setNotebookMap(null);
     setHighlightedNotebookDay(null);
     setNoteTabs((current)=>current.includes(key)?current:[...current,key]);
     setActiveNote(key);
@@ -2780,6 +2792,7 @@ export default function Planner() {
                 onSelectNote={key=>setSelectedNotes(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])}
                 onMoveNotes={(keys,before)=>setNoteTabs(current=>{const next=current.filter(key=>!keys.includes(key));const index=next.indexOf(before);next.splice(index<0?next.length:index,0,...keys);return next;})}
                 values={state.dayNotes} titles={notebookLayouts} onRename={(key,title)=>changeNotebookLayout(key,{...weeklyNotebookLayout(key,notebookLayouts[key],sharedWeeklyLayout),title},false)} pinned={notebookHome} tabs={visibleNoteTabs} active={plannerNoteKey}
+                map={notebookMap} setMap={setNotebookMap}
                 onOpen={(key)=>{
                   openNote(key);
                   if(visibleNotesPosition==="below" && !notesPanelRef.current?.closest("main")?.scrollTop)toggleNotes();
@@ -2794,7 +2807,7 @@ export default function Planner() {
                   setNotesPosition("open");
                 })().catch(handleError);}}
               />
-              {currentNotebookLayout.kind==="journal" ?
+              {!notebookMap && (currentNotebookLayout.kind==="journal" ?
                 <div className="notebook-journal-slot note-text-column">
                   {!journalDate && renderJournal(notebookJournalDate ?? anchor,true)}
                 </div> : <NotebookColumns key={plannerNoteKey} layout={currentNotebookLayout}
@@ -2901,9 +2914,9 @@ export default function Planner() {
                 </button>
               </form>
                 </>}
-              />}
+              />)}
               </div>
-              {autoPlanError && <p role="alert">{autoPlanError}</p>}
+              {!notebookMap && autoPlanError && <p role="alert">{autoPlanError}</p>}
             </section>
           </main>
         </div>
