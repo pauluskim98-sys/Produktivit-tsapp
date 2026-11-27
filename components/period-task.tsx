@@ -6,7 +6,7 @@ import type { Todo } from "@/lib/types";
 import { calendarTitle } from "@/lib/calendar-title";
 import CategoryIcon from "./category-icon";
 import TaskPicture from "./task-picture";
-import { taskFlag } from "@/lib/task-colors";
+import { taskFlag, taskPriority } from "@/lib/task-colors";
 import TaskImportanceButtons from "./task-importance-buttons";
 import { addDays, dateKey, parseDate } from "@/lib/dates";
 import { notePeriod } from "@/lib/note-todos";
@@ -56,7 +56,7 @@ export default function PeriodTask({
   return (
     <div
       data-task-id={todo.id}
-      data-task-flag={taskFlag(todo.priority)}
+      data-task-flag={taskFlag(taskPriority(todo))}
       data-task-ids={selectionIds ? JSON.stringify(selectionIds) : undefined}
       className={`period-task-row color-${todo.color || "green"} ${compact ? "compact" : ""}`}
       style={{ opacity: drag.isDragging ? 0.3 : 1,"--calendar-group-color":todo.calendarGroupColor } as React.CSSProperties}

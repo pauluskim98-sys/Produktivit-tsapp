@@ -17,7 +17,7 @@ import { Check, GripVertical } from "lucide-react";
 import { moodColors, type NotebookMood } from "@/lib/notebook-layout";
 import type { Todo, CalendarEvent } from "@/lib/types";
 import { zoneOccurs, type CalendarZone } from "@/lib/calendar-zones";
-import { taskFlag } from "@/lib/task-colors";
+import { eventFlag, taskFlag, taskPriority } from "@/lib/task-colors";
 import { eventPresentation, eventBlockTitle } from "@/lib/subjects";
 import { dateKey, addDays } from "@/lib/dates";
 import {
@@ -377,7 +377,7 @@ function TimedTask({
     <article
       ref={setNodeRef}
       className={`timed-task ${selected === todo.id ? "is-selected" : ""} color-${todo.color || "green"} ${todo.done ? "is-done" : ""} ${preview ? "is-resizing" : ""} ${saving ? "is-saving" : ""}`}
-      data-task-flag={taskFlag(todo.priority)}
+      data-task-flag={taskFlag(taskPriority(todo))}
       style={{
         top: gridMinute(displayedStart) * scale,
         height: Math.max(8, (displayedEnd - displayedStart) * scale),
@@ -587,7 +587,7 @@ function TimeColumn({
             <button
               data-calendar-task={t.id}
               className={`night-task color-${t.color || "green"}`}
-              data-task-flag={taskFlag(t.priority)}
+              data-task-flag={taskFlag(taskPriority(t))}
               style={{"--calendar-group-color":t.calendarGroupColor} as React.CSSProperties}
               onClick={() => onOpen(t.id)}
               title={`${t.time} · ${t.title}`}
@@ -609,6 +609,7 @@ function TimeColumn({
               className="night-task"
               key={e.id}
               data-calendar-event={e.id}
+              data-task-flag={eventFlag(e)}
               data-task-id={e.id}
               onClick={() => onEvent(e)}
               title={`${e.title}\n${new Date(e.start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}–${new Date(e.end).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}\n${e.location}`}
@@ -642,6 +643,7 @@ function TimeColumn({
           <button
             key={item.id}
             data-calendar-event={item.event!.id}
+            data-task-flag={eventFlag(item.event!)}
             data-task-id={item.event!.id}
             className="timed-event"
             style={{

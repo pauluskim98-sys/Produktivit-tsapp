@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { autoSchedule, scheduleUntimedOnSave } from "../lib/auto-schedule.ts";
 import { validZone, zoneOccurs } from "../lib/calendar-zones.ts";
+import { eventFlag, taskFlag, taskPriority } from "../lib/task-colors.ts";
 import type { Todo, CalendarEvent } from "../lib/types.ts";
 const task = (id: string, patch: Partial<Todo> = {}) =>
   ({
@@ -152,4 +153,23 @@ test("overnight occupancy and own current slot do not create overlaps", () => {
   });
   const r = autoSchedule([requested], [requested, overnight], [], range, now);
   assert.equal(r.scheduled[0].time, "09:15");
+});
+
+test("exam and test titles get the red flag in both local and imported calendars", () => {
+  for (const title of ["PRÜFUNG Biochemie", "Fahrprüfungen", "Schriftlicher Test", "Mathetest", "Testtermin"]) {
+    assert.equal(taskFlag(taskPriority(task("exam", { title, priority: "medium" }))), "red", title);
+    assert.equal(eventFlag({ title }), "red", title);
+  }
+  assert.equal(eventFlag({title:"Biochemie", originalTitle:"Biochemie-Prüfung"}), "red");
+  assert.equal(eventFlag({title:"Protest spätestens um 11"}), undefined);
+  assert.equal(taskPriority(task("Vorlesung", {priority:"medium"})), "medium");
+});
+
+test("auto planning gives exam appointments the first available time without changing manual flags", () => {
+  const ordinary = task("Vorlesung", {tags:[], position:0});
+  const exam = task("Physiktest", {tags:[], position:1});
+  const { scheduled } = autoSchedule([ordinary, exam],[],[],range,now);
+  assert.deepEqual(scheduled.map(({ title, time, priority }) => [title, time, priority]), [
+    ["Physiktest","08:00","low"], ["Vorlesung","09:15","low"],
+  ]);
 });

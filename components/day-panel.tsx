@@ -5,6 +5,7 @@ import NoteHeading from "./note-heading";
 import { totalDuration } from "@/lib/schedule";
 import { useDraggable } from "@dnd-kit/core";
 import { periodRange } from "@/lib/calendar-interactions";
+import { eventFlag } from "@/lib/task-colors";
 import { eventPresentation } from "@/lib/subjects";
 import { CalendarOverview } from "./calendar-overview";
 import type { Todo } from "@/lib/types";
@@ -232,6 +233,7 @@ export default function DayPanel({
         {(period ? [] : events).map((e) => (
           <div
             className="day-import"
+            data-task-flag={eventFlag(e)}
             key={e.id}
             style={{
               borderLeftColor: eventPresentation(

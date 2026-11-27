@@ -1,3 +1,19 @@
+import type { CalendarEvent, Todo } from "./types";
+
+export function isExamAppointment(title: string): boolean {
+  const words = title.normalize("NFC").toLocaleLowerCase("de-DE").match(/[\p{L}\p{M}]+/gu) ?? [];
+  return words.some(word => word.includes("prüfung") || word.startsWith("test") ||
+    (/tests?$/.test(word) && !/protests?$/.test(word)));
+}
+
+export function taskPriority(todo: Pick<Todo, "title" | "priority">): Todo["priority"] {
+  return isExamAppointment(todo.title) ? "high" : todo.priority;
+}
+
+export function eventFlag(event: Pick<CalendarEvent, "title" | "originalTitle">) {
+  return isExamAppointment(event.title) || isExamAppointment(event.originalTitle ?? "") ? "red" : undefined;
+}
+
 export const TASK_COLORS = {
   green: "Grün",
   blue: "Blau",

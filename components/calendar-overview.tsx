@@ -8,7 +8,7 @@ import { eventBlockTitle, eventPresentation } from "@/lib/subjects";
 import { dateKey, parseDate } from "@/lib/dates";
 import { periodRange } from "@/lib/calendar-interactions";
 import PeriodTask from "./period-task";
-import { TASK_COLOR_HEX } from "@/lib/task-colors";
+import { eventFlag, taskFlag, taskPriority, TASK_COLOR_HEX } from "@/lib/task-colors";
 import { calendarTitle } from "@/lib/calendar-title";
 import { moodColors, moodLabels, type NotebookMood } from "@/lib/notebook-layout";
 import { taskDay } from "@/lib/planner-day";
@@ -138,6 +138,7 @@ function DateCell({
       color: t.calendarGroupColor || TASK_COLOR_HEX[t.color || "green"],
       detail: `${t.title}${t.time ? `\n${t.time} · ${t.duration || 60} Min.` : ""}${t.description ? `\n${t.description}` : ""}`,
       todo: t,
+      flag: taskFlag(taskPriority(t)),
       taskIds: [t.id],
     })),
     ...eventsForDay(props.events, day).map((e) => ({
@@ -155,6 +156,7 @@ function DateCell({
         props.connections.find((c) => c.id === e.connectionId)?.color,
       ).color,
       todo: undefined as Todo | undefined,
+      flag: eventFlag(e),
       taskIds: [] as string[],
     })),
   ].sort(
@@ -190,7 +192,7 @@ function DateCell({
       data-mood={mood?.score}
       title={moodTitle}
       style={mood?{"--mood-color":moodColors[mood.score]} as React.CSSProperties:undefined}
-      data-task-flag={own.some((task)=>task.priority==="high")?"red":own.some((task)=>task.priority==="medium")?"yellow":undefined}
+      data-task-flag={all.some((entry)=>entry.flag==="red")?"red":all.some((entry)=>entry.flag==="yellow")?"yellow":undefined}
       className={`mini-date ${isOver ? "mini-date-over" : ""} ${day === dateKey(new Date()) ? "is-today" : ""}`}
       onClick={(e) => {
         if (!(e.target as HTMLElement).closest("button")) props.onPick(day);
@@ -290,6 +292,7 @@ function DateCell({
             ) : (
               <div
                 data-calendar-event={e.id}
+                data-task-flag={e.flag}
                 data-task-id={e.id}
                 className="month-event"
                 key={e.id}

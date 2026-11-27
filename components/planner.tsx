@@ -53,7 +53,7 @@ import {
   ShortcutWelcome,
   ShortcutSettings,
 } from "./shortcut-hints";
-import { taskColorForKey, type TaskColor } from "@/lib/task-colors";
+import { eventFlag, isExamAppointment, taskColorForKey, taskPriority, type TaskColor } from "@/lib/task-colors";
 import ScheduleFields from "./schedule-fields";
 import TimeInput from "./time-input";
 import TodoistSettings from "./todoist-settings";
@@ -2743,6 +2743,7 @@ export default function Planner() {
                           }
                           key={event.id}
                           data-calendar-event={event.id}
+                          data-task-flag={eventFlag(event)}
                           data-task-id={event.id}
                         >
                           {event.title}
@@ -4637,9 +4638,10 @@ function Detail({
                 <legend className="visually-hidden">Wichtigkeit</legend>
                 {(["medium","high"] as const).map((priority)=><button key={priority} type="button"
                   className={`task-flag-button flag-${priority==="high"?"red":"yellow"}`}
-                  aria-label={priority==="high"?"Rote Flagge":"Gelbe Flagge"} aria-pressed={draft.priority===priority}
+                  aria-label={priority==="high"?"Rote Flagge":"Gelbe Flagge"} aria-pressed={taskPriority(draft)===priority}
+                  disabled={isExamAppointment(draft.title)} title={isExamAppointment(draft.title) ? "Automatisch hohe Priorität für Prüfung oder Test" : undefined}
                   onClick={()=>update({priority:draft.priority===priority?"none":priority,tags:withQuadrant(draft.tags)})}>
-                  <Flag size={16} fill={draft.priority===priority?"currentColor":"none"}/>
+                  <Flag size={16} fill={taskPriority(draft)===priority?"currentColor":"none"}/>
                 </button>)}
               </fieldset>
               <div className="detail-category-picker">

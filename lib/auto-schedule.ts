@@ -3,6 +3,7 @@ import { addDays, dateKey, parseDate } from "./dates.ts";
 import { taskSegment, toMinutes, toTime } from "./schedule.ts";
 import { zoneOccurs, type CalendarZone } from "./calendar-zones.ts";
 import { isFlexibleTask } from "./planner-day.ts";
+import { taskPriority } from "./task-colors.ts";
 
 export const AUTO_SCHEDULE_START = 8 * 60;
 export const AUTO_SCHEDULE_END = 22 * 60;
@@ -38,7 +39,7 @@ export function autoSchedule(
     .filter((t) => !t.done && !t.tags?.includes("stored"))
     .sort(
       (a, b) =>
-        rank[a.priority] - rank[b.priority] ||
+        rank[taskPriority(a)] - rank[taskPriority(b)] ||
         (a.deadline || "9999").localeCompare(b.deadline || "9999") ||
         a.position - b.position,
     );
