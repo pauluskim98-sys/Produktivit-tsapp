@@ -23,22 +23,69 @@ internal static class Program
             ShowInTaskbar = !checkOnly,
             Opacity = checkOnly ? 0 : 1,
         };
-        using var view = new WebView2 { Dock = DockStyle.Fill };
-        window.Controls.Add(view);
-        using var timer = new System.Windows.Forms.Timer { Interval = 15000 };
-        timer.Tick += (_, _) => { timer.Stop(); window.Close(); };
-
-        window.Shown += async (_, _) =>
+        var paper = Color.FromArgb(243, 246, 242);
+        window.BackColor = paper;
+        using var startup = new TableLayoutPanel
         {
-            if (checkOnly) timer.Start();
+            BackColor = paper, Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3,
+        };
+        startup.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        startup.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        startup.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        using var message = new Label
+        {
+            Text = "LifeMap wird geöffnet …", AutoSize = true, Anchor = AnchorStyles.None,
+            ForeColor = Color.FromArgb(35, 61, 49), Padding = new Padding(12),
+        };
+        using var retry = new Button
+        {
+            Text = "Erneut versuchen", AutoSize = true, Anchor = AnchorStyles.Top, Visible = false,
+        };
+        startup.Controls.Add(message, 0, 1);
+        startup.Controls.Add(retry, 0, 2);
+        window.Controls.Add(startup);
+
+        WebView2? view = null;
+        using var navigationTimer = new System.Windows.Forms.Timer { Interval = 30000 };
+
+        void ShowFailure(string reason)
+        {
+            navigationTimer.Stop();
+            if (window.IsDisposed) return;
+            if (checkOnly) { window.Close(); return; }
+            if (view != null) view.Visible = false;
+            message.Text = reason;
+            startup.Visible = true;
+            startup.BringToFront();
+            retry.Visible = true;
+        }
+
+        async Task OpenAsync()
+        {
+            retry.Visible = false;
+            message.Text = "LifeMap wird geöffnet …";
+            startup.Visible = true;
+            view?.Dispose();
+            view = null;
             try
             {
-                var profile = Path.GetFullPath("data/desktop/webview");
-                var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = false };
-                var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profile, options: options);
+                var project = FindProject();
+                await EnsureServerAsync(project);
                 if (window.IsDisposed) return;
-                await view.EnsureCoreWebView2Async(environment);
-                var core = view.CoreWebView2;
+
+                var browser = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = paper, Visible = false };
+                view = browser;
+                window.Controls.Add(browser);
+                startup.BringToFront();
+                var profile = Path.Combine(project, "data", "desktop", "webview");
+                var options = new CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = false };
+                var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profile, options: options)
+                    .WaitAsync(TimeSpan.FromSeconds(30));
+                if (window.IsDisposed) return;
+                await browser.EnsureCoreWebView2Async(environment).WaitAsync(TimeSpan.FromSeconds(30));
+                if (window.IsDisposed) return;
+
+                var core = browser.CoreWebView2;
                 core.Settings.AreDevToolsEnabled = false;
                 core.NavigationStarting += (_, e) =>
                 {
@@ -51,29 +98,80 @@ internal static class Program
                     e.Handled = true;
                     if (e.IsUserInitiated) OpenLink(e.Uri);
                 };
+                core.ProcessFailed += (_, e) =>
+                {
+                    if (e.ProcessFailedKind is CoreWebView2ProcessFailedKind.BrowserProcessExited or
+                        CoreWebView2ProcessFailedKind.RenderProcessExited)
+                        ShowFailure("Die Anzeige von LifeMap wurde unterbrochen.");
+                };
                 core.NavigationCompleted += (_, e) =>
                 {
+                    if (!e.IsSuccess && e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
+                    navigationTimer.Stop();
                     if (checkOnly)
                     {
                         outcome = e.IsSuccess && core.DocumentTitle.StartsWith("Lifemap", StringComparison.Ordinal) ? 0 : 1;
                         window.Close();
                     }
-                    else if (!e.IsSuccess && e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
+                    else if (e.IsSuccess)
                     {
-                        MessageBox.Show(window, "Lifemap konnte nicht geladen werden. Bitte öffne es erneut über das Desktop-Symbol.", "Lifemap");
+                        browser.Visible = true;
+                        startup.Visible = false;
+                    }
+                    else
+                    {
+                        ShowFailure("Der Kalender konnte nicht geladen werden.");
                     }
                 };
+                navigationTimer.Start();
                 core.Navigate(Home.AbsoluteUri);
             }
             catch (Exception e)
             {
-                if (!checkOnly) MessageBox.Show(window, "Das Lifemap-Fenster konnte nicht gestartet werden. " + e.Message, "Lifemap");
-                outcome = 1;
-                window.Close();
+                ShowFailure(e is TimeoutException
+                    ? "LifeMap hat beim Start zu lange gebraucht."
+                    : e.Message);
             }
-        };
+        }
+
+        navigationTimer.Tick += (_, _) => ShowFailure("Der Kalender hat beim Laden zu lange gebraucht.");
+        retry.Click += async (_, _) => await OpenAsync();
+        window.Shown += async (_, _) => await OpenAsync();
         Application.Run(window);
         return outcome;
+    }
+
+    private static string FindProject()
+    {
+        for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder != null; folder = folder.Parent)
+        {
+            if (File.Exists(Path.Combine(folder.FullName, "Start-Lifemap.ps1"))) return folder.FullName;
+        }
+        throw new InvalidOperationException("Die Startdatei von LifeMap fehlt.");
+    }
+
+    private static async Task EnsureServerAsync(string project)
+    {
+        var powershell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+        var start = new ProcessStartInfo(powershell)
+        {
+            WorkingDirectory = project,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+        };
+        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+            Path.Combine(project, "Start-Lifemap.ps1"), "-CheckOnly" })
+            start.ArgumentList.Add(argument);
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("LifeMap konnte nicht gestartet werden.");
+        var errorTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        var error = await errorTask;
+        if (process.ExitCode == 0) return;
+
+        var reason = error.Split('\n').FirstOrDefault(line => !string.IsNullOrWhiteSpace(line))?.Trim();
+        throw new InvalidOperationException(reason ?? "Der lokale LifeMap-Dienst konnte nicht gestartet werden.");
     }
 
     private static bool IsLocal(string address) =>

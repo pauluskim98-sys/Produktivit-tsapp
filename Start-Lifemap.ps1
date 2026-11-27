@@ -42,13 +42,18 @@ try {
     }
     $server = Start-Process -FilePath $runtime -ArgumentList 'node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3000' -WorkingDirectory $projectPath -WindowStyle Hidden -RedirectStandardOutput (Join-Path $desktopLogs 'server.log') -RedirectStandardError (Join-Path $desktopLogs 'server-error.log') -PassThru
     $startupDeadline = [DateTime]::UtcNow.AddSeconds(60)
+    $listenerDeadline = $null
     do {
       $status = Test-Lifemap
       if ($status -eq 'ready' -or $status -eq 'occupied') { break }
       if ($server.HasExited) {
-        Start-Sleep -Milliseconds 500
-        $status = Test-Lifemap
-        break
+        # A different LifeMap startup may have bound the port before its routes are ready.
+        if (!$listenerDeadline) {
+          $serverError = Get-Content -LiteralPath (Join-Path $desktopLogs 'server-error.log') -Raw -ErrorAction SilentlyContinue
+          if ($serverError -notmatch 'EADDRINUSE') { break }
+          $listenerDeadline = [DateTime]::UtcNow.AddSeconds(30)
+        }
+        if ([DateTime]::UtcNow -ge $listenerDeadline) { break }
       }
       Start-Sleep -Milliseconds 350
     } while ([DateTime]::UtcNow -lt $startupDeadline)
@@ -56,10 +61,11 @@ try {
     if ($status -ne 'ready') { throw 'Lifemap konnte nicht starten. Details stehen unter data\desktop\server-error.log.' }
   }
   if ($CheckOnly) { Write-Output 'Lifemap ist erreichbar.'; return }
-  $window = @('desktop/bin/publish','desktop/bin/publish-staged') |
+  $window = @('desktop/bin/app','desktop/bin/publish','desktop/bin/publish-staged') |
     ForEach-Object { Join-Path $projectPath $_ } |
     Where-Object { (Test-Path -LiteralPath (Join-Path $_ 'Lifemap.exe')) -and (Test-Path -LiteralPath (Join-Path $_ 'Lifemap.dll')) } |
-    Sort-Object { (Get-Item -LiteralPath (Join-Path $_ 'Lifemap.dll')).LastWriteTimeUtc } -Descending |
+    Sort-Object @{Expression={ (Split-Path -Leaf $_) -eq 'app' };Descending=$true},
+      @{Expression={ (Get-Item -LiteralPath (Join-Path $_ 'Lifemap.dll')).LastWriteTimeUtc };Descending=$true} |
     Select-Object -First 1 |
     ForEach-Object { Join-Path $_ 'Lifemap.exe' }
   if (!$window) { throw 'Das Windows-Fenster fehlt. Bitte in Codex neu bauen lassen.' }
