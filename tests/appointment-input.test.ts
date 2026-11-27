@@ -150,3 +150,30 @@ test("date ranges remain dates while unambiguous dotted clocks become times", ()
     "14:00",
   );
 });
+
+test("dates without a year use the next calendar occurrence and mark the original title text",()=>{
+  const today="2026-11-27";
+  for(const [text,date,clockText] of [
+    ["Anatomie am 12.Februar um 9:5", "2027-02-12", "um 9:5"],
+    ["Anatomie am 12.Feb 27 um 9.05", "2027-02-12", "um 9.05"],
+    ["Anatomie am 12.02.27 9h05", "2027-02-12", "9h05"],
+    ["Anatomie am 12/02/27 9 Uhr 05", "2027-02-12", "9 Uhr 05"],
+    ["Anatomie am 12.02 27 09:05", "2027-02-12", "09:05"],
+    ["Anatomie am 12. Februar 2026 09:05", "2026-02-12", "09:05"],
+    ["Anatomie am 29.2. 09:05", "2028-02-29", "09:05"],
+  ] as const){
+    const result=parseAppointmentInput(text,today);
+    assert.equal(result.plannedDate,date,text);
+    assert.equal(result.time,"09:05",text);
+    assert.equal(result.title,"Anatomie",text);
+    assert.equal(result.spans.length,2,text);
+    assert.equal(text.slice(result.spans[1].start,result.spans[1].end),clockText,text);
+  }
+});
+
+test("recurring input keeps recognition ranges relative to the editable title",()=>{
+  const text="Lesen jeden Tag um 12:30";
+  const result=parseRecurringAppointmentInput(text,base);
+  assert.equal(result.title,"Lesen");
+  assert.equal(text.slice(result.spans[0].start,result.spans[0].end),"um 12:30");
+});

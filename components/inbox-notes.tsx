@@ -50,7 +50,7 @@ export default function InboxNotes({
       if(!await flush())throw new Error("Notiz konnte nicht gespeichert werden.");
     });
     registerLegacyDelete?.(async(ids)=>{
-      const after=withoutLegacyNoteTodos(text,noteDate,ids);
+      const after=withoutLegacyNoteTodos(text,noteDate,ids,todoMode);
       setText(after);
       if(!await flush()){
         setText(text);

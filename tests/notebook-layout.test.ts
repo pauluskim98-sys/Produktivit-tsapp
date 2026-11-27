@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { addNotebookColumns, applyNotebookTemplate, defaultJournalTab, defaultNotebookLayout, defaultTodoTab, initialNotebookSession, notebookColumnKey, notebookFeatures, updateWeeklyNotebookLayout, weeklyNotebookLayout } from "../lib/notebook-layout.ts";
 import { notebookColumnParent } from "../lib/notebook.ts";
+import { isJournalKey, journalFieldKey, journalFieldsFor, journalLayoutKey, journalMoodKey, readJournalMood } from "../lib/journal-layout.ts";
 import { parkedNoteTag } from "../lib/planner-day.ts";
 
 test("fresh notebooks start with diary, calendar week, then a checklist", () => {
@@ -106,4 +107,28 @@ test("removing the planning column and Monday leaves Tuesday attached to the cor
   const revised = updateWeeklyNotebookLayout(other,{...other,columns:other.columns.slice(1)});
   const restored = weeklyNotebookLayout(otherWeek,revised,edited);
   assert.equal(restored.columns[0].id,legacy.columns[1].id);
+});
+
+test("journal page overrides do not affect later dates; later defaults can also be empty",()=>{
+  const first={id:crypto.randomUUID(),title:"Rückblick"};
+  const second={id:crypto.randomUUID(),title:"Ideen"};
+  const notes={
+    [journalLayoutKey("2026-11-25")]:JSON.stringify({future:[first,second]}),
+    [journalLayoutKey("2026-11-27")]:JSON.stringify({day:[second,first]}),
+    [journalLayoutKey("2026-12-01")]:JSON.stringify({future:[]}),
+  };
+  assert.deepEqual(journalFieldsFor(notes,"2026-11-24"),[]);
+  assert.deepEqual(journalFieldsFor(notes,"2026-11-26"),[first,second]);
+  assert.deepEqual(journalFieldsFor(notes,"2026-11-27"),[second,first]);
+  assert.deepEqual(journalFieldsFor(notes,"2026-11-28"),[first,second]);
+  assert.deepEqual(journalFieldsFor(notes,"2026-12-02"),[]);
+});
+
+test("journal notes use separate date-validated storage keys",()=>{
+  const date="2026-11-27";
+  assert.ok(isJournalKey(journalFieldKey(date,crypto.randomUUID())));
+  assert.ok(isJournalKey(journalMoodKey(date)));
+  assert.equal(isJournalKey(journalLayoutKey("2026-02-31")),false);
+  assert.deepEqual(readJournalMood(date,JSON.stringify({date,score:0,reason:"Gut"})),{date,score:0,reason:"Gut"});
+  assert.equal(readJournalMood(date,"null"),undefined);
 });

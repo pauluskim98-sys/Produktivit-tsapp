@@ -23,14 +23,15 @@ import { quadrantOf, withQuadrant } from "@/lib/eisenhower";
 import { hasMatchingCalendarTitle, nativeCalendarDefaults, nativeGroupColor, type NativeCalendarConfig } from "@/lib/calendar/overrides";
 import { taskImportant, type TaskPeriod } from "./period-task-grid";
 import NotebookNavigation, { notebookTitle } from "./notebook-navigation";
-import { notebookColumnParent, notebookFolder } from "@/lib/notebook";
+import { dayHeaderNoteKey, notebookColumnParent, notebookFolder } from "@/lib/notebook";
 import { autoSchedule, scheduleUntimedOnSave } from "@/lib/auto-schedule";
 import { goalRange } from "@/lib/goals";
 import ResourceDrawer from "./resource-drawer";
 import InboxNotes from "./inbox-notes";
 import NotebookColumns from "./notebook-columns";
-import NotebookMoodPicker from "./notebook-mood";
+import { readJournalMood } from "@/lib/journal-layout";
 import NotebookJournal from "./notebook-journal";
+import CalendarSearch, { type CalendarSearchResult } from "./calendar-search";
 import NotebookAddRow from "./notebook-add-row";
 import ColorSwatches from "./color-swatches";
 import { addNotebookColumns, applyNotebookTemplate, defaultNotebookLayout, initialNotebookSession, notebookColumnKey, notebookFeatures, readNotebookSession, updateWeeklyNotebookLayout, weeklyNotebookLayout, moodColors, moodLabels, type NotebookLesson, type NotebookMood, type NotebookColumn, type NotebookLayout, type NotebookTemplate } from "@/lib/notebook-layout";
@@ -527,6 +528,7 @@ export default function Planner() {
   const [picked, setPicked] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null),
     [query, setQuery] = useState("");
+  const [prioritySearch,setPrioritySearch]=useState(false);
   const [settings, setSettings] = useState(false),
     [newOpen, setNewOpen] = useState(false),
     [dark, setDark] = useState(false);
@@ -575,11 +577,18 @@ export default function Planner() {
     const notebookMoods:Record<string,NotebookMood>={};
     const notebookLessons:NotebookLesson[]=[];
     for(const [key,content] of Object.entries(state.dayNotes)){
-      if(key==="journal-bookmarks" || key.startsWith("note-folder:"))continue;
+      if(key.startsWith("journal-") || key.startsWith("note-folder:"))continue;
       for(const line of readNoteLines(content)){
         if(line.mood)notebookMoods[line.mood.date]=line.mood;
         if(line.lesson)notebookLessons.push(line.lesson);
       }
+    }
+    for(const [key,content] of Object.entries(state.dayNotes)){
+      if(!key.startsWith("journal-mood:"))continue;
+      const date=key.slice("journal-mood:".length);
+      const mood=readJournalMood(date,content);
+      if(mood)notebookMoods[date]=mood;
+      else delete notebookMoods[date];
     }
     notebookLessons.sort((a,b)=>b.date.localeCompare(a.date));
     return {notebookMoods,notebookLessons};
@@ -720,7 +729,7 @@ export default function Planner() {
     if(!keepMode)setSelectionMode(false);
   });
   const [editGroup, setEditGroup] = useState<string[]>([]);
-  const [accent, setAccent] = useState("green");
+  const [accent, setAccent] = useState("midnight");
   const backView = useViewHistory(
     {
       anchor,
@@ -782,8 +791,9 @@ export default function Planner() {
         setSelectedIds([]);
         setPicked(null);
         event.preventDefault();
-      } else if (query) {
+      } else if (query || prioritySearch) {
         setQuery("");
+        setPrioritySearch(false);
         event.preventDefault();
       } else if (storageOpen) {
         closeStorage();
@@ -949,7 +959,7 @@ export default function Planner() {
       workspace.style.removeProperty("--calendar-note-clearance");workspace.style.removeProperty("--note-overlay-max");};
   },[visibleNotesPosition,notePreferences.height]);
   const noteStore = useRef<((tasks:Todo[])=>Promise<void>)|null>(null);
-  const noteLegacyDelete = useRef<((ids:string[])=>Promise<{before:string;after:string}>)|null>(null);
+  const noteLegacyDelete = useRef(new Map<string,(ids:string[])=>Promise<{before:string;after:string}>>());
   const [calendarSettingsId,setCalendarSettingsId]=useState<string|null>(null);
   const [nativeCalendar,setNativeCalendar]=useState<NativeCalendarConfig>(nativeCalendarDefaults);
   const refreshNative=useCallback(async()=>setNativeCalendar(await api("/api/calendar-edit?id=lifemap")),[]);
@@ -1000,7 +1010,7 @@ export default function Planner() {
         ? stored === "dark"
         : window.matchMedia("(prefers-color-scheme: dark)").matches,
     );
-    const accentValue = localStorage.getItem("raum-accent") || "green";
+    const accentValue = localStorage.getItem("raum-accent") || "midnight";
     setAccent(accentValue);
     document.documentElement.dataset.accent = accentValue;
     if ("serviceWorker" in navigator)
@@ -1190,6 +1200,7 @@ export default function Planner() {
         setSettings(false);
         setNewOpen(false);
         setQuery("");
+        setPrioritySearch(false);
       }
       if (planning) {
         if (e.key === "Escape") setPlanning(false);
@@ -1684,10 +1695,14 @@ export default function Planner() {
       return;
     }
     if (taskIds.length) await batchUpdate([], taskIds);
-    const legacyIds=ids.filter((id)=>id.startsWith(`note-checkbox:${plannerNoteKey}:`));
-    if(legacyIds.length && noteLegacyDelete.current){
-      await noteLegacyDelete.current(legacyIds);
-    }
+    const noteChanges=await Promise.all(Array.from(noteLegacyDelete.current.entries()).flatMap(([key,remove])=>{
+      const legacyIds=ids.filter(id=>id.startsWith(`note-checkbox:${key}:`));
+      return legacyIds.length?[remove(legacyIds).then(change=>({key,...change}))]:[];
+    }));
+    if(noteChanges.length)record({
+      undo:async()=>{await Promise.all(noteChanges.map(({key,before})=>saveJournalNote(key,before)));},
+      redo:async()=>{await Promise.all(noteChanges.map(({key,after})=>saveJournalNote(key,after)));},
+    });
     for (const event of events) await api("/api/calendar-edit", {action:"event",id:event.connectionId,eventId:event.id,scope:"event",hidden:true});
     if (events.length) {
       setCalendarEventEdit(null);
@@ -1778,7 +1793,7 @@ export default function Planner() {
         target.onMove(legacy.index);
         return;
       }
-      const removeLegacy=noteLegacyDelete.current;
+      const removeLegacy=noteLegacyDelete.current.get(legacy.noteDate);
       if(!removeLegacy || !legacy.title.trim())return;
       let task={...newTodo(legacy.title.trim(),null,state.todos.length+1),done:legacy.done};
       let reordered:Todo[]=[];
@@ -2080,13 +2095,8 @@ export default function Planner() {
   const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
   const weekKeys = days.map(dateKey);
   const end = days[6];
-  const visible = (todo: Todo) =>
-    (!query ||
-      `${todo.title} ${todo.description} ${todo.tags.join(" ")}`
-        .toLowerCase()
-        .includes(query.toLowerCase()));
   const calendarEvents = state.events.filter((event)=>!hiddenCalendars.includes(event.connectionId));
-  const calendarTodos = hiddenCalendars.includes("lifemap") ? [] : state.todos.filter((todo)=>visible(todo) && !todo.tags.includes("stored") && !waitingNoteTodo(todo,noteToday))
+  const calendarTodos = hiddenCalendars.includes("lifemap") ? [] : state.todos.filter((todo)=>!todo.tags.includes("stored") && !waitingNoteTodo(todo,noteToday))
     .map((todo)=>({...todo,calendarGroupColor:nativeGroupColor(todo.title,nativeCalendar.rules)}));
   const current = state.todos.find((todo)=>todo.id===selected);
   const eventsFor = (day: string) =>
@@ -2239,7 +2249,7 @@ export default function Planner() {
         if (event.defaultPrevented) return;
         const target = event.target as Element;
         if (target.closest("input,textarea,select,[contenteditable],[role=dialog],[role=menu]") &&
-            !target.closest(".legacy-note-todo.group-selected")) return;
+            !target.closest(".legacy-note-todo.group-selected,[data-notebook-todo].group-selected")) return;
         const id=target.closest<HTMLElement>("[data-task-id],[data-calendar-event]")?.dataset;
         const clicked=id?.taskId || id?.calendarEvent;
         const ids=clicked && !selectedIds.includes(clicked) ? [clicked] : selectedIds;
@@ -2559,24 +2569,23 @@ export default function Planner() {
             }} renderFeature={(id,close)=><LifeInbox key={id} featureTab={id} todos={state.todos} events={state.events}
               anchor={anchor} onAdd={inboxAdd} onOpen={(taskId)=>{close();setSelected(taskId);}} onPriority={()=>{}}/>}/>
               </div>
-              <label className="search-field">
-                <Search size={15} />
-                <input
-                  ref={searchRef}
-                  aria-label="Aufgaben suchen"
-                  placeholder="Aufgaben suchen …"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                {query ? (
-                  <button
-                    aria-label="Suche löschen"
-                    onClick={() => setQuery("")}
-                  >
-                    <X size={13} />
-                  </button>
-                ) : null}
-              </label>
+              <CalendarSearch inputRef={searchRef} query={query} onQuery={setQuery} important={prioritySearch}
+                onImportant={setPrioritySearch} todos={state.todos} events={state.events} connections={state.connections}
+                onOpen={(result:CalendarSearchResult)=>{
+                  setQuery("");setPrioritySearch(false);
+                  if(result.day){
+                    setAnchor(result.day);setMobileDay(result.day);setDatePreview(null);setOverview("day");
+                    const source=result.event?.connectionId ?? "lifemap";
+                    if(hiddenCalendars.includes(source))toggleCalendar(source);
+                    window.setTimeout(()=>{
+                      const entry=Array.from(document.querySelectorAll<HTMLElement>("[data-calendar-task],[data-calendar-event]"))
+                        .find(node=>node.dataset.calendarTask===result.id || node.dataset.calendarEvent===result.id);
+                      entry?.scrollIntoView({block:"center"});
+                    },0);
+                  }
+                  if(result.event){setCalendarDeleteOnly(false);setCalendarEventEdit(result.event);}
+                  else {setEditGroup([result.id]);openCalendarTask(result.id);}
+                }}/>
               <button type="button" className="today-button zone-mode-toggle" aria-pressed={zoneMode} title="Zonenmodus (Z)" onClick={toggleZones}>Zonen</button>
               <span className="save-indicator" aria-live="polite">
                 {busy ? "Speichert …" : ""}
@@ -2750,26 +2759,10 @@ export default function Planner() {
                         </button>
                       ))}
                     <TaskList id={key} todos={[]} onOpen={setSelected} onToggle={toggle}>
-                    <DayNote
-                      onOpenWeek={()=>openWeekNote(key)}
-                      preferences={notePreferences}
-                      tasks={state.todos}
-                      onTaskOpen={openNoteTask}
-                      day={key}
-                      value={state.dayNotes[key] || ""}
-                      onSave={async (content) => {
-                        try {
-                          await api("/api/notes", { date: key, content });
-                          setState((s) => ({
-                            ...s,
-                            dayNotes: { ...s.dayNotes, [key]: content },
-                          }));
-                        } catch (e) {
-                          handleError(e);
-                          throw e;
-                        }
-                      }}
-                    />
+                    <DayNote day={key} onOpenNote={()=>{
+                      openNote(key);setNotesPosition("open");
+                    }} value={state.dayNotes[dayHeaderNoteKey(key)] ?? ""}
+                      onSave={content=>saveJournalNote(dayHeaderNoteKey(key),content)}/>
                     </TaskList>
                   </>
                 )}
@@ -2812,14 +2805,6 @@ export default function Planner() {
                 onAddRow={column=>setNotebookRowColumn(column.id)}
                 onJournal={automaticWeek ? index=>setJournalDate(notebookWeekDay(index)) : undefined}
                 highlight={highlightedNotebookDay ? (parseDate(highlightedNotebookDay).getDay()+6)%7 : undefined}
-                renderMood={(column,index)=>{
-                  if(!notebookFeatures(currentNotebookLayout,column).mood)return null;
-                  const day=notebookWeekDay(index);
-                  const key=notebookColumnKey(plannerNoteKey,column.id);
-                  const mood=readNoteLines(state.dayNotes[key] || "").find(line=>line.mood?.date===day)?.mood;
-                  return <NotebookMoodPicker day={day} value={mood}
-                    onSave={value=>emitNotebookChange([key],"mood",value)}/>;
-                }}
                 renderLesson={(column,index)=>{
                   if(!notebookFeatures(currentNotebookLayout,column).lessons)return null;
                   const day=notebookWeekDay(index);
@@ -2853,7 +2838,10 @@ export default function Planner() {
                     columnHeader={{legacyTitle:column.title,showHint:index===0}}
                     onFocusColumn={()=>{lastNotebookColumn.current[plannerNoteKey]=column.id;}}
                     registerStore={column.id==="main" ? (store)=>{noteStore.current=store;} : undefined}
-                    registerLegacyDelete={column.id==="main" ? (remove)=>{noteLegacyDelete.current=remove;} : undefined}
+                    registerLegacyDelete={remove=>{
+                      if(remove)noteLegacyDelete.current.set(key,remove);
+                      else noteLegacyDelete.current.delete(key);
+                    }}
                     value={state.dayNotes[key] || ""}
                     onSave={async(content)=>{
                       await api("/api/notes",{date:key,content});
@@ -2917,35 +2905,6 @@ export default function Planner() {
               </div>
               {autoPlanError && <p role="alert">{autoPlanError}</p>}
             </section>
-            {query && (
-              <div className="search-outside">
-                {state.todos
-                  .filter(
-                    (t) =>
-                      (!taskDay(t) || !weekKeys.includes(taskDay(t)!)) && visible(t),
-                  )
-                  .map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => {
-                        const day = taskDay(t);
-                        if (day) {
-                          setAnchor(day);
-                          setMobileDay(day);
-                        }
-                        setSelected(t.id);
-                      }}
-                    >
-                      <Search size={13} />
-                      {t.title}
-                      <span>
-                        {taskDay(t) ? parseDate(taskDay(t)!).toLocaleDateString("de-DE") : "Ohne Kalendertag"}
-                      </span>
-                      <ArrowRight size={13} />
-                    </button>
-                  ))}
-              </div>
-            )}
           </main>
         </div>
         <DragOverlay style={{pointerEvents:"none"}} dropAnimation={null} modifiers={[(args)=>{
@@ -3458,8 +3417,6 @@ function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral,templa
           </select>
         </label>}
         {draft.features.weekdays && <>
-          <label><input type="checkbox" checked={draft.features.mood}
-            onChange={event=>setDraft({...draft,features:{...draft.features,mood:event.target.checked}})}/> Moodtracker</label>
           <label><input type="checkbox" checked={draft.features.lessons}
             onChange={event=>setDraft({...draft,features:{...draft.features,lessons:event.target.checked}})}/> Lektionen</label>
         </>}
@@ -3504,78 +3461,21 @@ function NotebookTabSettings({title,value,column,onSave,onClose,onGeneral,templa
   </div>;
 }
 
-function DayNote({
-  preferences,
-  tasks,
-  onTaskOpen,
-  onOpenWeek,
-  day,
-  value,
-  onSave,
-}: {
-  preferences:NotePreferences;
-  tasks: Todo[];
-  onTaskOpen: (id:string)=>void;
-  onOpenWeek:()=>void;
-  day: string;
-  value: string;
-  onSave: (v: string) => Promise<void>;
+function DayNote({day,value,onOpenNote,onSave}:{
+  day:string;value:string;onOpenNote:()=>void;onSave:(text:string)=>Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
-  const {text:draft,setText:setDraft,flush}=useAutosaveText(value,onSave);
-  const wrapper=useRef<HTMLDivElement>(null);
-  useEffect(()=>{if(!open)return;const outside=(event:PointerEvent)=>{if(event.target instanceof Node && !wrapper.current?.contains(event.target) && !(event.target instanceof Element && event.target.closest(".note-selection-toolbar,.color-popup"))){void flush();setOpen(false);}};document.addEventListener("pointerdown",outside,true);return()=>document.removeEventListener("pointerdown",outside,true);},[open,flush]);
-  const preview=readNoteLines(draft).flatMap((line)=>{
-    if(!line.taskId)return line.text.trim()?[line]:[];
-    const task=tasks.find((todo)=>todo.id===line.taskId && todo.tags.includes("stored") && todo.tags.includes(`n:${day}`));
-    return task?[{...line,text:task.title}]:[];
-  });
-  return (
-    <div ref={wrapper} className="day-note" data-escape-layer={open ? "" : undefined}>
-      <button className="day-note-week" type="button" aria-label={`Wochennotiz für ${day} öffnen`}
-        title="Wochennotiz öffnen" onClick={()=>{if(open){void flush();setOpen(false);}onOpenWeek();}}><FileText size={14}/></button>
-      {open && (
-        <button
-          hidden
-          data-close
-          type="button"
-          onClick={() => {
-            void flush();
-            setOpen(false);
-          }}
-        >
-          Schließen
-        </button>
-      )}
-      {open ? (
-        <div className="day-note-entry">
-          <PlannerNotepad
-            autoFocus
-            compact
-            preferences={preferences}
-            noteDate={day}
-            tasks={tasks}
-            onTaskOpen={onTaskOpen}
-            label={`Tagesnotiz ${day}`}
-            value={draft}
-            onChange={setDraft}
-            onBlur={flush}
-          />
-          <button type="button" className="day-note-done" onClick={()=>{void flush();setOpen(false);}}>Fertig</button>
-        </div>
-      ) : (
-        <button
-          aria-label={`Tagesnotiz ${day} bearbeiten`}
-          title="Tagesnotiz"
-          className="day-note-preview"
-          onClick={() => setOpen(true)}
-        >
-          {preview.length===0 && <span className="day-note-empty" aria-hidden="true"/>}
-          {preview.length>0 && <span>{preview.slice(0,2).map((line,i)=><span key={i}>{line.box ? (line.done?"☑ ":"☐ "):""}{line.text}</span>)}{preview.length>2 && <small>+{preview.length-2}</small>}</span>}
-        </button>
-      )}
-    </div>
-  );
+  const {text,setText,flush,error}=useAutosaveText(value,onSave,`lifemap-day-header:${day}`);
+  return <div className="day-note">
+    <button className="day-note-week" type="button" aria-label={`Tagesnotizen für ${day} öffnen`}
+      title="Tagesnotizen im Notepad öffnen" onClick={onOpenNote}><FileText size={14}/></button>
+    <textarea className="day-note-inline" rows={1} aria-label={`Kalendernotiz für ${day}`} value={text}
+      maxLength={400} onChange={event=>setText(event.target.value)} onBlur={()=>void flush()}
+      onKeyDown={event=>{
+        if(event.nativeEvent.isComposing || event.key!=="Enter" || event.shiftKey)return;
+        event.preventDefault();event.stopPropagation();event.currentTarget.blur();
+      }}/>
+    {error && <span role="alert" className="day-note-error">{error}</span>}
+  </div>;
 }
 function Detail({
   isNew = false,
@@ -3753,11 +3653,15 @@ function Detail({
   const readTitle = (raw=draft.title) => {
     const text=titleSuggestions ? parseQuadrant(raw).title : raw;
     if(!isNew && raw===todo.title)return {
-      title:raw,description:"",plannedDate:undefined,time:undefined,duration:undefined,location:undefined,repeatDays:[] as number[],
+      title:raw,description:"",plannedDate:undefined,time:undefined,duration:undefined,location:undefined,repeatDays:[] as number[],spans:[],
     };
-    return parseRecurringAppointmentInput(text,draft.plannedDate || dateKey(new Date()),dateKey(new Date()));
+    const parsed=parseRecurringAppointmentInput(text,draft.plannedDate || dateKey(new Date()),dateKey(new Date()));
+    const offset=titleSuggestions ? raw.length-raw.trimStart().length : 0;
+    return {...parsed,spans:parsed.spans.map(span=>({...span,start:span.start+offset,end:span.end+offset}))};
   };
   const recognized=readTitle();
+  const titleHighlight=useRef<HTMLDivElement>(null);
+  const highlightedTitle=draft.title.slice(0,recognized.spans[0]?.start ?? draft.title.length);
   const extractTitle = (raw = draft.title) => {
     const categoryEntry = titleSuggestions ? parseQuadrant(raw) : undefined;
     const parsed = readTitle(raw);
@@ -4098,7 +4002,14 @@ function Detail({
             {notePeriod(draft) && <input type="checkbox" aria-label="To-do abhaken" checked={draft.done} onChange={()=>update({done:!draft.done})}/> }
             <TaskPicture todo={draft} editable />
             <TaskPersonAvatar todo={draft} />
+            <div className="appointment-title-input">
+            {recognized.spans.length>0 && <div className="appointment-title-highlights" aria-hidden="true">
+              <div ref={titleHighlight}>{highlightedTitle}{recognized.spans.map((span,index)=>
+                <span key={span.start}><mark data-kind={span.kind}>{draft.title.slice(span.start,span.end)}</mark>
+                  {draft.title.slice(span.end,recognized.spans[index+1]?.start ?? draft.title.length)}</span>)}{"\n"}</div>
+            </div>}
             <textarea
+              onScroll={event=>{if(titleHighlight.current)titleHighlight.current.style.transform=`translateY(${-event.currentTarget.scrollTop}px)`;}}
               data-initial-focus={isNew ? true : undefined}
               data-title-field
               placeholder="Was möchtest du erledigen?"
@@ -4181,6 +4092,7 @@ function Detail({
                 }
               }}
             />
+            </div>
           </div>
           {(recognized.time || recognized.plannedDate || recognized.duration || recognized.repeatDays.length>0) && (
             <div className="recognized-appointment" aria-label="Erkannte Terminangaben">
@@ -5055,6 +4967,7 @@ function Settings({
           <fieldset className="theme-picker">
             <legend>Gesamtdesign</legend>
             {[
+              ["midnight", "Tintenblau"],
               ["green", "Salbei"],
               ["blue", "Ozean"],
               ["purple", "Lavendel"],

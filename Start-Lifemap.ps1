@@ -61,10 +61,11 @@ try {
     if ($status -ne 'ready') { throw 'Lifemap konnte nicht starten. Details stehen unter data\desktop\server-error.log.' }
   }
   if ($CheckOnly) { Write-Output 'Lifemap ist erreichbar.'; return }
-  $window = @('desktop/bin/app','desktop/bin/publish','desktop/bin/publish-staged') |
-    ForEach-Object { Join-Path $projectPath $_ } |
+  $window = Get-ChildItem -LiteralPath (Join-Path $projectPath 'desktop/bin') -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^(?:app(?:-[0-9]+)?|publish(?:-staged)?)$' } |
+    ForEach-Object FullName |
     Where-Object { (Test-Path -LiteralPath (Join-Path $_ 'Lifemap.exe')) -and (Test-Path -LiteralPath (Join-Path $_ 'Lifemap.dll')) } |
-    Sort-Object @{Expression={ (Split-Path -Leaf $_) -eq 'app' };Descending=$true},
+    Sort-Object @{Expression={ (Split-Path -Leaf $_) -like 'app*' };Descending=$true},
       @{Expression={ (Get-Item -LiteralPath (Join-Path $_ 'Lifemap.dll')).LastWriteTimeUtc };Descending=$true} |
     Select-Object -First 1 |
     ForEach-Object { Join-Path $_ 'Lifemap.exe' }

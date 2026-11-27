@@ -1,6 +1,7 @@
 "use client";
 import { sliceNoteRuns } from "@/lib/note-format";
 import { moodColors, moodLabels, type NotebookLesson, type NotebookMood } from "@/lib/notebook-layout";
+import NotebookAddRow from "./notebook-add-row";
 import NotebookPicture, { isNotePicture, noteAttachment, type NotePicture } from "./notebook-picture";
 import ColorSwatches from "@/components/color-swatches";
 import { useEffect, useId, useRef, useState } from "react";
@@ -23,8 +24,11 @@ export function readNoteLines(value:string):Line[] {
 export function legacyNoteTodoId(noteDate:string,index:number){
   return `note-checkbox:${noteDate}:${index}`;
 }
-export function withoutLegacyNoteTodos(value:string,noteDate:string,ids:string[]){
-  const remaining=readNoteLines(value).filter((line,index)=>!line.box || line.taskId || !ids.includes(legacyNoteTodoId(noteDate,index)));
+export function withoutLegacyNoteTodos(value:string,noteDate:string,ids:string[],implicit=false){
+  const remaining=readNoteLines(value).flatMap((line,index)=>{
+    if(line.taskId || (!line.box && !implicit) || !ids.includes(legacyNoteTodoId(noteDate,index)))return [line];
+    return line.heading || line.resizable || line.height ? [{...blank(),heading:line.heading,resizable:line.resizable,height:line.height}] : [];
+  });
   return prefix+JSON.stringify(remaining.length?remaining:[blank()]);
 }
 function LegacyTodoLine({id,line,noteDate,index,onToggle,onMove}:{id:string;line:Line;noteDate:string;index:number;onToggle:()=>void;onMove:(index:number)=>void}){
@@ -78,7 +82,7 @@ export function withNotebookLesson(value:string,lesson:NotebookLesson){
   return serializeNoteLines(lines);
 }
 export function noteWithTasks(value:string,todos:Todo[],titled=false) {
-  const lines=readNoteLines(value).filter((line,index)=>(titled && index===0) || line.text || line.taskId || line.picture || line.heading || line.mood || line.lesson || line.columnHeading);
+  const lines=readNoteLines(value).filter((line,index)=>(titled && index===0) || line.text || line.taskId || line.picture || line.heading || line.resizable || line.mood || line.lesson || line.columnHeading);
   const next=prefix+JSON.stringify([...lines,...todos.filter((todo)=>!lines.some((line)=>line.taskId===todo.id)).map((todo)=>({text:todo.title,box:false,taskId:todo.id}))]);
   if(next.length>10000)throw new Error("Die Notiz ist voll.");return next;
 }
@@ -150,6 +154,14 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
   function commit(next:Line[]) { const serialized=prefix+JSON.stringify(next.length ? next : [blank("",todoMode)]); if(serialized.length>10000) {setError("Die Notiz ist voll.");return;} setError("");onChange(serialized); }
   function patch(i:number, update:Partial<Line>) { commit(lines.map((l,j)=>i===j?{...l,...update}:l)); }
   function insert(i:number, before:string, after:string) { commit([...lines.slice(0,i),{...lines[i],text:before},blank(after,lines[i].box),...lines.slice(i+1)]); requestAnimationFrame(()=>{fields.current[i+1]?.focus();fields.current[i+1]?.setSelectionRange(0,0);}); }
+  const removeTodoLine=(index:number)=>{
+    const row=lines[index];
+    if(!row?.box || row.taskId)return;
+    const next=row.heading || row.resizable || row.height
+      ? lines.map((line,i)=>i===index ? {...blank("",todoMode),heading:line.heading,resizable:line.resizable,height:line.height} : line)
+      : lines.filter((_,i)=>i!==index);
+    commit(next);
+  };
   async function upload(files: File[]) {
     if (!files.length) return;
     setBusy(true); setError("");
@@ -205,7 +217,7 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
         if(preferences && !line.taskId && (!line.box || !todoPanel)) {
           const content=<RichNoteLine text={line.text}
             runs={line.runs || ((line.size || line.bold || line.italic || line.color) ? [{text:line.text,size:line.size,bold:line.bold,italic:line.italic,color:line.color}] : undefined)}
-            label={`${label}, Zeile ${i+1}`} preferences={preferences} autoFocus={autoFocus && i===0} compact={compact}
+            label={`${label}, Zeile ${i+1}`} preferences={preferences} autoFocus={autoFocus && i===0} compact={compact || line.box}
             placeholder={line.box?"To-do hinzufügen …":i===hintIndex?"Notiz schreiben …":""}
             onMakeTodos={!line.box ? (start,end)=>{
               const runs=line.runs ?? [{text:line.text}];
@@ -236,7 +248,17 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
                 commit(next);
                 requestAnimationFrame(()=>row?.nextElementSibling?.querySelector<HTMLElement>(".rich-note-field")?.focus());
               }
-              if(event.key==="Backspace" && !todoMode && start===0 && end===0){
+              if(todoMode && start===end && ((event.key==="Backspace" && start===0) ||
+                (event.key==="Delete" && end===line.text.length))){
+                event.preventDefault();event.stopPropagation();
+                const row=event.currentTarget.closest(".notebook-text-row");
+                const parent=row?.parentElement;
+                removeTodoLine(i);
+                requestAnimationFrame(()=>{
+                  const fields=parent?.querySelectorAll<HTMLElement>(".rich-note-field");
+                  if(fields?.length)fields[Math.min(i,fields.length-1)]?.focus();
+                });
+              } else if(event.key==="Backspace" && !todoMode && start===0 && end===0){
                 event.preventDefault();
                 event.stopPropagation();
                 patch(i,{box:false,done:false});
@@ -246,7 +268,11 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
           return <div className="note-line">
             <input type="checkbox" aria-label={`Zeile ${i+1} abhaken`} checked={!!line.done}
               onChange={event=>{patch(i,{done:event.target.checked});if(todoMode)void onBlur();}}
-              onKeyDown={event=>{if(!todoMode && event.key==="Backspace"){event.preventDefault();patch(i,{box:false,done:false});}}}/>
+              onKeyDown={event=>{
+                if(todoMode && ["Backspace","Delete"].includes(event.key)){
+                  event.preventDefault();event.stopPropagation();removeTodoLine(i);
+                } else if(!todoMode && event.key==="Backspace"){event.preventDefault();patch(i,{box:false,done:false});}
+              }}/>
             {content}
           </div>;
         }
@@ -265,6 +291,10 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
           style={{fontSize:line.size||(compact?11:14),fontWeight:line.bold?700:400,fontStyle:line.italic?"italic":"normal",color:line.color,textDecoration:line.done?"line-through":"none"}}
           onChange={(e)=>patch(i,{text:e.target.value})} onKeyDown={(e)=>{if(e.nativeEvent.isComposing)return; const el=e.currentTarget;
             if(e.key==="Enter" && !e.shiftKey){e.preventDefault();e.stopPropagation();insert(i,line.text.slice(0,el.selectionStart),line.text.slice(el.selectionEnd));}
+            if(todoMode && line.box && el.selectionStart===el.selectionEnd &&
+              ((e.key==="Backspace" && el.selectionStart===0) || (e.key==="Delete" && el.selectionEnd===line.text.length))){
+              e.preventDefault();e.stopPropagation();removeTodoLine(i);return;
+            }
             if(!todoMode && e.key==="Backspace" && line.box && el.selectionStart===0 && el.selectionEnd===0){e.preventDefault();e.stopPropagation();patch(i,{box:false,done:false});return;}
             if(e.key==="Backspace" && !line.text && i>0){e.preventDefault();e.stopPropagation();commit(lines.filter((_,j)=>i!==j));requestAnimationFrame(()=>fields.current[i-1]?.focus());}
           }} onPaste={(e)=>{if(e.clipboardData.files.length){e.preventDefault();void upload(Array.from(e.clipboardData.files));return;} const text=e.clipboardData.getData("text");if(!/\r?\n/.test(text))return;e.preventDefault();const el=e.currentTarget;const pasted=text.split(/\r?\n/);commit([...lines.slice(0,i),{...line,text:line.text.slice(0,el.selectionStart)+pasted[0]},...pasted.slice(1).map((t,j)=>blank(t+(j===pasted.length-2?line.text.slice(el.selectionEnd):""),line.box)),...lines.slice(i+1)]);}} />
@@ -281,8 +311,11 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
   const renderLine=(line:Line,index:number)=>{
     if(line.mood || line.lesson || index===titleIndex)return null;
     const editableHeading=(!titled || !!columnHeader || index!==0) && !line.taskId && !line.picture && !noteAttachment(line.text);
-    return <div className="notebook-text-row" key={index} style={{minHeight:line.height}} onContextMenuCapture={event=>{
-      if(!editableHeading || headingIndex===index || (event.target as Element).closest("button,label,select,[type=checkbox]"))return;
+    const selectableTodo=Boolean(todoMode && noteDate && line.box && !line.taskId && (line.text || line.done));
+    return <div className="notebook-text-row" key={index} style={{minHeight:line.height}}
+      data-notebook-todo={line.box || undefined} data-added-row={line.resizable || line.heading || line.height ? true : undefined}
+      data-task-id={selectableTodo ? legacyNoteTodoId(noteDate!,index) : undefined} onContextMenuCapture={event=>{
+      if(!editableHeading || headingIndex===index || (event.target as Element).closest("[data-notebook-todo].group-selected") || (event.target as Element).closest("button,label,select,[type=checkbox]"))return;
       const target=event.target;
       const hasSelection=target instanceof HTMLTextAreaElement
         ? target.selectionStart!==target.selectionEnd : !window.getSelection()?.isCollapsed;
@@ -293,13 +326,9 @@ export default function PlannerNotepad({ value, onChange, onBlur, label, autoFoc
         <button type="button" onClick={()=>{setRowMenu(null);setHeadingIndex(index);}}>Überschrift bearbeiten</button>
         <button type="button" onClick={()=>{setRowMenu(null);commit(lines.filter((_,i)=>i!==index));}}>Zeile löschen</button>
       </div>}
-      {headingIndex===index ? <input className="notebook-row-heading" aria-label="Zeilenüberschrift"
-        defaultValue={line.heading||""} autoFocus maxLength={120} placeholder="Zeilenüberschrift"
-        onBlur={event=>{patch(index,{heading:event.currentTarget.value.trim()||undefined});setHeadingIndex(null);}}
-        onKeyDown={event=>{
-          if(event.key==="Escape"){event.stopPropagation();setHeadingIndex(null);}
-          if(event.key==="Enter" && !event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.blur();}
-        }}/> : line.heading && <button className="notebook-row-heading" type="button" onClick={()=>setHeadingIndex(index)}>{line.heading}</button>}
+      {line.heading && <button className="notebook-row-heading" type="button" onClick={()=>setHeadingIndex(index)}>{line.heading}</button>}
+      {headingIndex===index && <NotebookAddRow initialName={line.heading || ""} onClose={()=>setHeadingIndex(null)}
+        onSave={name=>{patch(index,{heading:name || undefined,resizable:true});setHeadingIndex(null);}}/>}
       {renderLineBody(line,index)}
       {columnHeader && editableHeading && (line.resizable || line.heading || line.height) && <div className="notebook-row-divider" role="separator" tabIndex={0}
         aria-label={`Höhe von Zeile ${index+1}`} aria-orientation="horizontal"

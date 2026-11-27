@@ -67,7 +67,7 @@ export function useAreaSelection(
         suppressClick.current=false;
         const target = e.target as HTMLElement;
         if(target.closest(".calendar-quick-filters,.note-splitter,.notebook-column-divider,.notebook-row-divider,.notebook-picture,.journal-layer,.selection-toolbar"))return;
-        const noteTask=target.closest<HTMLElement>(".note-todo-row[data-task-id]");
+        const noteTask=target.closest<HTMLElement>(".note-todo-row[data-task-id]") || target.closest<HTMLElement>("[data-notebook-todo]");
         const notePanel=target.closest<HTMLElement>(".calendar-bottom-notes");
         if (notePanel?.classList.contains("notes-below") && !noteTask &&
             !target.closest("input,textarea,select,[contenteditable],button,a")) return;
@@ -108,7 +108,7 @@ export function useAreaSelection(
           return;
         const scope =
           target.closest<HTMLElement>(
-            '.note-todo-column,.timeline-scroll,[role="dialog"],.sidebar,.period-overview,.calendar-overview',
+            '.note-todo-column,.notebook-column-scroll,.timeline-scroll,[role="dialog"],.sidebar,.period-overview,.calendar-overview',
           ) || notePanel?.querySelector<HTMLElement>(".note-todo-column") || e.currentTarget;
         if (!scope.querySelector("[data-task-id],[data-task-ids]")) {
           onSelection([]);
@@ -161,7 +161,8 @@ export function useAreaSelection(
             representedTaskIds(el.dataset.taskId, el.dataset.taskIds),
           );
         const clickedIds=start.current.taskIds;
-        const keepMode=start.current.scope.classList.contains("note-todo-column");
+        const scopeClass=start.current.scope.classList;
+        const keepMode=scopeClass.contains("note-todo-column") || scopeClass.contains("notebook-column-scroll");
         start.current = null;
         setRect(null);
         e.currentTarget.releasePointerCapture(e.pointerId);

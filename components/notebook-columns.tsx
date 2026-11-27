@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Plus, Settings2, Trash2 } from "lucide-react";
+import { Columns2, Rows2, Settings2, Trash2 } from "lucide-react";
 import {
   notebookFeatures, type NotebookColumn, type NotebookLayout,
 } from "@/lib/notebook-layout";
@@ -9,12 +9,11 @@ import {
 const weekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
 const minimumWidth = 48;
 
-export default function NotebookColumns({ layout, onChange, onRemove, onSettings, renderMood, renderLesson, heading, onHeading, onAddRow, onJournal, highlight, render, footer }: {
+export default function NotebookColumns({ layout, onChange, onRemove, onSettings, renderLesson, heading, onHeading, onAddRow, onJournal, highlight, render, footer }: {
   layout: NotebookLayout;
   onChange: (layout: NotebookLayout) => void;
   onRemove: (column: NotebookColumn, remaining: NotebookColumn[]) => Promise<void>;
   onSettings: (column: NotebookColumn) => void;
-  renderMood?: (column:NotebookColumn,index:number)=>ReactNode;
   renderLesson?: (column:NotebookColumn,index:number)=>ReactNode;
   heading: (column:NotebookColumn)=>string;
   onHeading: (column:NotebookColumn,title:string)=>void;
@@ -134,7 +133,7 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
             return width ? `${width}px` : "minmax(0, 1fr)";
           }).join(" ") }}>
           {!columns.length && <div className="notebook-empty-columns">
-            <button className="secondary-button" type="button" onClick={()=>insertColumn(0)}><Plus size={14}/> Spalte hinzufügen</button>
+            <button className="secondary-button" type="button" onClick={()=>insertColumn(0)}><Columns2 size={14}/> Spalte hinzufügen</button>
           </div>}
           {columns.map((column, index) => {
             const dayIndex=dayIndexFor(column,index);
@@ -150,9 +149,7 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
               }}
               style={{backgroundColor:column.color || undefined}}>
               <div className="notebook-column-head">
-                {hasWeekday && <div className="notebook-weekday">{onJournal ? <button type="button" className="notebook-day-name" aria-label={`Tagebuch für ${weekdays[dayIndex]} öffnen`} onClick={()=>onJournal(dayIndex)}>{weekdays[dayIndex]}</button> : <span>{weekdays[dayIndex]}</span>}{renderMood?.(column,dayIndex)}</div>}
-                <button className="notebook-add-column" type="button" aria-label={`Spalte vor Spalte ${index + 1} hinzufügen`} title="Spalte hinzufügen"
-                  onClick={() => insertColumn(index)}><Plus size={14}/></button>
+                {hasWeekday && <div className="notebook-weekday">{onJournal ? <button type="button" className="notebook-day-name" aria-label={`Tagebuch für ${weekdays[dayIndex]} öffnen`} onClick={()=>onJournal(dayIndex)}>{weekdays[dayIndex]}</button> : <span>{weekdays[dayIndex]}</span>}</div>}
                 <input
                   key={title}
                   className="notebook-column-title"
@@ -172,6 +169,10 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
 
                   }}
                 />
+                <button className="notebook-column-action" type="button" aria-label={`Spalte vor Spalte ${index + 1} hinzufügen`}
+                  title="Spalte hinzufügen" onClick={()=>insertColumn(index)}><Columns2 size={14}/></button>
+                <button className="notebook-column-action" type="button" title="Zeile hinzufügen" aria-label={`Zeile in Spalte ${index+1} hinzufügen`}
+                  onClick={()=>onAddRow(column)}><Rows2 size={14}/></button>
                 <button className="notebook-column-action" type="button" aria-label={`Einstellungen für Spalte ${index + 1}`}
                   onClick={()=>onSettings(column)}><Settings2 size={13}/></button>
                 {(layout.nextWeeklySlot !== undefined || columns.length > 1) && <button className="notebook-column-action" type="button" aria-label={`Spalte ${index + 1} löschen`}
@@ -184,9 +185,6 @@ export default function NotebookColumns({ layout, onChange, onRemove, onSettings
               </div>}
               {render(column, index)}
               {hasWeekday && renderLesson?.(column,dayIndex)}
-              <div className="notebook-column-footer">
-                <button type="button" title="Zeile hinzufügen" aria-label={`Zeile in Spalte ${index+1} hinzufügen`} onClick={()=>onAddRow(column)}><Plus size={13}/></button>
-              </div>
               {index < columns.length - 1 && <div className="notebook-column-divider" tabIndex={0}
                   role="separator" aria-label={`Breite zwischen Spalte ${index + 1} und ${index + 2}`} aria-orientation="vertical"
                   onPointerDown={event => beginResize(event, index)}

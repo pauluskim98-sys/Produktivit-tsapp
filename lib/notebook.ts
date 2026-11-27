@@ -15,3 +15,5 @@ const columnPattern = new RegExp(`^note-column:${uuid}:(.+)$`);
 export function notebookColumnParent(key: string) {
   return columnPattern.exec(key)?.[1];
 }
+
+export const dayHeaderNoteKey = (date: string) => `day-header:${date}`;

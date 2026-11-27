@@ -11,7 +11,7 @@ const source = ts.transpileModule(
   ),
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
 ).outputText;
-function setup(enabled, ids, board) {
+function setup(enabled, ids, board, modern=false) {
   const changes = [];
   const context = {
     exports: {},
@@ -37,7 +37,7 @@ function setup(enabled, ids, board) {
     closest(selector) {
       if (selector === "[data-task-id],[data-task-ids]")
         return task ? this : null;
-      if(legacy && (selector===".note-todo-row[data-task-id]" || selector.includes("textarea")))return this;
+      if(legacy && (selector===(modern?"[data-notebook-todo]":".note-todo-row[data-task-id]") || selector.includes("textarea")))return this;
       if(board && selector.startsWith(".note-todo-column,"))return board;
       if (
         selector === ".timeline-scroll,.calendar-overview" ||
@@ -135,4 +135,19 @@ test("a rectangle starting over a legacy to-do text field includes older and new
   s.hook.bind.onPointerUp({...start,clientX:95,clientY:55});
   assert.deepEqual(s.changes,[["older","newer"]]);
   assert.deepEqual(s.mode,[true]);
+});
+
+test("checklist rows in the notepad can be removed from an active selection individually", () => {
+  const board = {
+    querySelector:()=>true,
+    querySelectorAll:()=>[],
+    classList:{contains:(name)=>name==="notebook-column-scroll"},
+    setPointerCapture(){},
+    releasePointerCapture(){},
+  };
+  const {hook,event,changes,mode}=setup(true,["a","b"],board,true);
+  hook.bind.onPointerDownCapture(event("a",true));
+  hook.bind.onPointerUp(event("a",true));
+  assert.deepEqual(changes,[["b"]]);
+  assert.deepEqual(mode,[true]);
 });

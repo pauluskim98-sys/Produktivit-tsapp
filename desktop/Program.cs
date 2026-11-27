@@ -23,7 +23,7 @@ internal static class Program
             ShowInTaskbar = !checkOnly,
             Opacity = checkOnly ? 0 : 1,
         };
-        var paper = Color.FromArgb(243, 246, 242);
+        var paper = Color.FromArgb(239, 242, 248);
         window.BackColor = paper;
         using var startup = new TableLayoutPanel
         {
@@ -35,7 +35,7 @@ internal static class Program
         using var message = new Label
         {
             Text = "LifeMap wird geöffnet …", AutoSize = true, Anchor = AnchorStyles.None,
-            ForeColor = Color.FromArgb(35, 61, 49), Padding = new Padding(12),
+            ForeColor = Color.FromArgb(41, 51, 72), Padding = new Padding(12),
         };
         using var retry = new Button
         {

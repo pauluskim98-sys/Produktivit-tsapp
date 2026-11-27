@@ -1,15 +1,18 @@
 import { accountRoute } from "@/lib/account-route";
 import { db, USER } from "@/lib/db";
+import { isJournalKey } from "@/lib/journal-layout";
+import { isDateKey } from "@/lib/dates";
 import { periodRange } from "@/lib/calendar-interactions";
 import { sameOrigin, errorResponse } from "@/lib/validation";
-import { isNotebookFolder, notebookFolder, notebookColumnParent } from "@/lib/notebook";
+import { dayHeaderNoteKey, isNotebookFolder, notebookFolder, notebookColumnParent } from "@/lib/notebook";
 async function handlePOST(request: Request) {
   try {
     sameOrigin(request);
     const { date, content } = await request.json();
     const parent = typeof date === "string" ? notebookColumnParent(date) : undefined;
+    const headerDate = typeof date === "string" && date.startsWith(dayHeaderNoteKey("")) ? date.slice(dayHeaderNoteKey("").length) : null;
     if (
-      (typeof date !== "string" || (date !== "inbox" && date !== "storage" && date !== "journal-bookmarks" && !(/^journal:\d{4}-\d{2}-\d{2}$/.test(date) && periodRange(date.slice(8))) && !periodRange(date) && !notebookFolder(date) && !isNotebookFolder(date) && !(parent && (periodRange(parent) || notebookFolder(parent))))) ||
+      (typeof date !== "string" || (date !== "inbox" && date !== "storage" && !isJournalKey(date) && !isDateKey(headerDate) && !periodRange(date) && !notebookFolder(date) && !isNotebookFolder(date) && !(parent && (periodRange(parent) || notebookFolder(parent))))) ||
       typeof content !== "string" ||
       content.length > 10000
     )

@@ -63,18 +63,18 @@
 }
 
 :root {
-  --bg: #f8f9f6;
+  --bg: #eff2f8;
   --surface: #fff;
-  --surface-soft: #f3f5f0;
-  --ink: #26392e;
-  --muted: #8b938c;
-  --secondary: #67756a;
-  --line: #e7ebe4;
-  --green: #426a51;
-  --green-soft: #e9f0e6;
-  --hover: #f0f3ed;
+  --surface-soft: #f2f4fa;
+  --ink: #293348;
+  --muted: #758198;
+  --secondary: #56647d;
+  --line: #dfe5f0;
+  --green: #425b8b;
+  --green-soft: #e5ebf8;
+  --hover: #edf1fa;
   --shadow: 0 3px 12px #233c2a05;
-  --tag: #edf1e9;
+  --tag: #ebeff8;
   --danger: #b05d50;
   color-scheme: light;
 }
@@ -3528,6 +3528,9 @@ code {
 }
 
 /* Calendar subject colours and app-wide accent palettes. */
+:root[data-accent="green"] {
+  --green: #426a51; --green-soft: #e9f0e6; --hover: #f0f3ed;
+}
 :root[data-accent="blue"] {
   --green: #417fa3;
   --green-soft: #e3edf4;
@@ -4008,6 +4011,9 @@ code {
 }
 .theme-rose {
   --swatch: #b1607b;
+}
+:root[data-theme="dark"][data-accent="green"] {
+  --green: #acd3bb; --green-soft: #293f35; --hover: #303e38;
 }
 :root[data-theme="dark"][data-accent="blue"] {
   --green: #8fb9dd;
@@ -5689,8 +5695,8 @@ button[hidden] {
   --muted: #b1bdca;
   --secondary: #ccd5de;
   --line: #3b4855;
-  --green: #acd3bb;
-  --green-soft: #293f35;
+  --green: #a6baf0;
+  --green-soft: #283753;
   --hover: #303d48;
   --tag: #304337;
   --danger: #f0a69c;
@@ -7022,7 +7028,7 @@ button[hidden] {
 
 /* A little more colour, while writing surfaces remain quiet and legible. */
 :root {
-  --bg: #f2f5f0;
+  --bg: #eff2f8;
   --accent-wash: color-mix(in srgb, var(--green) 12%, var(--surface));
   --panel-surface: color-mix(in srgb, var(--green) 4%, var(--surface));
   --panel-edge: color-mix(in srgb, var(--green) 16%, var(--line));
@@ -8330,3 +8336,88 @@ body:has(.task-detail-backdrop:not(.is-closing)) .journal-layer .notebook-journa
   .journal-writing .journal-date {gap:0; font-size:9px;}
   .journal-writing .journal-date > button {padding-inline:1px;}
 }
+.appointment-title-input { position:relative; flex:1; min-width:0; border-radius:13px; background:var(--surface); }
+.compact-detail .appointment-title-input textarea {
+  position:relative; display:block; width:100%; background:transparent; scrollbar-width:none; margin:0;
+}
+.appointment-title-highlights {
+  position:absolute; inset:1px; padding:10px 12px; overflow:hidden; pointer-events:none; color:transparent;
+  font-family:inherit; font-size:16px; line-height:22px; font-weight:500; letter-spacing:-.25px;
+  white-space:pre-wrap; overflow-wrap:break-word; tab-size:8;
+}
+.appointment-title-highlights mark { color:inherit; background:color-mix(in srgb, #60a889 35%, var(--surface)); border-radius:3px; }
+.appointment-title-highlights mark[data-kind="time"] { background:color-mix(in srgb, #6a9ce3 32%, var(--surface)); }
+
+.calendar-search { position:relative; display:flex; align-items:center; gap:5px; min-width:0; }
+.calendar-search .search-field { min-width:0; }
+.calendar-search-priority:is(:hover,[aria-pressed="true"]), .calendar-search-red { color:#ce4656; }
+.calendar-search-priority[aria-pressed="true"] { background:color-mix(in srgb, #ce4656 13%, var(--surface)); }
+.calendar-search-popover {
+  position:absolute; top:calc(100% + 6px); right:0; z-index:60; width:min(390px,calc(100vw - 26px));
+  background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:6px;
+  box-shadow:0 14px 36px #14291a26; color:var(--ink);
+}
+.calendar-search-caption { padding:5px 9px; font-size:12px; font-weight:650; color:var(--muted); }
+.calendar-search-results { max-height:min(420px,65vh); overflow:auto; scrollbar-width:thin; }
+.calendar-search-results > button {
+  display:grid; grid-template-columns:18px minmax(0,1fr) 16px; align-items:center; gap:8px; padding:8px;
+  width:100%; text-align:left; border:0; border-radius:7px; background:transparent; color:inherit; cursor:pointer;
+}
+.calendar-search-results > button:is(:hover,[aria-selected="true"]) { background:var(--green-soft); }
+.calendar-search-results strong,.calendar-search-results small { display:block; overflow-wrap:anywhere; }
+.calendar-search-results small { color:var(--muted); margin-top:2px; }
+.calendar-search-popover > p { margin:6px 9px; font-size:13px; }
+
+.journal-header { flex-wrap:wrap; }
+.journal-view-buttons { display:flex; align-items:center; gap:2px; padding:2px; border-radius:8px; background:color-mix(in srgb,#aa7549 10%,var(--surface)); }
+.journal-view-buttons button { border:0; padding:4px 9px; border-radius:6px; color:inherit; background:transparent; }
+.journal-view-buttons button[aria-pressed="true"] { background:var(--surface); box-shadow:0 1px 3px #47261220; }
+.journal-mood-bar { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:6px 10px; font-size:13px; }
+.journal-mood-bar .notebook-mood-dots { gap:5px; }
+.journal-mood-bar .notebook-mood-dots button { opacity:1; width:14px; height:14px; }
+.journal-day-mood { display:inline-flex; align-items:center; gap:4px; min-width:0; }
+.journal-day-mood button,.journal-layout-field-header button {
+  display:inline-grid; place-items:center; background:none; border:0; color:inherit; border-radius:4px; cursor:pointer; padding:3px;
+}
+.journal-day-mood button { opacity:0; }
+.journal-day-mood:is(:hover,:focus-within) button { opacity:1; }
+.journal-custom-field { display:grid; gap:4px; padding:8px 12px; min-width:0; }
+.journal-custom-field textarea { width:100%; resize:vertical; border:1px solid var(--line); border-radius:7px; padding:7px; color:inherit; background:var(--surface); }
+.journal-layout-preview,.journal-period { padding:8px 10px; }
+.journal-layout-preview h3,.journal-period h3 { margin:0 0 8px; }
+.journal-layout-fixed,.journal-layout-field { border:1px solid var(--line); border-radius:8px; padding:7px 9px; margin-bottom:8px; background:var(--surface); }
+.journal-layout-fixed { display:grid; gap:5px; color:var(--muted); }
+.journal-layout-field[data-drop="true"] { border-color:#aa7549; }
+.journal-layout-field-header { display:flex; align-items:center; gap:5px; }
+.journal-field-grip { display:grid; place-items:center; cursor:grab; }
+.journal-layout-field-header input { min-width:0; flex:1; border:0; background:transparent; color:inherit; }
+.journal-layout-field-header button:disabled { opacity:.35; cursor:default; }
+.journal-layout-field-paper { height:24px; border-bottom:1px solid var(--line); }
+.journal-layout-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; margin-top:10px; }
+.journal-period article { border-top:1px solid var(--line); padding:10px 0; }
+.journal-period article > button { padding:0; border:0; background:none; color:inherit; font-weight:650; cursor:pointer; }
+.journal-period article > :is(p,div) { margin:5px 0 0; }
+.journal-period-entry { white-space:pre-wrap; overflow-wrap:anywhere; }
+.journal-period-entry p { margin:2px 0; }
+
+
+.theme-midnight { --swatch:#425b8b; }
+.day-note-inline {
+  flex:1; width:0; min-width:0; min-height:20px; padding:2px 5px; resize:none;
+  color:var(--ink); font:inherit; font-size:11px; line-height:1.3; scrollbar-width:none;
+  border:1px solid color-mix(in srgb,var(--line) 75%,transparent); border-radius:5px; background:transparent;
+  field-sizing:content; max-height:3.9em;
+}
+.day-note-inline:hover { background:color-mix(in srgb,var(--surface) 45%,transparent); }
+.day-note-inline:focus { background:var(--surface); outline:1px solid var(--green); outline-offset:-1px; }
+.day-note-error { font-size:11px; color:var(--danger); }
+.notebook-text-row[data-notebook-todo] > .note-line { align-items:start; gap:4px; }
+.notebook-text-row[data-notebook-todo] :is(.rich-note-field,.note-line > textarea) {
+  min-height:1.24em; line-height:1.24; padding:0 3px; border-radius:4px;
+}
+.notebook-text-row[data-notebook-todo] > .note-line > input[type=checkbox] { margin:2px 0 0; }
+.notebook-text-row[data-notebook-todo].group-selected { background:var(--green-soft); box-shadow:inset 0 0 0 1px var(--green); }
+.notebook-text-row[data-added-row] { padding-top:3px; border-top:1px solid var(--line); }
+.notebook-row-divider { border-bottom:1px solid color-mix(in srgb,var(--line) 75%,transparent); }
+.notebook-row-scope { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.notebook-row-scope button[aria-pressed="true"] { color:var(--green); border-color:var(--green); }
