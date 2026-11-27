@@ -1,3 +1,4 @@
+import { zoomFromBoardWheel } from "../lib/sketchboard.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -211,4 +212,14 @@ test("connections to empty canvas retain their endpoints and formatting", () => 
   assert.deepEqual(saved.nodes[2].data.media, link.data.media);
   assert.equal(saved.edges[0].data?.sourceOffset, 0.4);
   assert.equal(saved.edges[0].style?.strokeDasharray, "7 5");
+});
+
+test("wheel notches zoom while precision trackpad scrolling pans", () => {
+  const wheel = {ctrlKey:false,deltaMode:0,deltaX:0,deltaY:100};
+  assert.equal(zoomFromBoardWheel(wheel),true);
+  assert.equal(zoomFromBoardWheel({...wheel,deltaY:-120}),true);
+  assert.equal(zoomFromBoardWheel({...wheel,deltaMode:1,deltaY:-3}),true);
+  assert.equal(zoomFromBoardWheel({...wheel,deltaY:25.75}),false);
+  assert.equal(zoomFromBoardWheel({...wheel,deltaX:20}),false);
+  assert.equal(zoomFromBoardWheel({...wheel,ctrlKey:true,deltaY:5}),true);
 });

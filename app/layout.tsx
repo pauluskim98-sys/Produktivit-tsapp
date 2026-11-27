@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import QuickTooltips from "@/components/quick-tooltips";
 export const metadata: Metadata = {
   title: "Lifemap · Deine Woche, klar geplant",
   description: "Ein ruhiger Ort für deine Aufgaben, Termine und Gedanken.",
@@ -19,7 +20,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="de" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>{children}<QuickTooltips/></body>
     </html>
   );
 }

@@ -517,3 +517,11 @@ export function duplicateSelection(
       })),
   };
 }
+
+// Precision trackpads normally emit fractional pixel deltas. Wheel notches
+// use line/page deltas or arrive as multiples of Chromium's pixel step.
+export function zoomFromBoardWheel(event: Pick<WheelEvent, "ctrlKey" | "deltaMode" | "deltaX" | "deltaY">): boolean {
+  const distance = Math.abs(event.deltaY);
+  return event.ctrlKey || (event.deltaX === 0 && distance > 0 &&
+    (event.deltaMode !== 0 || (distance % 100 === 0 || distance % 120 === 0)));
+}

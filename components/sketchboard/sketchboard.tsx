@@ -86,6 +86,7 @@ import {
   emptyBoard,
   minimumInteractiveZoom,
   maximumBoardZoom,
+  zoomFromBoardWheel,
   validateBoard,
   emptyLineLabel,
   type LineLabel,
@@ -1298,32 +1299,44 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
   useLayoutEffect(() => {
     const box = content.current;
     const text = box?.querySelector<HTMLElement>(".lm-rendered-text");
-    if (!box || !text || !data.text || editing) return;
+    if (!box || !text || !data.text) {
+      box?.style.removeProperty("--lm-fit");
+      return;
+    }
     const fit = () => {
-      let low = 0.08,
-        high = 1;
-      text.style.fontSize = "1em";
-      if (box.scrollHeight <= box.clientHeight + 1) return;
-      for (let i = 0; i < 10; i++) {
-        const mid = (low + high) / 2;
-        text.style.fontSize = mid + "em";
-        if (box.scrollHeight > box.clientHeight + 1) high = mid;
-        else low = mid;
+      const style = getComputedStyle(box);
+      const width = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const height = box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      if (width <= 0 || height <= 0) return;
+      if (editing) text.style.width = width + "px";
+      const fits = (scale: number) => {
+        text.style.fontSize = scale + "em";
+        return text.scrollWidth <= Math.min(text.clientWidth, width) + 1 && text.scrollHeight <= height + 1;
+      };
+      let low = 1;
+      if (!fits(low)) {
+        low = 0.05;
+        let high = 1;
+        for (let i = 0; i < 10; i++) {
+          const mid = (low + high) / 2;
+          if (fits(mid)) low = mid;
+          else high = mid;
+        }
       }
       text.style.fontSize = low + "em";
+      box.style.setProperty("--lm-fit", String(low));
     };
     fit();
     let active = true;
-    void document.fonts.ready.then(() => {
-      if (active) fit();
-    });
+    void document.fonts.ready.then(() => { if (active) fit(); });
     const observer = new ResizeObserver(fit);
     observer.observe(box);
     return () => {
       active = false;
       observer.disconnect();
+      text.style.removeProperty("width");
     };
-  }, [data.text, data.fontSize, data.font, data.bold, data.italic, editing]);
+  }, [data.text, data.fontSize, data.font, data.bold, data.italic, data.kind, editing]);
   const titleField = useRef<HTMLInputElement>(null);
   const breakAt = data.text.indexOf("\n");
   const heading = breakAt < 0 ? data.text : data.text.slice(0, breakAt);
@@ -1609,8 +1622,8 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
         {data.kind === "image" ||
         data.kind === "ink" ||
         data.kind === "media" ||
-        data.kind === "symbol" ? null : editing ? (
-          <div
+        data.kind === "symbol" ? null : <>
+          {editing && <div
             className="lm-live-note nodrag nopan nowheel"
             onBlur={(e) => {
               if (
@@ -1667,9 +1680,10 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
                 }
               }}
             />
-          </div>
-        ) : (
-          <span
+          </div>}
+          {(!editing || data.text) && <span
+            aria-hidden={editing || undefined}
+            data-fit-probe={editing || undefined}
             className={data.text ? "lm-rendered-text" : "lm-placeholder"}
             style={
               data.text
@@ -1702,8 +1716,8 @@ function Shape({ id, data, selected }: NodeProps<ShapeNode>) {
             ) : (
               "Doppelklick zum Schreiben"
             )}
-          </span>
-        )}
+          </span>}
+        </>}
       </div>
       {[Position.Top, Position.Right, Position.Bottom, Position.Left].map(
         (position) => (
@@ -1934,6 +1948,7 @@ function BoardEditor() {
         target.closest(".lm-header")
       )
         return;
+      const zooming = zoomFromBoardWheel(event);
       if (!event.ctrlKey) {
         const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
         for (
@@ -1941,6 +1956,7 @@ function BoardEditor() {
           item && !item.matches(".lm-app");
           item = item.parentElement
         ) {
+          if (zooming && item.matches(".lm-shape-content") && !target.closest(".lm-live-note")) continue;
           const axis = horizontal ? "X" : "Y",
             delta = horizontal ? event.deltaX : event.deltaY;
           const style = getComputedStyle(item);
@@ -1965,7 +1981,7 @@ function BoardEditor() {
       event.preventDefault();
       event.stopPropagation();
       const current = flow.getViewport();
-      if (!event.ctrlKey) {
+      if (!zooming) {
         const scale =
           event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? pane.height : 1;
         void flow.setViewport({
@@ -1979,7 +1995,7 @@ function BoardEditor() {
         Math.min(minimumInteractiveZoom, current.zoom),
         Math.min(
           maximumBoardZoom,
-          current.zoom * Math.exp(-event.deltaY * 0.006),
+          current.zoom * Math.exp(-event.deltaY * (event.ctrlKey ? 0.006 : event.deltaMode ? 0.075 : 0.0024)),
         ),
       );
       const x = event.clientX - pane.left,
@@ -2013,13 +2029,16 @@ function BoardEditor() {
     [dark, setDark] = useState(false),
     [colors, setColors] = useState(false),
     [fill, setFill] = useState(palette[0]);
-  const [quick, setQuick] = useState<{ x: number; y: number } | null>(null),
-    [draft, setDraft] = useState<{
+  const [draggingObject,setDraggingObject] = useState(false);
+  const [optionsDismissed,setOptionsDismissed] = useState(false);
+  const [creationColors,setCreationColors] = useState<Partial<Record<Tool,string>>>({});
+  const [draft, setDraft] = useState<{
       x: number;
       y: number;
       width: number;
       height: number;
     } | null>(null);
+  useEffect(() => setOptionsDismissed(false), [tool]);
   const [historyVersion, setHistoryVersion] = useState(0),
     history = useRef<{ past: HistoryEntry[]; future: HistoryEntry[] }>({
       past: [],
@@ -2126,6 +2145,13 @@ function BoardEditor() {
     }
   });
   const preferences = { ...generalPreferences, ...tabOverrides[currentTab] };
+  const creationColor = (kind: ShapeKind) => {
+    const key = kind==="symbol"?"symbols":kind as Tool;
+    const style = preferences.elementStyles[kind];
+    return creationColors[key] ?? (kind==="text" || kind==="symbol"
+      ? style?.color ?? "#29352f"
+      : style?.fill ?? (kind==="sticky"?palette[3]:fill));
+  };
   const configured = settingsTab
     ? { ...generalPreferences, ...tabOverrides[settingsTab] }
     : generalPreferences;
@@ -3236,7 +3262,7 @@ function BoardEditor() {
       kind,
       p.x,
       p.y,
-      fill,
+      creationColor(kind),
       width ?? (kind === "sticky" ? 240 : 220) / zoom,
       height ??
         (kind === "text"
@@ -3262,6 +3288,9 @@ function BoardEditor() {
       ...(preferences.elementStyles[kind]?.fontSize !== undefined
         ? { fontSize: preferences.elementStyles[kind]!.fontSize! / zoom }
         : {}),
+      ...(creationColors[kind==="symbol"?"symbols":kind as Tool] !== undefined
+        ? kind==="text" || kind==="symbol" ? {color:creationColor(kind)} : {fill:creationColor(kind)}
+        : {}),
       ...extra,
       strokeWidth: creationStroke(
         extra.strokeWidth ??
@@ -3280,7 +3309,7 @@ function BoardEditor() {
       nodes: [...b.nodes.map((n) => ({ ...n, selected: false })), node],
       edges: b.edges.map((e) => ({ ...e, selected: false })),
     }));
-    setQuick(null);
+    setOptionsDismissed(true);
     if (!["image", "ink", "symbol", "media"].includes(kind))
       setEditing(node.id);
     return node.id;
@@ -3320,7 +3349,9 @@ function BoardEditor() {
     added?: ShapeNode,
   ) => {
     if (!c.source || !c.target || c.source === c.target) return;
+    const id = crypto.randomUUID();
     checkpoint();
+    setOptionsDismissed(true);
     setBoard((b) => ({
       ...b,
       nodes: added ? [...b.nodes, added] : b.nodes,
@@ -3328,7 +3359,7 @@ function BoardEditor() {
         ...b.edges,
         {
           ...c,
-          id: crypto.randomUUID(),
+          id,
           type: connection.type,
           data: {
             targetOffset,
@@ -3364,6 +3395,7 @@ function BoardEditor() {
         },
       ],
     }));
+    return id;
   };
   const connectTo = (id: string, point?: Point, added?: ShapeNode) => {
     const node = added ?? board.nodes.find((n) => n.id === id);
@@ -3390,8 +3422,8 @@ function BoardEditor() {
       startNode && endPoint && startNode.data.kind !== "connection-anchor"
         ? connectionSide(startNode, endPoint)
         : undefined;
-    if (source && source !== id)
-      connect(
+    const line = source && source !== id
+      ? connect(
         {
           source,
           target: id,
@@ -3401,8 +3433,8 @@ function BoardEditor() {
         target?.[2],
         startSide?.[2],
         added,
-      );
-    else if (added) {
+      ) : undefined;
+    if (!line && added) {
       checkpoint();
       setBoard((b) => ({ ...b, nodes: [...b.nodes, added] }));
     }
@@ -3410,10 +3442,10 @@ function BoardEditor() {
     connectFrom.current = current;
     setBoard((b) => ({
       ...b,
-      nodes: b.nodes.map((n) => ({ ...n, selected: n.id === current })),
+      nodes: b.nodes.map((n) => ({ ...n, selected: !line && n.id === current })),
       edges: b.edges.map((e) => ({
         ...e,
-        selected: "line:" + e.id === current,
+        selected: line ? e.id===line : "line:" + e.id === current,
       })),
     }));
   };
@@ -3427,6 +3459,7 @@ function BoardEditor() {
     y: number;
   } | null>(null);
   const startLink = (id: string) => {
+    setOptionsDismissed(false);
     setTool("connect");
     setToolMenu("connect");
     setEditing("");
@@ -3626,7 +3659,6 @@ function BoardEditor() {
         setPinForm(null);
         setForm(null);
         setDrawPolygon(null);
-        setQuick(null);
         setColors(false);
         setDraft(null);
         drawing.current = null;
@@ -3677,6 +3709,7 @@ function BoardEditor() {
           const button = document.activeElement as HTMLButtonElement;
           const next = button.dataset.tool as Tool | undefined;
           if (next) {
+            setOptionsDismissed(false);
             setTool(next);
             if (next === "polygon") {
               setPolygonTemplate(null);
@@ -3689,10 +3722,13 @@ function BoardEditor() {
           }
         }
       }
-      if (!mod && shortcuts[k])
-        setTool((previous) =>
-          previous === "select" && k === "a" ? "write" : shortcuts[k],
-        );
+      if (!mod && shortcuts[k]) {
+        const next=tool==="select" && k==="a" ? "write" : shortcuts[k];
+        setTool(next);
+        setToolMenu(next==="paint" || next==="connect" || next==="ink" ? next : null);
+        setColors(next==="paint");
+        setOptionsDismissed(false);
+      }
     };
     window.addEventListener("keydown", keydown, true);
 
@@ -3744,6 +3780,7 @@ function BoardEditor() {
       });
   };
   const placeTemplate = (points: PolygonPoint[]) => {
+    setOptionsDismissed(false);
     setPolygonTemplate(points);
     setDrawPolygon(null);
     setTool("polygon");
@@ -4049,6 +4086,7 @@ function BoardEditor() {
             edge.selected ? { ...edge, selected: false } : edge,
           ),
         }));
+        setOptionsDismissed(false);
         setToolMenu(id);
         if (id === "image") {
           setTool("hand");
@@ -4092,6 +4130,7 @@ function BoardEditor() {
       aria-pressed={tool === "symbols" && symbol === name}
       onClick={() => {
         setSymbol(name);
+        setOptionsDismissed(false);
         setTool("symbols");
         setToolMenu(null);
       }}
@@ -4211,7 +4250,6 @@ function BoardEditor() {
     setToolMenu(null);
     setJumpDraft(null);
     setJumpTab(null);
-    setQuick(null);
     setColors(false);
     connectFrom.current = null;
     setPinSymbol(null);
@@ -4389,7 +4427,7 @@ function BoardEditor() {
         if (!hit.closest(".lm-teleport-format")) setTeleportFormat(null);
         if (hit.matches(".lm-app,.lm-canvas,.lm-header")) clearCanvasPopups();
       }}
-      className={`lm-app${dark ? " lm-dark" : ""}${embedded ? " lm-embedded" : ""}`}
+      className={`lm-app${dark ? " lm-dark" : ""}${embedded ? " lm-embedded" : ""}${draggingObject ? " lm-dragging-object" : ""}`}
       style={
         {
           "--lm-accent": preferences.accent,
@@ -5032,8 +5070,11 @@ function BoardEditor() {
               return;
             }
           }
-          if ((e.target as HTMLElement).classList.contains("react-flow__pane"))
-            setQuick({ x: e.clientX, y: e.clientY });
+          if (["write","hand"].includes(tool) && (e.target as HTMLElement).classList.contains("react-flow__pane")) {
+            add("text",e.clientX,e.clientY,undefined,undefined,{
+              fill:"transparent",stroke:"transparent",strokeWidth:0,
+            });
+          }
         }}
       >
         {storage.ready && (
@@ -5293,15 +5334,15 @@ function BoardEditor() {
                 }))
               }
               onConnect={(connection) => {
-                connect(connection);
+                const line=connect(connection);
                 connectFrom.current = connection.target;
                 setBoard((b) => ({
                   ...b,
                   nodes: b.nodes.map((n) => ({
                     ...n,
-                    selected: n.id === connection.target,
+                    selected: !line && n.id === connection.target,
                   })),
-                  edges: b.edges.map((e) => ({ ...e, selected: false })),
+                  edges: b.edges.map((e) => ({ ...e, selected: e.id===line })),
                 }));
               }}
               connectionMode={ConnectionMode.Loose}
@@ -5314,6 +5355,8 @@ function BoardEditor() {
                 strokeDasharray: connection.dash,
               }}
               onNodeDragStart={(_, node) => {
+                setDraggingObject(true);
+                setBorderPicker(null);
                 checkpoint();
                 if (node.data.group)
                   groupDrag.current = {
@@ -5346,9 +5389,11 @@ function BoardEditor() {
                 }));
               }}
               onNodeDragStop={() => {
+                setDraggingObject(false);
                 groupDrag.current = null;
               }}
-              onSelectionDragStart={checkpoint}
+              onSelectionDragStart={() => {setDraggingObject(true);setBorderPicker(null);checkpoint();}}
+              onSelectionDragStop={()=>setDraggingObject(false)}
               onNodeContextMenu={(event, node) => {
                 if (!node.data.representGroup) return;
                 event.preventDefault();
@@ -5716,7 +5761,7 @@ function BoardEditor() {
                       : ""
                 }
                 fill="none"
-                stroke={fill}
+                stroke={creationColor("polygon")}
                 strokeWidth={2}
               />
               {drawPolygon.length > 0 &&
@@ -5728,7 +5773,7 @@ function BoardEditor() {
                       ref={polygonGuide}
                       d={"M " + x + " " + y}
                       fill="none"
-                      stroke={fill}
+                      stroke={creationColor("polygon")}
                       strokeWidth={2}
                     />
                   );
@@ -5824,8 +5869,7 @@ function BoardEditor() {
                 clientY: e.clientY,
               };
               e.currentTarget.setPointerCapture(e.pointerId);
-              setQuick(null);
-            }}
+                  }}
             onPointerMove={(e) => {
               const start = drawing.current;
               if (start && tool === "ink") {
@@ -6324,9 +6368,9 @@ function BoardEditor() {
               background:
                 tool === "text"
                   ? "transparent"
-                  : tool === "sticky"
-                    ? palette[3]
-                    : fill,
+                  : tool === "symbols" || tool === "polygon" || tool === "diamond"
+                    ? "transparent"
+                    : creationColor(tool as ShapeKind),
             }}
           >
             {tool === "symbols" &&
@@ -6337,7 +6381,7 @@ function BoardEditor() {
                   alt=""
                 />
               ) : (
-                <SymbolArt name={symbol} stroke="var(--lm-ink)" fill="none" />
+                <SymbolArt name={symbol} stroke={creationColor("symbol")} fill="none" />
               ))}
             {(tool === "polygon" || tool === "diamond") && (
               <svg viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -6353,7 +6397,7 @@ function BoardEditor() {
                       : (polygonTemplate ?? preferences.recent),
                     0,
                   )}
-                  fill={fill}
+                  fill={creationColor(tool as ShapeKind)}
                   stroke="var(--lm-accent)"
                   vectorEffect="non-scaling-stroke"
                 />
@@ -7648,27 +7692,6 @@ function BoardEditor() {
             )}
           </StoredPanel>
         )}
-      {quick && (
-        <div
-          className="lm-quick"
-          style={{
-            left: Math.min(quick.x, window.innerWidth - 220),
-            top: Math.min(quick.y, window.innerHeight - 320),
-          }}
-        >
-          {tools
-            .filter((t) => !["select", "hand", "connect"].includes(t.id))
-            .map(({ id, label, Icon }) => (
-              <button
-                key={id}
-                onClick={() => add(id as ShapeKind, quick.x, quick.y)}
-              >
-                <Icon size={17} />
-                {label.replace(/ \(.*\)/, "")}
-              </button>
-            ))}
-        </div>
-      )}
       {removeTool && (
         <div
           className="lm-pin-form lm-remove-tool"
@@ -7763,13 +7786,18 @@ function BoardEditor() {
             <Redo2 size={18} />
           </button>
         </div>
-        {(toolMenu || tool === "connect" || tool === "ink") && (
+        {!optionsDismissed && (toolMenu || tool === "connect" || tool === "ink" ||
+          ["rectangle","rounded","circle","ellipse","diamond","sticky","text","folder","polygon","symbols"].includes(tool)) && (
           <div
             className={
               "lm-tool-options" +
               (["ink", "eraser"].includes(tool) ? " lm-pen-panel" : "")
             }
           >
+            {["rectangle","rounded","circle","ellipse","diamond","sticky","text","folder","polygon","symbols"].includes(tool) &&
+              <ColorSwatches name="Farbe für neues Element" value={creationColor(tool==="symbols"?"symbol":tool as ShapeKind)}
+                presets={tool==="text" || tool==="symbols" ? ["#29352f",...palette.slice(0,5)] : palette}
+                onChange={event=>setCreationColors(colors=>({...colors,[tool]:event.target.value}))}/>}
             {tool === "connect" && !selectedEdges.length && (
               <>
                 <span className="line-options" role="group" aria-label="Form">

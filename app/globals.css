@@ -8421,3 +8421,10 @@ body:has(.task-detail-backdrop:not(.is-closing)) .journal-layer .notebook-journa
 .notebook-row-divider { border-bottom:1px solid color-mix(in srgb,var(--line) 75%,transparent); }
 .notebook-row-scope { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .notebook-row-scope button[aria-pressed="true"] { color:var(--green); border-color:var(--green); }
+.quick-tooltip {
+  position:fixed; z-index:3000; transform:translateX(-50%); pointer-events:none;
+  width:max-content; max-width:min(244px, calc(100vw - 16px)); padding:5px 8px;
+  border-radius:5px; background:#28354f; color:#fff; box-shadow:0 2px 8px #161d2a33;
+  font-size:11px; line-height:1.35; white-space:pre-line; overflow-wrap:anywhere;
+}
+.quick-tooltip[data-above="true"] { transform:translate(-50%,-100%); }
